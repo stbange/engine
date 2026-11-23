@@ -658,6 +658,7 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
                                     const eng_mat4_t *view, const eng_mat4_t *proj,
                                     eng_vec3_t cam_pos, const int vp_rect[4],
                                     const int scissor_rect[4], int depth,
+                                    eng_entity_t entered_dst_ent,
                                     const eng_mat4_t *root_light_vp, bool root_has_shadow) {
     const eng_gl_api_t *gl = eng_gl();
     eng_mat4_t vp = eng_mat4_mul(proj, view);
@@ -742,7 +743,7 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
     size_t pcount = eng_portal_count(portals);
     for (size_t i = 0; i < pcount; i++) {
         const eng_portal_t *p = eng_portal_get(portals, i);
-        if (!p || p->src_pocket != pocket_id) continue;
+        if (!p || p->src_pocket != pocket_id || p->src_ent == entered_dst_ent) continue;
 
         int local_sc[4];
         if (!eng_portal_screen_scissor(scene, p, &vp, vp_rect[2], vp_rect[3], local_sc)) continue;
@@ -799,7 +800,7 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
         r->stats.portal_views++;
         eng_vec3_t virt_cam_pos = eng_mat4_transform_point(&warp, cam_pos);
         render_pocket_recursive(r, scene, portals, p->dst_pocket, &virt_view, &oblique_proj,
-                                virt_cam_pos, vp_rect, child_sc, depth + 1, root_light_vp, false);
+                                virt_cam_pos, vp_rect, child_sc, depth + 1, p->dst_ent, root_light_vp, false);
 
         /* 4. Restore stencil (depth + 1 -> depth) and seal doorway depth in parent pocket */
         gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
@@ -883,7 +884,7 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
         }
 
         render_pocket_recursive(r, scene, portals, cam->pocket_id, &view, &proj,
-                                eye_pos, vp_rect, vp_rect, 0, &light_vp, has_shadow);
+                                eye_pos, vp_rect, vp_rect, 0, ENG_ENTITY_NULL, &light_vp, has_shadow);
     }
 
     /* Post-Processing: Dual-Kawase Bloom + ACES Tonemap + Bayer Dither + CRT */

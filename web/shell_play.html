@@ -35,7 +35,7 @@
 <body>
   <div id="topbar">
     <div>
-      <a href="index.html">&larr; All 100 Games</a>
+      <a href="index.html">&larr; All Games</a>
       <span id="game-title" style="margin-left:10px;color:#e6edf3;font-weight:700;">Loading...</span>
     </div>
     <div class="controls">
@@ -74,6 +74,7 @@
     if (isMobile) touchHud.classList.add('visible');
     document.getElementById('btn-touch').onclick = () => touchHud.classList.toggle('visible');
     document.getElementById('btn-fs').onclick = () => document.getElementById('canvas').requestFullscreen?.();
+    window.addEventListener('keydown', (e) => { if (e.key === 'Tab') e.preventDefault(); });
 
     function ensureDir(FS, filePath) {
       const parts = filePath.split('/').slice(0, -1);

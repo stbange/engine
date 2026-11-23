@@ -5,6 +5,15 @@ All notable changes to **Engine (`stbange/engine`)** are documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the `eng.*` Lua API, or `schemas/*.schema.json`, see [UPGRADING.md](UPGRADING.md) for automated coding-agent migration instructions.
 
+## [0.2.0] - 2026-11-23
+
+### Added
+- **Steerable Walkable Moving Vehicles (`openspec/specs/12-walkable-vehicles/spec.md`, `eng_portal`, `eng_physics`, `eng.space`)**:
+  - Moving-portal kinematic tracking (`eng_portal_step_kinematics`, `eng_portal_set_velocity`, `eng.portal.sync_kinematics`) and Galilean relative frame velocity transfer (`eng_portal_transform_velocity`, `eng.portal.transform_vel`, `eng.portal.check_crossing` velocity returns) so exiting a moving/rotating vehicle preserves world momentum and advancing vehicle ramps scoop stationary external entities cleanly.
+  - One-call multi-window, multi-station steerable vehicle builder (`eng.space.create_steerable_vehicle`) creating an isolated walkable interior pocket, passable boarding hatch, non-passable panoramic cockpit windshield & side window stencil portals, multi-crew stations, persistent cruise steering, and clamped inertial deck sway (`inertial_sway`, `step_bob_amp`).
+  - Default 3-player local split-keyboard action bindings (`p1_*` `WASD+E`, `p2_*` `IJKL+U`, `p3_*` `Arrows+Return`, `switch_crew` `Tab`, `toggle_cam` `C`).
+  - **Game `101` (`games/101_giant_cleaner_mech`)**: *Titan Janitor: 3-Crew Cleaning Mech* — three players simultaneously steering, walking, operating Vacuum/Scrubber/Recycler stations, and performing Galilean EVA ramp exits & moving-ramp re-boarding inside a giant 14m bipedal cleaning robot.
+
 ## [0.1.0] - 2026-11-23
 
 ### Added

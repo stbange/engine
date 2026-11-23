@@ -44,11 +44,11 @@ jobs:
           xvfb-run -a ctest --test-dir build-cov --output-on-failure
           python3 tests/check_coverage.py build-cov
 
-      - name: Run All 100 Automated Headless Game Audits & Playtests
+      - name: Run All 101 Automated Headless Game Audits & Playtests
         run: |
           cmake -B build-rel -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-rel -j
-          python3 tests/run_all_games.py ./build-rel/engine --expect-count 100
+          python3 tests/run_all_games.py ./build-rel/engine --expect-count 101
 
   cross-platform-build:
     name: Build (${{ matrix.os }})

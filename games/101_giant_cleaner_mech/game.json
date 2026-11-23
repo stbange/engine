@@ -1,0 +1,22 @@
+{
+  "id": "101_giant_cleaner_mech",
+  "title": "Titan Janitor: 3-Crew Cleaning Mech",
+  "description": "Three-player cooperative steerable giant bipedal cleaning robot with walkable interior bridge, stencil visor & side windows, Galilean boarding ramp, and multi-station city cleanup.",
+  "genre": "coop_vehicle_sim",
+  "flagship": true,
+  "primitives": ["mesh", "particles", "sdf_text"],
+  "engine_version": "0.2.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

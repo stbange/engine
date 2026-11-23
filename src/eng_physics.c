@@ -515,17 +515,12 @@ static void resolve_impulse(body_slot_t *sa, body_slot_t *sb, eng_vec3_t n, floa
     }
 }
 
-static void warp_body_across_portal(body_slot_t *s, const eng_scene_t *scene, const eng_portal_t *p, eng_vec3_t warped_pos) {
+static void warp_body_across_portal(body_slot_t *s, const eng_portal_sys_t *portals, const eng_scene_t *scene,
+                                    const eng_portal_t *p, eng_vec3_t prev_pos, eng_vec3_t warped_pos) {
     eng_mat4_t warp;
     if (!eng_portal_warp_matrix(scene, p, &warp)) return;
+    s->b.vel = eng_portal_transform_velocity(portals, scene, p, prev_pos, s->b.vel);
     s->b.pos = warped_pos;
-    /* Transform linear velocity by upper 3x3 of warp (includes rotation + scale_ratio) */
-    eng_vec3_t v = s->b.vel;
-    s->b.vel = eng_v3(
-        warp.m[0] * v.x + warp.m[4] * v.y + warp.m[8]  * v.z,
-        warp.m[1] * v.x + warp.m[5] * v.y + warp.m[9]  * v.z,
-        warp.m[2] * v.x + warp.m[6] * v.y + warp.m[10] * v.z
-    );
     s->b.radius *= p->scale_ratio;
     s->b.half_height *= p->scale_ratio;
     s->b.half_extents = eng_v3_scale(s->b.half_extents, p->scale_ratio);
@@ -571,7 +566,7 @@ void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,
         if (s->b.motion != ENG_BODY_STATIC && portals && scene) {
             eng_vec3_t warped;
             const eng_portal_t *crossed = eng_portal_check_crossing(portals, scene, s->b.pocket_id, prev_pos, s->b.pos, &warped);
-            if (crossed) warp_body_across_portal(s, scene, crossed, warped);
+            if (crossed) warp_body_across_portal(s, portals, scene, crossed, prev_pos, warped);
         }
         s->world_aabb = compute_body_aabb(&s->b);
     }
@@ -717,7 +712,7 @@ bool eng_physics_move_character(eng_physics_t *phys, const eng_scene_t *scene,
         eng_vec3_t warped;
         const eng_portal_t *crossed = eng_portal_check_crossing(portals, scene, ch->b.pocket_id, prev_pos, ch->b.pos, &warped);
         if (crossed) {
-            warp_body_across_portal(ch, scene, crossed, warped);
+            warp_body_across_portal(ch, portals, scene, crossed, prev_pos, warped);
             ch->world_aabb = compute_body_aabb(&ch->b);
         }
     }

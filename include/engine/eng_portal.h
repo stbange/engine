@@ -37,6 +37,18 @@ int eng_portal_link(eng_portal_sys_t *sys, eng_scene_t *scene,
 size_t eng_portal_count(const eng_portal_sys_t *sys);
 const eng_portal_t *eng_portal_get(const eng_portal_sys_t *sys, size_t index);
 
+/* Track moving-vehicle portal world transforms & derive linear/angular frame velocities. */
+void eng_portal_step_kinematics(eng_portal_sys_t *sys, const eng_scene_t *scene, float dt);
+
+/* Explicitly override world linear & angular velocity of portal[index]'s src & dst frames. */
+bool eng_portal_set_velocity(eng_portal_sys_t *sys, size_t index,
+                             eng_vec3_t src_lin_vel, eng_vec3_t src_ang_vel,
+                             eng_vec3_t dst_lin_vel, eng_vec3_t dst_ang_vel);
+
+/* Transform world velocity across a (potentially moving/rotating) portal with Galilean relative momentum. */
+eng_vec3_t eng_portal_transform_velocity(const eng_portal_sys_t *sys, const eng_scene_t *scene,
+                                         const eng_portal_t *p, eng_vec3_t src_world_pos, eng_vec3_t src_world_vel);
+
 /* Compute M_portal = M_dst * Scale(ratio) * RotY(PI) * inv(M_src) */
 bool eng_portal_warp_matrix(const eng_scene_t *scene, const eng_portal_t *p, eng_mat4_t *out_warp);
 
@@ -52,7 +64,7 @@ eng_mat4_t eng_portal_oblique_proj(const eng_mat4_t *proj, eng_vec4_t clip_plane
 bool eng_portal_screen_scissor(const eng_scene_t *scene, const eng_portal_t *p,
                                const eng_mat4_t *vp, int vp_w, int vp_h, int out_rect[4]);
 
-/* Check if a point moved from prev_pos to curr_pos across an open passable portal in active_pocket. */
+/* Check if a point moved from prev_pos to curr_pos (or was swept by a moving portal) in active_pocket. */
 const eng_portal_t *eng_portal_check_crossing(const eng_portal_sys_t *sys, const eng_scene_t *scene,
                                               uint16_t active_pocket, eng_vec3_t prev_pos, eng_vec3_t curr_pos,
                                               eng_vec3_t *out_warped_pos);

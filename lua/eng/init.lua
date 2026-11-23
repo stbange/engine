@@ -4,7 +4,7 @@
 local bit = require("bit")
 
 local M = {
-    version = "0.1.0",
+    version = "0.2.0",
     coords = { right = "+X", up = "+Y", forward = "-Z", unit = "meter" },
 }
 

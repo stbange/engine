@@ -160,8 +160,14 @@ eng.portal = {}
 --- Link portals across pockets
 function eng.portal.link(src_ent: number, dst_ent: number, w: number, h: number, scale_ratio?: number, passable?: boolean, bidir?: boolean): integer end
 
---- Test threshold crossing
-function eng.portal.check_crossing(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): integer|nil, number, number, number end
+--- Test moving-portal threshold crossing and Galilean velocity warp
+function eng.portal.check_crossing(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, vx?: number, vy?: number, vz?: number): integer|nil, number, number, number, number, number, number end
+
+--- Step moving-vehicle portal world transforms and frame velocities
+function eng.portal.sync_kinematics(dt: number) end
+
+--- Transform velocity across moving/rotating portal
+function eng.portal.transform_vel(portal_idx: integer, x: number, y: number, z: number, vx: number, vy: number, vz: number): number, number, number end
 
 --- Split wall collider around doorway
 function eng.portal.cut_doorway(wall_w: number, wall_h: number, thick: number, door_w: number, door_h: number): table end

@@ -111,6 +111,9 @@ bool eng_version_check(const char *required_version) {
     if (req_major != ENG_VERSION_MAJOR) {
         return false;
     }
+    if (req_minor < ENG_VERSION_MINOR) {
+        return true;
+    }
     return req_minor == ENG_VERSION_MINOR && req_patch <= ENG_VERSION_PATCH;
 }
 

@@ -28,10 +28,11 @@ Never recompile C to build a standard game. Every game lives in its own external
 ## 3. "Bigger on the Inside" Pocket Spaces (`eng.space.*` & `eng.portal.*`)
 - **Never** fake oversized interiors by placing rooms at `[10000, -5000, 0]`. Instead, assign interior entities to a named **pocket space** (`pocket = "cabin_inside"`) centered cleanly around local `(0, 0, 0)`.
 - Use **one-call helpers**:
-  - `eng.space.create_pocket_building({ exterior_pos=..., exterior_size={3,3,3}, interior_size={24,10,30}, door_size={1.2,2.2}, pocket="hut_in" })`
-  - `eng.space.attach_vehicle_interior(vehicle_ent, { interior_size=..., door_local_pos=..., pocket="ship_deck" })`
+  - `eng.space.create_pocket_building(eng, { exterior_pos=..., exterior_size={3,3,3}, interior_size={24,10,30}, door_size={1.2,2.2}, pocket="hut_in" })`
+  - `eng.space.attach_vehicle_interior(eng, vehicle_ent, { interior_size=..., door_local_pos=..., pocket="ship_deck" })`
+  - `eng.space.create_steerable_vehicle(eng, vehicle_ent, { pocket="mech_bridge", interior_size={16,5.5,18}, windshield_local_pos=..., side_windows=true, stations={...}, inertial_sway=0.2, step_bob_amp=0.14 })` for multi-crew steerable vehicles with live stencil cockpit windows, persistent cruise steering, Galilean ramp exits, and moving-ramp scoop boarding!
   - `eng.space.cut_wall_with_door(...)` when building custom doorways so solid wall colliders never block portal apertures!
-- Raycasts, 3D audio, rigid bodies, player movement, Stereo WebXR views, and NavMesh A* automatically traverse linked portals.
+- Raycasts, 3D audio, rigid bodies, Galilean relative velocity, player movement, Stereo WebXR views, and NavMesh A* automatically traverse linked portals.
 
 ## 4. Deterministic Procedural Generation (`eng.procgen.*`)
 Always pass explicit integer seeds derived from run/level seeds (never use `math.random` or `os.time` directly in gameplay logic):

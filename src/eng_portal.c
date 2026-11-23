@@ -6,8 +6,22 @@
 
 #define ENG_MAX_PORTALS 128
 
+typedef struct {
+    bool has_prev;
+    bool manual_vel;
+    eng_mat4_t prev_src;
+    eng_mat4_t curr_src;
+    eng_mat4_t prev_dst;
+    eng_mat4_t curr_dst;
+    eng_vec3_t src_lin_vel;
+    eng_vec3_t src_ang_vel;
+    eng_vec3_t dst_lin_vel;
+    eng_vec3_t dst_ang_vel;
+} eng_portal_kin_t;
+
 struct eng_portal_sys_s {
     eng_portal_t portals[ENG_MAX_PORTALS];
+    eng_portal_kin_t kin[ENG_MAX_PORTALS];
     size_t count;
 };
 
@@ -33,6 +47,16 @@ static int add_one_portal(eng_portal_sys_t *sys, const eng_scene_t *scene,
     p->half_h = hh;
     p->scale_ratio = ratio;
     p->passable = passable;
+
+    const eng_mat4_t *ms = eng_scene_get_world_matrix(scene, src);
+    const eng_mat4_t *md = eng_scene_get_world_matrix(scene, dst);
+    if (ms && md) {
+        sys->kin[idx].prev_src = *ms;
+        sys->kin[idx].curr_src = *ms;
+        sys->kin[idx].prev_dst = *md;
+        sys->kin[idx].curr_dst = *md;
+        sys->kin[idx].has_prev = true;
+    }
     return idx;
 }
 
@@ -45,6 +69,7 @@ int eng_portal_link(eng_portal_sys_t *sys, eng_scene_t *scene,
         !eng_ecs_alive(eng_scene_ecs(scene), dst_ent)) {
         return -1;
     }
+    eng_scene_update_transforms(scene);
     int first = add_one_portal(sys, scene, src_ent, dst_ent, width * 0.5f, height * 0.5f, scale_ratio, passable);
     if (first >= 0 && bidirectional) {
         add_one_portal(sys, scene, dst_ent, src_ent,
@@ -58,6 +83,105 @@ size_t eng_portal_count(const eng_portal_sys_t *sys) { return sys ? sys->count :
 
 const eng_portal_t *eng_portal_get(const eng_portal_sys_t *sys, size_t index) {
     return (sys && index < sys->count) ? &sys->portals[index] : NULL;
+}
+
+static void derive_mat_vel(const eng_mat4_t *m0, const eng_mat4_t *m1, float dt,
+                           eng_vec3_t *out_lin, eng_vec3_t *out_ang) {
+    if (dt <= 1e-5f) {
+        *out_lin = eng_v3(0.0f, 0.0f, 0.0f);
+        *out_ang = eng_v3(0.0f, 0.0f, 0.0f);
+        return;
+    }
+    float inv_dt = 1.0f / dt;
+    eng_vec3_t p0 = eng_v3(m0->m[12], m0->m[13], m0->m[14]);
+    eng_vec3_t p1 = eng_v3(m1->m[12], m1->m[13], m1->m[14]);
+    *out_lin = eng_v3_scale(eng_v3_sub(p1, p0), inv_dt);
+
+    eng_vec3_t u0 = eng_v3_norm(eng_v3(m0->m[0], m0->m[1], m0->m[2]));
+    eng_vec3_t v0 = eng_v3_norm(eng_v3(m0->m[4], m0->m[5], m0->m[6]));
+    eng_vec3_t w0 = eng_v3_norm(eng_v3(m0->m[8], m0->m[9], m0->m[10]));
+    eng_vec3_t u1 = eng_v3_norm(eng_v3(m1->m[0], m1->m[1], m1->m[2]));
+    eng_vec3_t v1 = eng_v3_norm(eng_v3(m1->m[4], m1->m[5], m1->m[6]));
+    eng_vec3_t w1 = eng_v3_norm(eng_v3(m1->m[8], m1->m[9], m1->m[10]));
+    eng_vec3_t sum_cross = eng_v3_add(eng_v3_cross(u0, u1), eng_v3_add(eng_v3_cross(v0, v1), eng_v3_cross(w0, w1)));
+    *out_ang = eng_v3_scale(sum_cross, 0.5f * inv_dt);
+}
+
+void eng_portal_step_kinematics(eng_portal_sys_t *sys, const eng_scene_t *scene, float dt) {
+    if (!sys || !scene) return;
+    for (size_t i = 0; i < sys->count; i++) {
+        const eng_portal_t *p = &sys->portals[i];
+        eng_portal_kin_t *k = &sys->kin[i];
+        const eng_mat4_t *ms = eng_scene_get_world_matrix(scene, p->src_ent);
+        const eng_mat4_t *md = eng_scene_get_world_matrix(scene, p->dst_ent);
+        if (!ms || !md) continue;
+
+        if (!k->has_prev || dt <= 0.0f) {
+            k->prev_src = *ms;
+            k->curr_src = *ms;
+            k->prev_dst = *md;
+            k->curr_dst = *md;
+            if (!k->manual_vel) {
+                k->src_lin_vel = eng_v3(0, 0, 0);
+                k->src_ang_vel = eng_v3(0, 0, 0);
+                k->dst_lin_vel = eng_v3(0, 0, 0);
+                k->dst_ang_vel = eng_v3(0, 0, 0);
+            }
+            k->has_prev = true;
+            continue;
+        }
+
+        k->prev_src = k->curr_src;
+        k->curr_src = *ms;
+        k->prev_dst = k->curr_dst;
+        k->curr_dst = *md;
+        if (!k->manual_vel) {
+            derive_mat_vel(&k->prev_src, &k->curr_src, dt, &k->src_lin_vel, &k->src_ang_vel);
+            derive_mat_vel(&k->prev_dst, &k->curr_dst, dt, &k->dst_lin_vel, &k->dst_ang_vel);
+        }
+    }
+}
+
+bool eng_portal_set_velocity(eng_portal_sys_t *sys, size_t index,
+                             eng_vec3_t src_lin_vel, eng_vec3_t src_ang_vel,
+                             eng_vec3_t dst_lin_vel, eng_vec3_t dst_ang_vel) {
+    if (!sys || index >= sys->count) return false;
+    eng_portal_kin_t *k = &sys->kin[index];
+    k->manual_vel = true;
+    k->src_lin_vel = src_lin_vel;
+    k->src_ang_vel = src_ang_vel;
+    k->dst_lin_vel = dst_lin_vel;
+    k->dst_ang_vel = dst_ang_vel;
+    return true;
+}
+
+eng_vec3_t eng_portal_transform_velocity(const eng_portal_sys_t *sys, const eng_scene_t *scene,
+                                         const eng_portal_t *p, eng_vec3_t src_world_pos, eng_vec3_t src_world_vel) {
+    eng_mat4_t warp;
+    if (!scene || !p || !eng_portal_warp_matrix(scene, p, &warp)) return src_world_vel;
+    const eng_mat4_t *m_src = eng_scene_get_world_matrix(scene, p->src_ent);
+    const eng_mat4_t *m_dst = eng_scene_get_world_matrix(scene, p->dst_ent);
+
+    eng_vec3_t v_src_frame = eng_v3(0, 0, 0);
+    eng_vec3_t v_dst_frame = eng_v3(0, 0, 0);
+    if (sys && p >= sys->portals && p < sys->portals + sys->count && m_src && m_dst) {
+        size_t idx = (size_t)(p - sys->portals);
+        const eng_portal_kin_t *k = &sys->kin[idx];
+        eng_vec3_t r_src = eng_v3_sub(src_world_pos, eng_v3(m_src->m[12], m_src->m[13], m_src->m[14]));
+        v_src_frame = eng_v3_add(k->src_lin_vel, eng_v3_cross(k->src_ang_vel, r_src));
+
+        eng_vec3_t dst_world_pos = eng_mat4_transform_point(&warp, src_world_pos);
+        eng_vec3_t r_dst = eng_v3_sub(dst_world_pos, eng_v3(m_dst->m[12], m_dst->m[13], m_dst->m[14]));
+        v_dst_frame = eng_v3_add(k->dst_lin_vel, eng_v3_cross(k->dst_ang_vel, r_dst));
+    }
+
+    eng_vec3_t v_rel = eng_v3_sub(src_world_vel, v_src_frame);
+    eng_vec3_t v_rot = eng_v3(
+        warp.m[0] * v_rel.x + warp.m[4] * v_rel.y + warp.m[8]  * v_rel.z,
+        warp.m[1] * v_rel.x + warp.m[5] * v_rel.y + warp.m[9]  * v_rel.z,
+        warp.m[2] * v_rel.x + warp.m[6] * v_rel.y + warp.m[10] * v_rel.z
+    );
+    return eng_v3_add(v_rot, v_dst_frame);
 }
 
 bool eng_portal_warp_matrix(const eng_scene_t *scene, const eng_portal_t *p, eng_mat4_t *out_warp) {
@@ -113,12 +237,10 @@ bool eng_portal_virtual_camera(const eng_scene_t *scene, const eng_portal_t *p,
     virt_cam_world = eng_mat4_mul(&warp, &cam_world);
     if (!eng_mat4_invert(&virt_cam_world, out_virt_view)) return false;
 
-    /* Destination portal plane in world space: point = dst_pos, normal = dst_forward (-Z column negated = +Z into room) */
     const eng_mat4_t *m_dst = eng_scene_get_world_matrix(scene, p->dst_ent);
     eng_vec3_t dst_pos = eng_v3(m_dst->m[12], m_dst->m[13], m_dst->m[14]);
     eng_vec3_t dst_n = eng_v3_norm(eng_v3(-m_dst->m[8], -m_dst->m[9], -m_dst->m[10]));
 
-    /* Transform plane into virtual camera view space */
     const float *v = out_virt_view->m;
     eng_vec3_t vn = eng_v3(
         v[0] * dst_n.x + v[4] * dst_n.y + v[8]  * dst_n.z,
@@ -167,7 +289,6 @@ bool eng_portal_screen_scissor(const eng_scene_t *scene, const eng_portal_t *p,
     }
     if (!any_front) return false;
     if (any_behind_near) {
-        /* Camera straddles doorway near-plane: expand scissor to full viewport to prevent clipping flash */
         out_rect[0] = 0; out_rect[1] = 0; out_rect[2] = vp_w; out_rect[3] = vp_h;
         return true;
     }
@@ -196,12 +317,15 @@ const eng_portal_t *eng_portal_check_crossing(const eng_portal_sys_t *sys, const
     for (size_t i = 0; i < sys->count; i++) {
         const eng_portal_t *p = &sys->portals[i];
         if (!p->passable || p->src_pocket != active_pocket) continue;
-        const eng_mat4_t *m_src = eng_scene_get_world_matrix(scene, p->src_ent);
-        eng_mat4_t inv_src;
-        if (!m_src || !eng_mat4_invert(m_src, &inv_src)) continue;
+        const eng_mat4_t *m_curr = eng_scene_get_world_matrix(scene, p->src_ent);
+        const eng_mat4_t *m_prev = sys->kin[i].has_prev ? &sys->kin[i].prev_src : m_curr;
+        eng_mat4_t inv_prev, inv_curr;
+        if (!m_curr || !m_prev || !eng_mat4_invert(m_prev, &inv_prev) || !eng_mat4_invert(m_curr, &inv_curr)) continue;
 
-        eng_vec3_t lp0 = eng_mat4_transform_point(&inv_src, prev_pos);
-        eng_vec3_t lp1 = eng_mat4_transform_point(&inv_src, curr_pos);
+        /* Evaluate prev_pos in previous portal frame and curr_pos in current portal frame
+         * so a moving vehicle ramp sweeping across a stationary player/body triggers cleanly! */
+        eng_vec3_t lp0 = eng_mat4_transform_point(&inv_prev, prev_pos);
+        eng_vec3_t lp1 = eng_mat4_transform_point(&inv_curr, curr_pos);
         if (lp0.z > 0.0f && lp1.z <= 0.0f) {
             float dz = lp0.z - lp1.z;
             float t = (dz > ENG_EPSILON) ? (lp0.z / dz) : 0.0f;

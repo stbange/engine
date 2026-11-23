@@ -93,6 +93,7 @@ struct eng_runtime_s {
     int mod_hooks_ref;
     int watchdog_left;
 
+    bool kinematics_synced;
     bool cov_enabled;
     lua_cov_file_t cov_files[16];
     size_t cov_file_count;
@@ -593,15 +594,35 @@ static int l_portal_check_crossing(lua_State *L) {
     uint16_t pk = (uint16_t)luaL_checkinteger(L, 1);
     eng_vec3_t p0 = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
     eng_vec3_t p1 = eng_v3(chk_f(L, 5), chk_f(L, 6), chk_f(L, 7));
+    eng_vec3_t v0 = eng_v3(opt_f(L, 8, 0.0f), opt_f(L, 9, 0.0f), opt_f(L, 10, 0.0f));
     eng_vec3_t warped;
     const eng_portal_t *crossed = eng_portal_check_crossing(rt->portals, rt->scene, pk, p0, p1, &warped);
     if (!crossed) {
         lua_pushnil(L);
         return 1;
     }
+    eng_vec3_t wvel = eng_portal_transform_velocity(rt->portals, rt->scene, crossed, p0, v0);
     lua_pushinteger(L, crossed->dst_pocket);
     lua_pushnumber(L, warped.x); lua_pushnumber(L, warped.y); lua_pushnumber(L, warped.z);
-    return 4;
+    lua_pushnumber(L, wvel.x); lua_pushnumber(L, wvel.y); lua_pushnumber(L, wvel.z);
+    return 7;
+}
+static int l_portal_sync_kinematics(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_scene_update_transforms(rt->scene);
+    eng_portal_step_kinematics(rt->portals, rt->scene, chk_f(L, 1));
+    rt->kinematics_synced = true;
+    return 0;
+}
+static int l_portal_transform_vel(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_scene_update_transforms(rt->scene);
+    const eng_portal_t *p = eng_portal_get(rt->portals, (size_t)luaL_checkinteger(L, 1));
+    eng_vec3_t pos = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+    eng_vec3_t vel = eng_v3(chk_f(L, 5), chk_f(L, 6), chk_f(L, 7));
+    eng_vec3_t out = p ? eng_portal_transform_velocity(rt->portals, rt->scene, p, pos, vel) : vel;
+    lua_pushnumber(L, out.x); lua_pushnumber(L, out.y); lua_pushnumber(L, out.z);
+    return 3;
 }
 static int l_portal_cut_doorway(lua_State *L) {
     eng_aabb_t boxes[3];
@@ -1234,7 +1255,9 @@ static const lua_fn_desc_t k_api_table[] = {
     {"asset",     "load_mesh",        l_asset_load_mesh,       "(vpath: string): integer", "Load .gltf/.glb/.obj mesh from VFS"},
     {"asset",     "load_texture",     l_asset_load_tex,        "(vpath: string, nearest?: boolean): integer", "Load PNG/JPG texture from VFS"},
     {"portal",    "link",             l_portal_link,           "(src_ent: number, dst_ent: number, w: number, h: number, scale_ratio?: number, passable?: boolean, bidir?: boolean): integer", "Link portals across pockets"},
-    {"portal",    "check_crossing",   l_portal_check_crossing, "(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): integer|nil, number, number, number", "Test threshold crossing"},
+    {"portal",    "check_crossing",   l_portal_check_crossing, "(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, vx?: number, vy?: number, vz?: number): integer|nil, number, number, number, number, number, number", "Test moving-portal threshold crossing and Galilean velocity warp"},
+    {"portal",    "sync_kinematics",  l_portal_sync_kinematics,"(dt: number)", "Step moving-vehicle portal world transforms and frame velocities"},
+    {"portal",    "transform_vel",    l_portal_transform_vel,  "(portal_idx: integer, x: number, y: number, z: number, vx: number, vy: number, vz: number): number, number, number", "Transform velocity across moving/rotating portal"},
     {"portal",    "cut_doorway",      l_portal_cut_doorway,    "(wall_w: number, wall_h: number, thick: number, door_w: number, door_h: number): table", "Split wall collider around doorway"},
     {"physics",   "set_gravity",      l_phys_set_grav,         "(pocket: integer, gx: number, gy: number, gz: number)", "Set linear pocket gravity"},
     {"physics",   "set_planet_gravity", l_phys_planet_grav,    "(pocket: integer, cx: number, cy: number, cz: number, g?: number, seed?: integer, radius?: number)", "Enable radial spherical planet gravity"},
@@ -1474,6 +1497,24 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     eng_input_bind_key(rt->input, "fire", SDL_SCANCODE_RETURN);
     eng_input_bind_key(rt->input, "interact", SDL_SCANCODE_E);
     eng_input_bind_mouse_button(rt->input, "fire", 1);
+    /* Local 3-player cooperative keyboard bindings (WASD+E, IJKL+U, Arrows+Return) + Tab/C */
+    eng_input_bind_key(rt->input, "p1_up", SDL_SCANCODE_W);
+    eng_input_bind_key(rt->input, "p1_down", SDL_SCANCODE_S);
+    eng_input_bind_key(rt->input, "p1_left", SDL_SCANCODE_A);
+    eng_input_bind_key(rt->input, "p1_right", SDL_SCANCODE_D);
+    eng_input_bind_key(rt->input, "p1_act", SDL_SCANCODE_E);
+    eng_input_bind_key(rt->input, "p2_up", SDL_SCANCODE_I);
+    eng_input_bind_key(rt->input, "p2_down", SDL_SCANCODE_K);
+    eng_input_bind_key(rt->input, "p2_left", SDL_SCANCODE_J);
+    eng_input_bind_key(rt->input, "p2_right", SDL_SCANCODE_L);
+    eng_input_bind_key(rt->input, "p2_act", SDL_SCANCODE_U);
+    eng_input_bind_key(rt->input, "p3_up", SDL_SCANCODE_UP);
+    eng_input_bind_key(rt->input, "p3_down", SDL_SCANCODE_DOWN);
+    eng_input_bind_key(rt->input, "p3_left", SDL_SCANCODE_LEFT);
+    eng_input_bind_key(rt->input, "p3_right", SDL_SCANCODE_RIGHT);
+    eng_input_bind_key(rt->input, "p3_act", SDL_SCANCODE_RETURN);
+    eng_input_bind_key(rt->input, "switch_crew", SDL_SCANCODE_TAB);
+    eng_input_bind_key(rt->input, "toggle_cam", SDL_SCANCODE_C);
     rt->xr = eng_xr_create();
     rt->assets = eng_asset_cache_create(rt->vfs);
     rt->renderer = eng_renderer_create(rt->vfs, rt->assets, pcfg.width, pcfg.height);
@@ -1742,11 +1783,13 @@ bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
 
     if (!call_sandbox_fn(rt, "init", 0, 0.0f, err_buf, err_cap)) return false;
     eng_scene_update_transforms(rt->scene);
+    eng_portal_step_kinematics(rt->portals, rt->scene, 0.0f);
     return true;
 }
 
 bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap) {
     if (!rt) return false;
+    rt->kinematics_synced = false;
     eng_vfs_poll_reloads(rt->vfs);
 
     /* Step coroutine scheduler eng.async.step_all(dt) */
@@ -1766,6 +1809,9 @@ bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap
     if (!call_sandbox_fn(rt, "update", 1, dt, err_buf, err_cap)) return false;
 
     eng_scene_update_transforms(rt->scene);
+    if (!rt->kinematics_synced) {
+        eng_portal_step_kinematics(rt->portals, rt->scene, dt);
+    }
     eng_physics_step(rt->physics, rt->scene, rt->portals, dt);
 
     /* Sync physics poses back to scene entities */

@@ -289,10 +289,74 @@ static void test_cross_portal_physics_raycast_and_planet_gravity(void) {
     eng_scene_destroy(sc);
 }
 
+static void test_moving_vehicle_portal_kinematics_and_galilean_velocity(void) {
+    eng_scene_t *sc = eng_scene_create(64);
+    uint16_t p_world = eng_scene_register_pocket(sc, "world");
+    uint16_t p_bridge = eng_scene_register_pocket(sc, "bridge");
+
+    eng_entity_t veh = eng_scene_spawn(sc, "mech_hull");
+    eng_scene_set_pocket(sc, veh, p_world);
+    eng_scene_set_local_pos(sc, veh, eng_v3(0.0f, 0.0f, 0.0f));
+
+    /* Front-facing scoop hatch on vehicle (rot_y = 180 -> local +Z points along world -Z) */
+    eng_entity_t h_ext = eng_scene_spawn(sc, "scoop_ext");
+    eng_scene_set_pocket(sc, h_ext, p_world);
+    eng_scene_set_parent(sc, h_ext, veh);
+    eng_scene_set_local_pos(sc, h_ext, eng_v3(0.0f, 1.0f, 0.0f));
+    eng_scene_set_local_rot(sc, h_ext, eng_quat_from_euler_deg(eng_v3(0.0f, 180.0f, 0.0f)));
+
+    eng_entity_t h_int = eng_scene_spawn(sc, "scoop_int");
+    eng_scene_set_pocket(sc, h_int, p_bridge);
+    eng_scene_set_local_pos(sc, h_int, eng_v3(0.0f, 1.0f, 8.0f));
+    eng_scene_set_local_rot(sc, h_int, eng_quat_from_euler_deg(eng_v3(0.0f, 180.0f, 0.0f)));
+    eng_scene_update_transforms(sc);
+
+    eng_portal_sys_t *ps = eng_portal_sys_create();
+    int p_ext_to_int = eng_portal_link(ps, sc, h_ext, h_int, 3.0f, 3.0f, 1.0f, true, true);
+    assert(p_ext_to_int == 0);
+    eng_portal_step_kinematics(ps, sc, 0.0f);
+
+    eng_physics_t *phys = eng_physics_create();
+    eng_physics_set_gravity(phys, p_world, eng_v3(0, 0, 0));
+    eng_physics_set_gravity(phys, p_bridge, eng_v3(0, 0, 0));
+
+    /* 1. Stationary external crate at (0, 1, -0.4) gets scooped into bridge when vehicle advances -1.0m in dt=0.05s (-20 m/s) */
+    eng_body_desc_t crate_d = eng_body_default_desc(ENG_SHAPE_SPHERE, ENG_BODY_DYNAMIC);
+    crate_d.pocket_id = p_world;
+    crate_d.pos = eng_v3(0.0f, 1.0f, -0.4f);
+    crate_d.vel = eng_v3(0.0f, 0.0f, 0.0f);
+    uint32_t crate_id = eng_physics_add_body(phys, &crate_d);
+
+    float dt = 0.05f;
+    eng_scene_set_local_pos(sc, veh, eng_v3(0.0f, 0.0f, -1.0f));
+    eng_scene_update_transforms(sc);
+    eng_portal_step_kinematics(ps, sc, dt);
+    eng_physics_step(phys, sc, ps, dt);
+
+    eng_body_desc_t *cb = eng_physics_get_body(phys, crate_id);
+    assert(cb->pocket_id == p_bridge);
+    /* Crate was stationary while vehicle moved -20m/s -> enters interior moving -20m/s relative to bridge */
+    assert(fabsf(cb->vel.z + 20.0f) < 0.25f);
+
+    /* 2. Exiting interior bridge (portal index 1: h_int -> h_ext) with explicit linear + angular hull velocity */
+    assert(eng_portal_set_velocity(ps, 1, eng_v3(0, 0, 0), eng_v3(0, 0, 0),
+                                   eng_v3(0.0f, 0.0f, -15.0f), eng_v3(0.0f, 2.0f, 0.0f)));
+    const eng_portal_t *p_out = eng_portal_get(ps, 1);
+    /* Exit off-center at x = -1.0 inside yaw=180 doorway -> warps to r_dst = (+1,0,0) on h_ext; omega=(0,2,0) x r=(1,0,0) = (0,0,-2) */
+    eng_vec3_t exit_v = eng_portal_transform_velocity(ps, sc, p_out, eng_v3(-1.0f, 1.0f, 8.0f), eng_v3(0.0f, 0.0f, 3.0f));
+    /* Local +3 m/s exit along +Z flips to -3 m/s out the -Z front scoop, plus -15 m/s hull + -2 m/s tangential = -20 m/s! */
+    assert(fabsf(exit_v.z + 20.0f) < 0.2f);
+
+    eng_physics_destroy(phys);
+    eng_portal_sys_destroy(ps);
+    eng_scene_destroy(sc);
+}
+
 int main(void) {
     test_anim_ik_and_procgen_life();
     test_physics_determinism_gjk_voxels_terrain();
     test_cross_portal_physics_raycast_and_planet_gravity();
+    test_moving_vehicle_portal_kinematics_and_galilean_velocity();
     printf("Phase 5 unit tests passed!\n");
     return 0;
 }
