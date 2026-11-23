@@ -1,6 +1,9 @@
 #include "engine/engine.h"
 
 #include <SDL3/SDL.h>
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>

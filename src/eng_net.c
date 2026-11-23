@@ -20,6 +20,9 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#ifndef INADDR_LOOPBACK
+#define INADDR_LOOPBACK 0x7f000001u
+#endif
 #endif
 
 #define ENG_PKT_MAGIC 0x4E45u
