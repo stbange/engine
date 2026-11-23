@@ -194,7 +194,7 @@ if(ENG_BUILD_RUNNER)
             "-sFORCE_FILESYSTEM=1"
             "-sSTACK_SIZE=2097152"
             "-sINITIAL_MEMORY=33554432"
-            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_eng_web_inject_action','_eng_web_inject_axis','_eng_web_submit_xr_frame','_eng_web_end_xr']"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_eng_web_toggle_help','_eng_web_inject_action','_eng_web_inject_axis','_eng_web_submit_xr_frame','_eng_web_end_xr']"
             "-sEXPORTED_RUNTIME_METHODS=['callMain','FS','IDBFS','ccall','cwrap','HEAPF32','HEAP32','GL']"
         )
     endif()

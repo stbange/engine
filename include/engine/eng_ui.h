@@ -61,6 +61,11 @@ size_t eng_ui_console_history_count(const eng_ui_t *ui);
 const char *eng_ui_console_history_get(const eng_ui_t *ui, size_t idx);
 void eng_ui_draw_console(eng_ui_t *ui, eng_runtime_t *rt);
 
+/* Toggleable H On-Screen Game Help Overlay */
+void eng_ui_toggle_help(eng_ui_t *ui);
+bool eng_ui_is_help_open(const eng_ui_t *ui);
+void eng_ui_draw_help(eng_ui_t *ui, const eng_runtime_t *rt);
+
 /* Nuklear Profiler Overlay */
 void eng_ui_draw_profiler(eng_ui_t *ui, const eng_profiler_t *prof);
 

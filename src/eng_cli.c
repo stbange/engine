@@ -39,6 +39,7 @@ static void eng_web_tick_one(void) {
     if (eng_input_pressed(inp, "_toggle_editor")) eng_editor_toggle(g_web.ed);
     if (eng_input_pressed(inp, "_toggle_pie")) eng_editor_toggle_pie(g_web.ed, eng_runtime_scene(g_web.rt), NULL, 0);
     if (eng_input_pressed(inp, "_toggle_console")) eng_ui_toggle_console(g_web.ui);
+    if (eng_input_pressed(inp, "_toggle_help")) eng_ui_toggle_help(g_web.ui);
 
     if (!eng_editor_is_open(g_web.ed) || eng_editor_is_playing(g_web.ed)) {
         eng_runtime_step(g_web.rt, dt, err, sizeof(err));
@@ -52,6 +53,7 @@ static void eng_web_tick_one(void) {
         float dpr = eng_platform_dpi_scale(plat);
         eng_ui_begin_frame(g_web.ui, pw, ph, mp.x * dpr, mp.y * dpr, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
         draw_runtime_hud(g_web.ui, g_web.rt);
+        if (!eng_editor_is_open(g_web.ed) && !eng_input_is_touch_active(inp)) eng_ui_draw_help(g_web.ui, g_web.rt);
         eng_ui_hud_touch_overlay(g_web.ui, inp);
         eng_ui_draw_console(g_web.ui, g_web.rt);
         eng_editor_draw_ui(g_web.ed, g_web.ui, eng_runtime_scene(g_web.rt), eng_runtime_portals(g_web.rt), g_web.prof);
@@ -59,6 +61,10 @@ static void eng_web_tick_one(void) {
         eng_platform_swap(plat);
     }
     eng_profiler_end_frame(g_web.prof);
+}
+
+EMSCRIPTEN_KEEPALIVE void eng_web_toggle_help(void) {
+    eng_ui_toggle_help(g_web.ui);
 }
 
 EMSCRIPTEN_KEEPALIVE void eng_web_inject_action(const char *action, int down) {
@@ -227,6 +233,7 @@ int eng_cli_run(int argc, char **argv) {
         eng_input_bind_key(inp, "_toggle_editor", SDL_SCANCODE_F1);
         eng_input_bind_key(inp, "_toggle_pie", SDL_SCANCODE_F5);
         eng_input_bind_key(inp, "_toggle_console", SDL_SCANCODE_GRAVE);
+        eng_input_bind_key(inp, "_toggle_help", SDL_SCANCODE_H);
 
         eng_profiler_t *prof = eng_profiler_create();
         eng_ui_t *ui = eng_ui_create();
@@ -250,6 +257,7 @@ int eng_cli_run(int argc, char **argv) {
             if (eng_input_pressed(inp, "_toggle_editor")) eng_editor_toggle(ed);
             if (eng_input_pressed(inp, "_toggle_pie")) eng_editor_toggle_pie(ed, eng_runtime_scene(rt), NULL, 0);
             if (eng_input_pressed(inp, "_toggle_console")) eng_ui_toggle_console(ui);
+            if (eng_input_pressed(inp, "_toggle_help")) eng_ui_toggle_help(ui);
 
             eng_profiler_begin_scope(prof, "step");
             bool step_ok = (!eng_editor_is_open(ed) || eng_editor_is_playing(ed))
@@ -281,6 +289,7 @@ int eng_cli_run(int argc, char **argv) {
             }
             eng_ui_begin_frame(ui, pw, ph, mp.x * dpr, mp.y * dpr, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
             draw_runtime_hud(ui, rt);
+            if (!eng_editor_is_open(ed) && !eng_input_is_touch_active(inp)) eng_ui_draw_help(ui, rt);
             eng_ui_hud_touch_overlay(ui, inp);
             eng_ui_draw_console(ui, rt);
             eng_editor_draw_ui(ed, ui, eng_runtime_scene(rt), eng_runtime_portals(rt), prof);

@@ -38,7 +38,7 @@ cmake --build build -j
 
 ### 2. Run, Audit, Edit, or Mod Any of the 101 Games
 ```bash
-# Play interactively (press F1 for Level Editor, F5 for Play-in-Editor, ~ for Lua Console)
+# Play interactively (press H for Help, F1 for Level Editor, F5 for Play-in-Editor, ~ for Lua Console)
 ./build/engine --game games/101_giant_cleaner_mech
 
 # Play with an active VFS + Lua mod overlay

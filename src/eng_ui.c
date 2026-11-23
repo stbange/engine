@@ -37,6 +37,7 @@ struct eng_ui_s {
     int win_h;
 
     bool console_open;
+    bool help_open;
     char console_input[256];
     int console_input_len;
     char history[ENG_UI_HIST_MAX][256];
@@ -159,6 +160,7 @@ eng_ui_t *eng_ui_create(void) {
     if (!ui) return NULL;
     ui->win_w = 1280;
     ui->win_h = 720;
+    ui->help_open = true;
     ui->vbuf_cpu = (uint8_t *)malloc(ENG_UI_MAX_VBUF);
     ui->ebuf_cpu = (uint8_t *)malloc(ENG_UI_MAX_EBUF);
 
@@ -396,6 +398,57 @@ void eng_ui_draw_console(eng_ui_t *ui, eng_runtime_t *rt) {
             ui->console_input_len = 0;
             ui->console_input[0] = '\0';
         }
+    }
+    nk_end(&ui->ctx);
+}
+
+void eng_ui_toggle_help(eng_ui_t *ui) {
+    if (ui) ui->help_open = !ui->help_open;
+}
+
+bool eng_ui_is_help_open(const eng_ui_t *ui) {
+    return ui ? ui->help_open : false;
+}
+
+void eng_ui_draw_help(eng_ui_t *ui, const eng_runtime_t *rt) {
+    if (!ui || !rt) return;
+    float fw = (float)(ui->win_w > 0 ? ui->win_w : 1280);
+    float fh = (float)(ui->win_h > 0 ? ui->win_h : 720);
+    if (!ui->help_open) {
+        if (nk_begin(&ui->ctx, "__help_pill", nk_rect(12.0f, fh - 36.0f, 88.0f, 24.0f),
+                     NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT | NK_WINDOW_BACKGROUND | NK_WINDOW_BORDER)) {
+            nk_layout_row_dynamic(&ui->ctx, 16.0f, 1);
+            nk_label_colored(&ui->ctx, "[H] Help", NK_TEXT_LEFT, nk_rgb(110, 235, 195));
+        }
+        nk_end(&ui->ctx);
+        return;
+    }
+
+    const char *desc = eng_runtime_game_desc(rt);
+    char ctrl[256] = {0};
+    eng_runtime_format_controls(rt, ctrl, sizeof(ctrl));
+
+    float box_w = (fw - 24.0f < 760.0f) ? (fw - 24.0f) : 760.0f;
+    if (box_w < 260.0f) box_w = 260.0f;
+    size_t dlen = desc ? strlen(desc) : 0u;
+    int chars_per_line = (int)((box_w - 20.0f) / 7.2f);
+    if (chars_per_line < 24) chars_per_line = 24;
+    int dlines = dlen > 0 ? (int)((dlen + (size_t)chars_per_line - 1u) / (size_t)chars_per_line) : 0;
+    if (dlines > 4) dlines = 4;
+    float desc_h = dlines > 0 ? (float)dlines * 16.0f + 4.0f : 0.0f;
+    int clines = (int)((strlen(ctrl) + (size_t)chars_per_line - 1u) / (size_t)chars_per_line);
+    if (clines < 1) clines = 1;
+    float ctrl_h = (float)clines * 16.0f + 4.0f;
+    float box_h = desc_h + ctrl_h + 18.0f;
+
+    if (nk_begin(&ui->ctx, "__help_bar", nk_rect(12.0f, fh - box_h - 12.0f, box_w, box_h),
+                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT | NK_WINDOW_BACKGROUND | NK_WINDOW_BORDER)) {
+        if (dlines > 0) {
+            nk_layout_row_dynamic(&ui->ctx, desc_h, 1);
+            nk_label_wrap(&ui->ctx, desc);
+        }
+        nk_layout_row_dynamic(&ui->ctx, ctrl_h, 1);
+        nk_label_colored_wrap(&ui->ctx, ctrl, nk_rgb(110, 235, 195));
     }
     nk_end(&ui->ctx);
 }

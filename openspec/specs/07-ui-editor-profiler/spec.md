@@ -25,3 +25,10 @@ The engine SHALL include a toggleable `F1` editor featuring entity hierarchy, EC
 #### Scenario: Edit, Play-in-Editor, and restore scene state
 - **WHEN** an entity is moved via gizmo in `F1` editor mode, `F5` starts Play-in-Editor, and `F5` stops Play-in-Editor
 - **THEN** the scene restores cleanly to the pre-play edited snapshot and saves valid JSON to `scenes/*.json`
+
+### Requirement: Toggleable On-Screen Game Help Overlay
+The UI subsystem (`eng_ui`) SHALL display a compact, click-through on-screen help overlay (`eng_ui_draw_help`, toggleable via `H` / `eng_ui_toggle_help`) showing the active game's goal description from `game.json` and control hints derived from `locales` `"controls"` or runtime-polled input actions.
+
+#### Scenario: Viewing and toggling per-game help on Desktop and Web
+- **WHEN** any game launches in interactive Desktop or Web mode
+- **THEN** a bottom-left help card displays the game's description and active keybindings without capturing pointer clicks, and pressing `H` collapses it to a minimal `[H] Help` hint

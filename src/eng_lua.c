@@ -95,6 +95,8 @@ struct eng_runtime_s {
 
     struct { float x, y; char text[160]; } hud_texts[24];
     size_t hud_text_count;
+    char game_desc[256];
+    uint32_t seen_inputs;
 
     bool kinematics_synced;
     bool cov_enabled;
@@ -285,20 +287,36 @@ static int l_math_dist3(lua_State *L) {
     return 1;
 }
 
+static void note_input_action(eng_runtime_t *rt, const char *act) {
+    if (!rt || !act) return;
+    if (strcmp(act, "left") == 0 || strcmp(act, "right") == 0) rt->seen_inputs |= 1u;
+    else if (strcmp(act, "up") == 0 || strcmp(act, "down") == 0) rt->seen_inputs |= 2u;
+    else if (strcmp(act, "fire") == 0) rt->seen_inputs |= 4u;
+    else if (strcmp(act, "jump") == 0) rt->seen_inputs |= 8u;
+    else if (strcmp(act, "interact") == 0) rt->seen_inputs |= 16u;
+}
 static int l_input_down(lua_State *L) {
-    lua_pushboolean(L, eng_input_down(get_rt(L)->input, luaL_checkstring(L, 1)));
+    eng_runtime_t *rt = get_rt(L);
+    const char *act = luaL_checkstring(L, 1);
+    note_input_action(rt, act);
+    lua_pushboolean(L, eng_input_down(rt->input, act));
     return 1;
 }
 static int l_input_pressed(lua_State *L) {
-    lua_pushboolean(L, eng_input_pressed(get_rt(L)->input, luaL_checkstring(L, 1)));
+    eng_runtime_t *rt = get_rt(L);
+    const char *act = luaL_checkstring(L, 1);
+    note_input_action(rt, act);
+    lua_pushboolean(L, eng_input_pressed(rt->input, act));
     return 1;
 }
 static int l_input_axis(lua_State *L) {
-    eng_input_t *inp = get_rt(L)->input;
-    float x = (eng_input_down(inp, luaL_checkstring(L, 2)) ? 1.0f : 0.0f) -
-              (eng_input_down(inp, luaL_checkstring(L, 1)) ? 1.0f : 0.0f);
-    float y = (eng_input_down(inp, luaL_checkstring(L, 4)) ? 1.0f : 0.0f) -
-              (eng_input_down(inp, luaL_checkstring(L, 3)) ? 1.0f : 0.0f);
+    eng_runtime_t *rt = get_rt(L);
+    const char *nx = luaL_checkstring(L, 1), *px = luaL_checkstring(L, 2);
+    const char *ny = luaL_checkstring(L, 3), *py = luaL_checkstring(L, 4);
+    note_input_action(rt, nx); note_input_action(rt, px);
+    note_input_action(rt, ny); note_input_action(rt, py);
+    float x = (eng_input_down(rt->input, px) ? 1.0f : 0.0f) - (eng_input_down(rt->input, nx) ? 1.0f : 0.0f);
+    float y = (eng_input_down(rt->input, py) ? 1.0f : 0.0f) - (eng_input_down(rt->input, ny) ? 1.0f : 0.0f);
     float len = sqrtf(x * x + y * y);
     if (len > 1.0f) { x /= len; y /= len; }
     lua_pushnumber(L, x);
@@ -1729,8 +1747,23 @@ bool eng_runtime_reload_scripts(eng_runtime_t *rt, char *err_buf, size_t err_cap
     return true;
 }
 
+static void copy_ascii_desc(char *dst, size_t cap, const char *src) {
+    size_t o = 0;
+    for (const unsigned char *p = (const unsigned char *)src; p && *p && o + 1 < cap; p++) {
+        if (*p >= 32 && *p <= 126) {
+            dst[o++] = (char)*p;
+        } else if (p[0] == 0xE2 && p[1] == 0x80 && (p[2] == 0x93 || p[2] == 0x94)) {
+            dst[o++] = '-';
+            p += 2;
+        }
+    }
+    dst[o] = '\0';
+}
+
 bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
     if (!rt) return false;
+    rt->game_desc[0] = '\0';
+    rt->seen_inputs = 0u;
     /* 1. Parse optional game.json */
     char *gjson = (char *)eng_vfs_read_all(rt->vfs, "game.json", NULL);
     if (gjson) {
@@ -1746,6 +1779,9 @@ bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
                     free(gjson);
                     return false;
                 }
+                const char *desc = eng_json_get_str(root, "description", "");
+                if (!desc[0]) desc = eng_json_get_str(root, "title", "");
+                copy_ascii_desc(rt->game_desc, sizeof(rt->game_desc), desc);
                 const char *pipe = eng_json_get_str(root, "pipeline", "forward");
                 eng_renderer_set_pipeline(rt->renderer, strcmp(pipe, "deferred") == 0 ? ENG_PIPELINE_DEFERRED : ENG_PIPELINE_FORWARD);
                 const eng_json_val_t *retro_obj = eng_json_get(root, "retro");
@@ -1913,6 +1949,30 @@ const char *eng_runtime_hud_text_get(const eng_runtime_t *rt, size_t idx, float 
     if (out_x) *out_x = rt->hud_texts[idx].x;
     if (out_y) *out_y = rt->hud_texts[idx].y;
     return rt->hud_texts[idx].text;
+}
+
+const char *eng_runtime_game_desc(const eng_runtime_t *rt) {
+    return (rt && rt->game_desc[0]) ? rt->game_desc : "";
+}
+
+void eng_runtime_format_controls(const eng_runtime_t *rt, char *out_buf, size_t cap) {
+    if (!out_buf || cap == 0) return;
+    out_buf[0] = '\0';
+    if (!rt) return;
+    const char *custom = eng_i18n_get(rt->i18n, "controls");
+    if (custom && strcmp(custom, "controls") != 0 && custom[0]) {
+        snprintf(out_buf, cap, "%s | [H] Hide Help", custom);
+        return;
+    }
+    uint32_t m = rt->seen_inputs ? rt->seen_inputs : (1u | 2u | 4u | 8u | 16u);
+    size_t n = 0;
+    if ((m & 3u) == 3u)      n += (size_t)snprintf(out_buf + n, cap - n, "[WASD/Arrows] Move  ");
+    else if (m & 1u)         n += (size_t)snprintf(out_buf + n, cap - n, "[A/D or Left/Right] Move  ");
+    else if (m & 2u)         n += (size_t)snprintf(out_buf + n, cap - n, "[W/S or Up/Down] Move  ");
+    if (m & 4u)              n += (size_t)snprintf(out_buf + n, cap - n, "[Enter/Click] Action  ");
+    if (m & 8u)              n += (size_t)snprintf(out_buf + n, cap - n, "[Space] Jump/Act  ");
+    if (m & 16u)             n += (size_t)snprintf(out_buf + n, cap - n, "[E] Interact  ");
+    snprintf(out_buf + n, cap - n, "[H] Hide Help  [F1] Editor");
 }
 
 bool eng_runtime_run_playtest(eng_runtime_t *rt, const char *test_vpath, int max_frames,

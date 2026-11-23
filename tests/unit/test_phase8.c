@@ -133,6 +133,16 @@ int main(void) {
     (void)eng_ui_hud_button(ui, "hud_btn", ENG_UI_TOP_LEFT, 12.0f, 56.0f, 140.0f, 36.0f, "Click Me");
     eng_ui_hud_bar(ui, "hud_hp", ENG_UI_BOTTOM_LEFT, 12.0f, 12.0f, 220.0f, 44.0f, 0.75f, "HP");
     eng_ui_hud_touch_overlay(ui, eng_runtime_input(rt));
+    assert(eng_ui_is_help_open(ui));
+    assert(strlen(eng_runtime_game_desc(rt)) > 0);
+    char hctrl[256] = {0};
+    eng_runtime_format_controls(rt, hctrl, sizeof(hctrl));
+    assert(strstr(hctrl, "[H] Hide Help") != NULL);
+    eng_ui_draw_help(ui, rt);
+    eng_ui_toggle_help(ui);
+    assert(!eng_ui_is_help_open(ui));
+    eng_ui_draw_help(ui, rt);
+    eng_ui_toggle_help(ui);
     eng_ui_draw_console(ui, rt);
     eng_ui_draw_profiler(ui, prof);
 

@@ -13,6 +13,7 @@ Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the 
   - One-call multi-window, multi-station steerable vehicle builder (`eng.space.create_steerable_vehicle`) creating an isolated walkable interior pocket, passable boarding hatch, non-passable panoramic cockpit windshield & side window stencil portals, multi-crew stations, persistent cruise steering, and clamped inertial deck sway (`inertial_sway`, `step_bob_amp`).
   - Default 3-player local split-keyboard action bindings (`p1_*` `WASD+E`, `p2_*` `IJKL+U`, `p3_*` `Arrows+Return`, `switch_crew` `Tab`, `toggle_cam` `C`).
   - **Game `101` (`games/101_giant_cleaner_mech`)**: *Titan Janitor: 3-Crew Cleaning Mech* — three players simultaneously steering, walking, operating Vacuum/Scrubber/Recycler stations, and performing Galilean EVA ramp exits & moving-ramp re-boarding inside a giant 14m bipedal cleaning robot.
+  - **Toggleable On-Screen Game Help (`eng_ui_draw_help`, `H` hotkey / Web `Help (H)` button)**: Automatic per-game bottom-left goal description (from `game.json`) and live control hints (from `locales` `"controls"` or runtime-observed input actions) across all 101 games on Desktop and Web.
 
 ### Fixed
 - **Emscripten WebAssembly & Chrome Player (`CMakeLists.txt`, `src/eng_platform.c`, `src/eng_cli.c`, `web/shell_play.html`)**:
