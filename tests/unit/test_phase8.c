@@ -169,11 +169,53 @@ int main(void) {
     assert(eng_editor_voxel_paint(ed, &vchunk, 2, 3, 4, 5));
     assert(eng_voxel_get(&vchunk, 2, 3, 4) == 5);
 
-    /* Link a portal in cabin_pk so editor draws portal wireframe too */
+    /* Viewport ray-picking & mouse-drag gizmo + interactive two-step portal linker */
+    eng_editor_select(ed, ENG_ENTITY_NULL);
+    eng_entity_t picked = eng_editor_viewport_interact(ed, scene, eng_v3(3.0f, 2.5f, 5.0f), eng_v3(0.0f, 0.0f, -1.0f),
+                                                       true, true, 0.0f, 0.0f);
+    assert(picked == crate && eng_editor_selected(ed) == crate);
+    eng_editor_set_gizmo_mode(ed, ENG_GIZMO_TRANSLATE);
+    eng_editor_viewport_interact(ed, scene, eng_v3(3.0f, 2.5f, 5.0f), eng_v3(0.0f, 0.0f, -1.0f),
+                                 false, true, 0.0f, 0.0f);
+
     eng_entity_t p_a = eng_scene_spawn(scene, "DoorA");
     eng_entity_t p_b = eng_scene_spawn(scene, "DoorB");
     eng_scene_set_pocket(scene, p_a, cabin_pk);
-    eng_portal_link(eng_runtime_portals(rt), scene, p_a, p_b, 1.2f, 2.2f, 1.0f, true, true);
+    eng_editor_mark_portal_source(ed, p_a);
+    eng_editor_select(ed, p_b);
+    eng_editor_viewport_interact(ed, scene, eng_v3(0.0f, 0.0f, 5.0f), eng_v3(0.0f, 0.0f, -1.0f),
+                                 false, true, 2.0f, -1.0f);
+    assert(eng_editor_link_portal_to_selected(ed, eng_runtime_portals(rt), scene, 1.2f, 2.2f) >= 0);
+    eng_editor_select(ed, crate);
+
+    /* Exercise newly exposed Lua bindings: terrain, particles, anim IK, net, and procgen noise/sphere */
+    assert(eng_runtime_exec_lua(rt, "=lua_parity",
+        "local n3 = eng.procgen.noise3d(1.1, 2.2, 3.3, 9)\n"
+        "local vd, vc = eng.procgen.voronoi2d(1.5, 2.5, 9)\n"
+        "local r3 = eng.procgen.ridged3d(0.5, 0.5, 0.5, 9, 3)\n"
+        "local w3 = eng.procgen.warp3d(0.5, 0.5, 0.5, 9, 1.2)\n"
+        "local sp = eng.procgen.scatter_sphere(7, 10.0, 4.0, 12)\n"
+        "local tid, tmesh = eng.terrain.create(17, 17, 1.0, 42, 4.0, 0.08)\n"
+        "local th = eng.terrain.height(tid, 4.0, 4.0)\n"
+        "local eid = eng.particles.create({ pos = {0, 1, -3}, dir = {0, 1, 0}, rate = 10 })\n"
+        "local burst_n = eng.particles.burst(eid, 8)\n"
+        "local alive_n = eng.particles.alive(eid)\n"
+        "local rig_e = eng.scene.spawn('RigBeast')\n"
+        "eng.procgen.animal(rig_e, 13, 'biped')\n"
+        "eng.anim.set_gait_speed(rig_e, 1.5)\n"
+        "local ik2 = eng.anim.ik_two_bone(rig_e, 0, 1, 2, 0.2, 0.0, -0.2)\n"
+        "local ikf = eng.anim.ik_fabrik(rig_e, {0, 1, 2}, 0.1, 0.2, -0.3, 6)\n"
+        "assert(eng.net.start_loopback())\n"
+        "assert(eng.net.send('server', 'ping_42', true))\n"
+        "assert(eng.net.poll('client') == 'ping_42')\n"
+        "assert(eng.net.sync_scene())\n"
+        "local up = eng.net.host('loopback', 0)\n"
+        "eng.net.connect('loopback', '127.0.0.1', up)\n"
+        "eng.scene.despawn(rig_e)\n"
+        "assert(#sp > 0 and tid >= 1 and tmesh >= 1 and burst_n == 8 and alive_n == 8 and ik2 ~= nil and ikf ~= nil)\n"
+        "return tostring(math.floor((n3 + vd + r3 + w3 + th) * 100))", lrep, sizeof(lrep)));
+    assert(eng_runtime_step(rt, 1.0f / 60.0f, err, sizeof(err)));
+    assert(eng_runtime_render(rt, err, sizeof(err)));
 
     eng_editor_draw_ui(ed, ui, scene, eng_runtime_portals(rt), prof);
     uint32_t ui_draws = eng_ui_render(ui);
@@ -230,10 +272,13 @@ int main(void) {
     char *av_fuzz[] = {"engine", "--repo-root", ENG_SOURCE_DIR, "--game", game_dir, "--headless", "--doctor", "--fuzz-seeds", "2"};
     assert(eng_cli_run(9, av_fuzz) == 0);
 
+    char *av_repo_stubs[] = {"engine", "--gen-stubs", ENG_SOURCE_DIR "/lua/eng_api.lua"};
+    assert(eng_cli_run(3, av_repo_stubs) == 0);
+
     char sheet_tmp[512];
     snprintf(sheet_tmp, sizeof(sheet_tmp), "%s/tmp_sheet.png", ENG_BINARY_DIR);
-    char *av_loop[] = {"engine", "--repo-root", ENG_SOURCE_DIR, "--game", game_dir, "--headless", "--max-frames", "2", "--seed", "7", "--capture-sheet", sheet_tmp};
-    assert(eng_cli_run(11, av_loop) == 0);
+    char *av_loop[] = {"engine", "--repo-root", ENG_SOURCE_DIR, "--game", game_dir, "--headless", "--width", "160", "--height", "120", "--max-frames", "2", "--seed", "7", "--capture-sheet", sheet_tmp};
+    assert(eng_cli_run(15, av_loop) == 0);
 
     eng_log_shutdown();
     printf("Phase 8 UI, Console REPL, Profiler & F1/F5 Level Editor tests passed!\n");

@@ -9,6 +9,7 @@
 #define NK_INCLUDE_DEFAULT_FONT
 #include "nuklear.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,7 @@ struct eng_editor_s {
     bool open;
     bool playing;
     eng_entity_t selected;
+    eng_entity_t portal_src;
     uint16_t active_pocket;
     uint32_t seed;
     eng_gizmo_mode_t gizmo_mode;
@@ -29,6 +31,7 @@ eng_editor_t *eng_editor_create(void) {
     eng_editor_t *ed = (eng_editor_t *)calloc(1, sizeof(*ed));
     if (!ed) return NULL;
     ed->selected = ENG_ENTITY_NULL;
+    ed->portal_src = ENG_ENTITY_NULL;
     ed->seed = 42u;
     ed->gizmo_mode = ENG_GIZMO_TRANSLATE;
     return ed;
@@ -108,6 +111,58 @@ bool eng_editor_apply_gizmo_delta(eng_editor_t *ed, eng_scene_t *scene, eng_vec3
     return ok;
 }
 
+eng_entity_t eng_editor_viewport_interact(eng_editor_t *ed, eng_scene_t *scene,
+                                          eng_vec3_t ray_origin, eng_vec3_t ray_dir,
+                                          bool mouse_pressed, bool mouse_down,
+                                          float drag_dx, float drag_dy) {
+    if (!ed || !scene) return ENG_ENTITY_NULL;
+    if (mouse_pressed) {
+        const eng_entity_t *ents = NULL;
+        uint32_t count = 0;
+        eng_ecs_t *ecs = eng_scene_ecs(scene);
+        eng_ecs_raw_column(ecs, eng_scene_comp_local(scene), &ents, &count);
+        float best_t = 1e30f;
+        eng_entity_t hit_e = ENG_ENTITY_NULL;
+        for (uint32_t i = 0; i < count; i++) {
+            eng_entity_t e = ents[i];
+            if (eng_scene_get_pocket(scene, e) != ed->active_pocket) continue;
+            const eng_transform_local_t *loc = eng_scene_get_local(scene, e);
+            if (!loc) continue;
+            eng_vec3_t he = eng_v3(fmaxf(0.25f, loc->scale.x * 0.5f),
+                                   fmaxf(0.25f, loc->scale.y * 0.5f),
+                                   fmaxf(0.25f, loc->scale.z * 0.5f));
+            eng_aabb_t box = {eng_v3_sub(loc->pos, he), eng_v3_add(loc->pos, he)};
+            float t = 0.0f;
+            if (eng_aabb_ray_hit(box, ray_origin, ray_dir, 500.0f, &t) && t < best_t) {
+                best_t = t;
+                hit_e = e;
+            }
+        }
+        if (hit_e != ENG_ENTITY_NULL) ed->selected = hit_e;
+    } else if (mouse_down && ed->selected != ENG_ENTITY_NULL && (fabsf(drag_dx) > 0.001f || fabsf(drag_dy) > 0.001f)) {
+        float mul = (ed->gizmo_mode == ENG_GIZMO_ROTATE) ? 0.4f : 0.02f;
+        eng_editor_apply_gizmo_delta(ed, scene, eng_v3(drag_dx * mul, -drag_dy * mul, 0.0f));
+    }
+    return ed->selected;
+}
+
+void eng_editor_mark_portal_source(eng_editor_t *ed, eng_entity_t src_ent) {
+    if (ed) ed->portal_src = src_ent;
+}
+
+int eng_editor_link_portal_to_selected(eng_editor_t *ed, eng_portal_sys_t *portals,
+                                       eng_scene_t *scene, float w, float h) {
+    if (!ed || !portals || !scene) return -1;
+    if (ed->portal_src == ENG_ENTITY_NULL || ed->selected == ENG_ENTITY_NULL || ed->portal_src == ed->selected) {
+        return -1;
+    }
+    eng_scene_update_transforms(scene);
+    int idx = eng_portal_link(portals, scene, ed->portal_src, ed->selected,
+                              w > 0.1f ? w : 1.2f, h > 0.1f ? h : 2.2f, 1.0f, true, true);
+    if (idx >= 0) ed->portal_src = ENG_ENTITY_NULL;
+    return idx;
+}
+
 bool eng_editor_voxel_paint(eng_editor_t *ed, eng_voxel_chunk_t *chunk, int x, int y, int z, uint8_t block_id) {
     if (!ed || !chunk) return false;
     return eng_voxel_set(chunk, x, y, z, block_id);
@@ -140,7 +195,6 @@ bool eng_editor_toggle_pie(eng_editor_t *ed, eng_scene_t *scene, char *err_buf, 
         return true;
     } else {
         if (!ed->pie_snapshot) return false;
-        /* Clear all runtime-modified / runtime-spawned entities before restoring pre-play snapshot */
         eng_ecs_t *ecs = eng_scene_ecs(scene);
         const eng_entity_t *raw = NULL;
         uint32_t count = 0;
@@ -186,27 +240,39 @@ bool eng_editor_save_scene_file(const eng_editor_t *ed, const eng_scene_t *scene
 }
 
 void eng_editor_draw_ui(eng_editor_t *ed, eng_ui_t *ui, eng_scene_t *scene,
-                        const eng_portal_sys_t *portals, eng_profiler_t *prof) {
+                        eng_portal_sys_t *portals, eng_profiler_t *prof) {
     if (!ed || !ed->open || !ui || !scene) return;
     struct nk_context *ctx = eng_ui_nk(ui);
     if (!ctx) return;
 
-    /* Hierarchy & Pocket Space Panel */
-    if (nk_begin(ctx, "Scene Editor (F1)", nk_rect(10.0f, 10.0f, 270.0f, 380.0f),
+    /* Hierarchy & Pocket Space Selector Dropdown Panel */
+    if (nk_begin(ctx, "Scene Editor (F1)", nk_rect(10.0f, 10.0f, 270.0f, 400.0f),
                  NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
         nk_layout_row_dynamic(ctx, 24.0f, 2);
         if (nk_button_label(ctx, ed->playing ? "Stop PIE (F5)" : "Play PIE (F5)")) {
             eng_editor_toggle_pie(ed, scene, NULL, 0);
         }
-        if (nk_button_label(ctx, "Seed +1")) {
+        if (nk_button_label(ctx, "Re-roll Seed")) {
             eng_editor_step_seed(ed, 1);
         }
 
         char pk_lbl[64];
         const char *pk_name = eng_scene_pocket_name(scene, ed->active_pocket);
         snprintf(pk_lbl, sizeof(pk_lbl), "Pocket [%u]: %s", (unsigned)ed->active_pocket, pk_name ? pk_name : "world");
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(ctx, pk_lbl, NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        if (nk_combo_begin_label(ctx, pk_lbl, nk_vec2(246.0f, 160.0f))) {
+            nk_layout_row_dynamic(ctx, 20.0f, 1);
+            for (uint16_t pk = 0; pk < 32; pk++) {
+                const char *nm = eng_scene_pocket_name(scene, pk);
+                if (!nm || !nm[0]) continue;
+                char item[64];
+                snprintf(item, sizeof(item), "[%u] %s", (unsigned)pk, nm);
+                if (nk_combo_item_label(ctx, item, NK_TEXT_LEFT)) {
+                    ed->active_pocket = pk;
+                }
+            }
+            nk_combo_end(ctx);
+        }
 
         const eng_entity_t *ents = NULL;
         uint32_t count = 0;
@@ -223,11 +289,11 @@ void eng_editor_draw_ui(eng_editor_t *ed, eng_ui_t *ui, eng_scene_t *scene,
     }
     nk_end(ctx);
 
-    /* Selected Entity Inspector + 3D Gizmos */
+    /* Selected Entity Inspector + Portal Linker + 3D Gizmos */
     if (ed->selected != ENG_ENTITY_NULL && eng_ecs_alive(eng_scene_ecs(scene), ed->selected)) {
         const eng_transform_local_t *loc = eng_scene_get_local(scene, ed->selected);
         if (loc) {
-            if (nk_begin(ctx, "Inspector", nk_rect(290.0f, 10.0f, 260.0f, 220.0f),
+            if (nk_begin(ctx, "Inspector", nk_rect(290.0f, 10.0f, 265.0f, 256.0f),
                          NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
                 nk_layout_row_dynamic(ctx, 22.0f, 3);
                 if (nk_option_label(ctx, "Move", ed->gizmo_mode == ENG_GIZMO_TRANSLATE)) ed->gizmo_mode = ENG_GIZMO_TRANSLATE;
@@ -241,6 +307,14 @@ void eng_editor_draw_ui(eng_editor_t *ed, eng_ui_t *ui, eng_scene_t *scene,
                 nk_property_float(ctx, "Pos Z", -1000.0f, &p.z, 1000.0f, 0.1f, 0.05f);
                 eng_scene_set_local_pos(scene, ed->selected, p);
                 eng_scene_update_transforms(scene);
+
+                nk_layout_row_dynamic(ctx, 24.0f, 2);
+                if (nk_button_label(ctx, "Set Portal Src")) {
+                    eng_editor_mark_portal_source(ed, ed->selected);
+                }
+                if (portals && nk_button_label(ctx, "Link Portal")) {
+                    eng_editor_link_portal_to_selected(ed, portals, scene, 1.2f, 2.2f);
+                }
             }
             nk_end(ctx);
 

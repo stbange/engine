@@ -196,8 +196,20 @@ eng.procgen = {}
 --- Seeded 2D Perlin noise
 function eng.procgen.noise2d(x: number, y: number, seed?: integer): number end
 
+--- Seeded 3D Perlin noise
+function eng.procgen.noise3d(x: number, y: number, z: number, seed?: integer): number end
+
+--- Seeded 2D Worley/Voronoi distance and cell ID
+function eng.procgen.voronoi2d(x: number, y: number, seed?: integer): number, integer end
+
 --- Seeded 3D fractal Brownian motion
 function eng.procgen.fbm3d(x: number, y: number, z: number, seed?: integer, octaves?: integer): number end
+
+--- Seeded 3D ridged multifractal noise
+function eng.procgen.ridged3d(x: number, y: number, z: number, seed?: integer, octaves?: integer): number end
+
+--- Seeded 3D domain-warped noise
+function eng.procgen.warp3d(x: number, y: number, z: number, seed?: integer, warp_amp?: number): number end
 
 --- Synthesize tileable PBR/retro texture
 function eng.procgen.texture(recipe: string, seed?: integer, size?: integer): integer end
@@ -214,11 +226,47 @@ function eng.procgen.tree(seed?: integer, depth?: integer, height?: number, radi
 --- Overlap-free 2D Poisson-disk scatter
 function eng.procgen.scatter_poisson(seed: integer, w: number, h: number, min_dist: number, max_pts?: integer): table end
 
+--- Overlap-free 3D spherical Poisson-disk scatter
+function eng.procgen.scatter_sphere(seed: integer, radius: number, min_chord: number, max_pts?: integer): table end
+
 --- Generate articulated DNA animal with auto-IK gait
 function eng.procgen.animal(ent: number, seed?: integer, archetype?: string): table end
 
 --- Generate modular rigged humanoid NPC
 function eng.procgen.person(ent: number, seed?: integer): table end
+
+---@class eng.terrain
+eng.terrain = {}
+
+--- Generate heightmap terrain and skirted GPU mesh
+function eng.terrain.create(grid_w?: integer, grid_d?: integer, cell_size?: number, seed?: integer, max_h?: number, freq?: number): integer, integer end
+
+--- Sample bilinear terrain world height
+function eng.terrain.height(terrain_id: integer, world_x: number, world_z: number): number end
+
+---@class eng.particles
+eng.particles = {}
+
+--- Create instanced 3D particle emitter
+function eng.particles.create(opts?: table): integer end
+
+--- Emit instant burst of particles
+function eng.particles.burst(emitter_id: integer, count?: integer): integer end
+
+--- Return active particle count
+function eng.particles.alive(emitter_id: integer): integer end
+
+---@class eng.anim
+eng.anim = {}
+
+--- Set procedural IK gait playback speed
+function eng.anim.set_gait_speed(ent: number, speed: number) end
+
+--- Solve analytical 2-bone limb IK
+function eng.anim.ik_two_bone(ent: number, hip: integer, knee: integer, ankle: integer, tx: number, ty: number, tz: number): boolean end
+
+--- Solve multi-joint FABRIK chain IK
+function eng.anim.ik_fabrik(ent: number, chain_bones: table, tx: number, ty: number, tz: number, iters?: integer): boolean end
 
 ---@class eng.audio
 eng.audio = {}
@@ -237,6 +285,27 @@ function eng.ai.set_grid(pocket: integer, cell_size: number, w: integer, d: inte
 
 --- Portal-traversing A* pathfinding
 function eng.ai.find_path(p0: integer, x0: number, y0: number, z0: number, p1: integer, x1: number, y1: number, z1: number): table end
+
+---@class eng.net
+eng.net = {}
+
+--- Initialize connected in-memory server/client peers
+function eng.net.start_loopback(): boolean end
+
+--- Bind server peer (loopback|udp|websocket)
+function eng.net.host(transport?: string, port?: integer): integer end
+
+--- Connect client peer
+function eng.net.connect(transport?: string, host?: string, port?: integer): boolean end
+
+--- Send packet from server or client peer
+function eng.net.send(role: string, msg: string, reliable?: boolean): boolean end
+
+--- Poll next packet on server or client peer
+function eng.net.poll(role: string): string|nil end
+
+--- Replicate pocket-aware scene snapshot from server to client
+function eng.net.sync_scene(): boolean end
 
 ---@class eng.save
 eng.save = {}

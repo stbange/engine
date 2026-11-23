@@ -83,6 +83,10 @@ struct eng_runtime_s {
     size_t body_map_count;
     eng_light_t persist_lights[ENG_MAX_PERSIST_LIGHTS];
     size_t persist_light_count;
+    eng_terrain_t terrains[8];
+    size_t terrain_count;
+    eng_emitter_t *emitters[16];
+    size_t emitter_count;
 
     lua_State *L;
     int sandbox_ref;
@@ -993,79 +997,290 @@ static int l_mod_emit(lua_State *L) {
     return 0;
 }
 
+/* Additional ProcGen (noise3d, voronoi2d, ridged3d, warp3d, scatter_sphere), Terrain, Particles, Anim & Net bindings */
+static int l_proc_noise3d(lua_State *L) {
+    lua_pushnumber(L, eng_noise_perlin3d(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3), (uint64_t)luaL_optnumber(L, 4, 1337)));
+    return 1;
+}
+static int l_proc_voronoi2d(lua_State *L) {
+    uint32_t cid = 0;
+    float d = eng_noise_voronoi2d(chk_f(L, 1), chk_f(L, 2), (uint64_t)luaL_optnumber(L, 3, 1337), &cid);
+    lua_pushnumber(L, d);
+    lua_pushinteger(L, (lua_Integer)cid);
+    return 2;
+}
+static int l_proc_ridged3d(lua_State *L) {
+    lua_pushnumber(L, eng_noise_ridged3d(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3),
+                                         (uint64_t)luaL_optnumber(L, 4, 1337), (int)luaL_optinteger(L, 5, 4)));
+    return 1;
+}
+static int l_proc_warp3d(lua_State *L) {
+    lua_pushnumber(L, eng_noise_domain_warp3d(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3),
+                                              (uint64_t)luaL_optnumber(L, 4, 1337), opt_f(L, 5, 1.5f)));
+    return 1;
+}
+static int l_proc_scatter_sphere(lua_State *L) {
+    uint64_t seed = (uint64_t)luaL_checknumber(L, 1);
+    float rad = chk_f(L, 2), min_d = chk_f(L, 3);
+    int max_p = (int)luaL_optinteger(L, 4, 64);
+    if (max_p < 1) max_p = 1;
+    if (max_p > 512) max_p = 512;
+    eng_vec3_t *pts = (eng_vec3_t *)malloc((size_t)max_p * sizeof(eng_vec3_t));
+    if (!pts) return 0;
+    size_t n = eng_procgen_poisson_sphere(seed, rad, min_d, pts, (size_t)max_p);
+    lua_newtable(L);
+    for (size_t i = 0; i < n; i++) {
+        lua_newtable(L);
+        lua_pushnumber(L, pts[i].x); lua_rawseti(L, -2, 1);
+        lua_pushnumber(L, pts[i].y); lua_rawseti(L, -2, 2);
+        lua_pushnumber(L, pts[i].z); lua_rawseti(L, -2, 3);
+        lua_rawseti(L, -2, (int)(i + 1));
+    }
+    free(pts);
+    return 1;
+}
+
+static int l_terrain_create(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    if (rt->terrain_count >= 8) return luaL_error(L, "Max 8 active terrains reached");
+    int gw = (int)luaL_optinteger(L, 1, 33), gd = (int)luaL_optinteger(L, 2, 33);
+    float cs = opt_f(L, 3, 1.0f);
+    uint64_t seed = (uint64_t)luaL_optnumber(L, 4, 42);
+    float max_h = opt_f(L, 5, 6.0f), freq = opt_f(L, 6, 0.06f);
+    size_t idx = rt->terrain_count++;
+    if (!eng_terrain_init(&rt->terrains[idx], gw, gd, cs, NULL)) { rt->terrain_count--; return 0; }
+    eng_terrain_generate_hills(&rt->terrains[idx], seed, max_h, freq);
+    eng_mesh_data_t md;
+    eng_terrain_build_chunk_mesh(&rt->terrains[idx], 0, 0, gw - 1, gd - 1, 1, 1.0f, &md);
+    uint32_t mid = eng_asset_upload_mesh(rt->assets, "lua_terrain", &md);
+    eng_mesh_data_free(&md);
+    lua_pushinteger(L, (lua_Integer)(idx + 1));
+    lua_pushinteger(L, (lua_Integer)mid);
+    return 2;
+}
+static int l_terrain_height(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int tid = (int)luaL_checkinteger(L, 1) - 1;
+    if (tid < 0 || (size_t)tid >= rt->terrain_count) { lua_pushnumber(L, 0.0); return 1; }
+    lua_pushnumber(L, eng_terrain_sample_height(&rt->terrains[tid], chk_f(L, 2), chk_f(L, 3)));
+    return 1;
+}
+
+static int l_part_create(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    if (rt->emitter_count >= 16) return luaL_error(L, "Max 16 particle emitters reached");
+    eng_emitter_cfg_t cfg = eng_emitter_default_cfg();
+    uint64_t seed = 777u;
+    size_t cap = 128;
+    if (lua_istable(L, 1)) {
+        lua_getfield(L, 1, "pos"); cfg.origin = opt_tbl_v3(L, lua_gettop(L), cfg.origin); lua_pop(L, 1);
+        lua_getfield(L, 1, "dir"); cfg.dir = opt_tbl_v3(L, lua_gettop(L), cfg.dir); lua_pop(L, 1);
+        lua_getfield(L, 1, "rate"); if (lua_isnumber(L, -1)) cfg.spawn_rate = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "pocket"); if (lua_isnumber(L, -1)) cfg.pocket_id = (uint16_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "tex"); if (lua_isnumber(L, -1)) cfg.tex_id = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "seed"); if (lua_isnumber(L, -1)) seed = (uint64_t)lua_tonumber(L, -1); lua_pop(L, 1);
+    }
+    eng_emitter_t *em = eng_emitter_create(cap, seed, &cfg);
+    if (!em) return 0;
+    rt->emitters[rt->emitter_count++] = em;
+    lua_pushinteger(L, (lua_Integer)rt->emitter_count);
+    return 1;
+}
+static int l_part_burst(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int id = (int)luaL_checkinteger(L, 1) - 1;
+    if (id < 0 || (size_t)id >= rt->emitter_count) { lua_pushinteger(L, 0); return 1; }
+    lua_pushinteger(L, (lua_Integer)eng_emitter_burst(rt->emitters[id], (size_t)luaL_optinteger(L, 2, 16)));
+    return 1;
+}
+static int l_part_alive(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int id = (int)luaL_checkinteger(L, 1) - 1;
+    if (id < 0 || (size_t)id >= rt->emitter_count) { lua_pushinteger(L, 0); return 1; }
+    lua_pushinteger(L, (lua_Integer)eng_emitter_alive_count(rt->emitters[id]));
+    return 1;
+}
+
+static int l_anim_set_gait_speed(lua_State *L) {
+    ent_visual_t *v = find_or_alloc_visual(get_rt(L), (eng_entity_t)luaL_checknumber(L, 1));
+    if (v) v->gait_speed = chk_f(L, 2);
+    return 0;
+}
+static int l_anim_ik_two_bone(lua_State *L) {
+    ent_visual_t *v = find_or_alloc_visual(get_rt(L), (eng_entity_t)luaL_checknumber(L, 1));
+    if (!v || !v->has_rig) { lua_pushboolean(L, 0); return 1; }
+    bool ok = eng_anim_ik_two_bone(&v->skel, &v->pose,
+                                   (uint32_t)luaL_checkinteger(L, 2), (uint32_t)luaL_checkinteger(L, 3), (uint32_t)luaL_checkinteger(L, 4),
+                                   eng_v3(chk_f(L, 5), chk_f(L, 6), chk_f(L, 7)), eng_v3(0.0f, 0.0f, -1.0f));
+    if (ok) eng_anim_compute_skin_matrices(&v->skel, &v->pose);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+static int l_anim_ik_fabrik(lua_State *L) {
+    ent_visual_t *v = find_or_alloc_visual(get_rt(L), (eng_entity_t)luaL_checknumber(L, 1));
+    luaL_checktype(L, 2, LUA_TTABLE);
+    if (!v || !v->has_rig) { lua_pushboolean(L, 0); return 1; }
+    uint32_t chain[16];
+    int n = (int)lua_objlen(L, 2);
+    if (n > 16) n = 16;
+    for (int i = 0; i < n; i++) { lua_rawgeti(L, 2, i + 1); chain[i] = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1); }
+    bool ok = eng_anim_ik_fabrik(&v->skel, &v->pose, chain, (size_t)n,
+                                 eng_v3(chk_f(L, 3), chk_f(L, 4), chk_f(L, 5)), (int)luaL_optinteger(L, 6, 8));
+    if (ok) eng_anim_compute_skin_matrices(&v->skel, &v->pose);
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+static eng_net_transport_t parse_net_tr(const char *s) {
+    if (s && strcmp(s, "udp") == 0) return ENG_NET_UDP;
+    if (s && strcmp(s, "websocket") == 0) return ENG_NET_WEBSOCKET;
+    return ENG_NET_LOOPBACK;
+}
+static int l_net_start_loopback(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_net_destroy(rt->net_srv);
+    eng_net_destroy(rt->net_cli);
+    rt->net_srv = eng_net_create(ENG_NET_LOOPBACK, 0);
+    rt->net_cli = eng_net_create(ENG_NET_LOOPBACK, 0);
+    lua_pushboolean(L, eng_net_connect_loopback(rt->net_srv, rt->net_cli));
+    return 1;
+}
+static int l_net_host(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_net_destroy(rt->net_srv);
+    rt->net_srv = eng_net_create(parse_net_tr(luaL_optstring(L, 1, "udp")), (uint16_t)luaL_optinteger(L, 2, 0));
+    lua_pushinteger(L, rt->net_srv ? eng_net_bound_port(rt->net_srv) : 0);
+    return 1;
+}
+static int l_net_connect(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_net_destroy(rt->net_cli);
+    rt->net_cli = eng_net_create(parse_net_tr(luaL_optstring(L, 1, "udp")), 0);
+    lua_pushboolean(L, rt->net_cli && eng_net_connect_remote(rt->net_cli, luaL_optstring(L, 2, "127.0.0.1"), (uint16_t)luaL_optinteger(L, 3, 7777)));
+    return 1;
+}
+static int l_net_send(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    const char *role = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char *msg = luaL_checklstring(L, 2, &len);
+    bool rel = lua_isnoneornil(L, 3) ? true : lua_toboolean(L, 3);
+    eng_net_peer_t *p = (strcmp(role, "server") == 0) ? rt->net_srv : rt->net_cli;
+    lua_pushboolean(L, p && eng_net_send(p, rel ? ENG_CHAN_RELIABLE : ENG_CHAN_UNRELIABLE, msg, len));
+    return 1;
+}
+static int l_net_poll(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    const char *role = luaL_checkstring(L, 1);
+    eng_net_peer_t *p = (strcmp(role, "server") == 0) ? rt->net_srv : rt->net_cli;
+    char buf[1400];
+    size_t n = p ? eng_net_poll(p, buf, sizeof(buf), NULL) : 0;
+    if (n == 0) { lua_pushnil(L); return 1; }
+    lua_pushlstring(L, buf, n);
+    return 1;
+}
+static int l_net_sync_scene(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    if (!rt->net_srv || !rt->net_cli) { lua_pushboolean(L, 0); return 1; }
+    if (!eng_net_send_scene_snapshot(rt->net_srv, rt->scene)) { lua_pushboolean(L, 0); return 1; }
+    uint8_t snap[1400];
+    size_t n = eng_net_poll(rt->net_cli, snap, sizeof(snap), NULL);
+    lua_pushboolean(L, n > 0 && eng_net_apply_scene_snapshot(rt->scene, snap, n));
+    return 1;
+}
+
 /* Master single-source C API registration table (drives BOTH runtime bindings AND lua/eng_api.lua!) */
 static const lua_fn_desc_t k_api_table[] = {
-    {"log",     "info",            l_log_info,              "(msg: string)", "Log informational message (deduplicated)"},
-    {"log",     "warn",            l_log_warn,              "(msg: string)", "Log warning message"},
-    {"log",     "error",           l_log_error,             "(msg: string)", "Log error message"},
-    {"math",    "seed",            l_math_seed,             "(seed: integer)", "Seed deterministic xoshiro128++ PRNG"},
-    {"math",    "rand",            l_math_rand,             "(): number", "Return deterministic float in [0, 1)"},
-    {"math",    "range",           l_math_range,            "(lo: number, hi: number): number", "Return deterministic float in [lo, hi]"},
-    {"math",    "clamp",           l_math_clamp,            "(x: number, lo: number, hi: number): number", "Clamp scalar"},
-    {"math",    "dist3",           l_math_dist3,            "(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): number", "3D Euclidean distance"},
-    {"input",   "down",            l_input_down,            "(action: string): boolean", "True while logical action is held"},
-    {"input",   "pressed",         l_input_pressed,         "(action: string): boolean", "True on rising edge of logical action"},
-    {"input",   "axis2d",          l_input_axis,            "(neg_x: string, pos_x: string, neg_y: string, pos_y: string): number, number", "2D normalized input vector"},
-    {"input",   "inject",          l_input_inject,          "(action: string, down: boolean)", "Inject deterministic virtual input for playtests"},
-    {"xr",      "set_mode",        l_xr_set_mode,           "(mode: string)", "Set WebXR mode: diorama|cockpit|first_person|6dof"},
-    {"xr",      "is_active",       l_xr_active,             "(): boolean", "True while Stereo WebXR session is active"},
-    {"scene",   "spawn",           l_scene_spawn,           "(name?: string): number", "Spawn entity (+X right, +Y up, -Z forward)"},
-    {"scene",   "despawn",         l_scene_despawn,         "(ent: number): boolean", "Destroy entity and attached physics/visuals"},
-    {"scene",   "find",            l_scene_find,            "(name: string): number|nil", "Find entity by name"},
-    {"scene",   "set_pos",         l_scene_set_pos,         "(ent: number, x: number, y: number, z: number)", "Set local position (NaN-trapped)"},
-    {"scene",   "get_pos",         l_scene_get_pos,         "(ent: number): number, number, number", "Get local position"},
-    {"scene",   "set_rot_deg",     l_scene_set_rot_deg,     "(ent: number, pitch: number, yaw: number, roll: number)", "Set Euler rotation in degrees"},
-    {"scene",   "set_scale",       l_scene_set_scale,       "(ent: number, sx: number, sy: number, sz: number)", "Set local scale"},
-    {"scene",   "set_parent",      l_scene_set_parent,      "(child: number, parent?: number)", "Attach child entity to parent hierarchy"},
-    {"scene",   "register_pocket", l_scene_reg_pocket,      "(name: string): integer", "Register/lookup isolated pocket space ID"},
-    {"scene",   "set_pocket",      l_scene_set_pocket,      "(ent: number, pocket: integer|string)", "Assign entity to pocket space"},
-    {"scene",   "get_pocket",      l_scene_get_pocket,      "(ent: number): integer", "Return entity pocket_id"},
-    {"scene",   "set_mesh",        l_scene_set_mesh,        "(ent: number, mesh_id: integer, opts?: table)", "Attach mesh & PBR/retro material to entity"},
-    {"scene",   "dump_json",       l_scene_dump_json,       "(): string", "Compact JSON entity snapshot for diagnostics"},
-    {"camera",  "set",             l_cam_set,               "(x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer)", "Set active camera pose & pocket"},
-    {"camera",  "look_at",         l_cam_look_at,           "(ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer)", "Aim camera at 3D target"},
-    {"camera",  "get",             l_cam_get,               "(): number, number, number, integer", "Return camera x, y, z, pocket_id"},
-    {"render",  "set_pipeline",    l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
-    {"render",  "set_retro",       l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog & CRT"},
-    {"render",  "set_sky",         l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number)", "Set procedural skybox gradient"},
-    {"render",  "add_light",       l_render_add_light,      "(desc: table)", "Add directional, point, or spot light to pocket"},
-    {"render",  "draw_sprite",     l_render_draw_sprite,    "(x: number, y: number, z: number, w?: number, h?: number, tex?: integer)", "Submit billboard sprite"},
-    {"render",  "draw_text",       l_render_draw_text,      "(text: string, x: number, y: number, scale?: number, r?: number, g?: number, b?: number, a?: number)", "Draw UTF-8 SDF text"},
-    {"asset",   "box",             l_asset_box,             "(w?: number, h?: number, d?: number): integer", "Create procedural box GPU mesh"},
-    {"asset",   "sphere",          l_asset_sphere,          "(radius?: number, rings?: integer, sectors?: integer): integer", "Create procedural sphere GPU mesh"},
-    {"asset",   "cylinder",        l_asset_cylinder,        "(r_bot?: number, r_top?: number, height?: number, slices?: integer): integer", "Create cylinder/cone GPU mesh"},
-    {"asset",   "voxel_ascii",     l_asset_voxel_ascii,     "(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer", "Build greedy-meshed AO voxel chunk from ASCII layers"},
-    {"asset",   "load_mesh",       l_asset_load_mesh,       "(vpath: string): integer", "Load .gltf/.glb/.obj mesh from VFS"},
-    {"asset",   "load_texture",    l_asset_load_tex,        "(vpath: string, nearest?: boolean): integer", "Load PNG/JPG texture from VFS"},
-    {"portal",  "link",            l_portal_link,           "(src_ent: number, dst_ent: number, w: number, h: number, scale_ratio?: number, passable?: boolean, bidir?: boolean): integer", "Link portals across pockets"},
-    {"portal",  "check_crossing",  l_portal_check_crossing, "(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): integer|nil, number, number, number", "Test threshold crossing"},
-    {"portal",  "cut_doorway",     l_portal_cut_doorway,    "(wall_w: number, wall_h: number, thick: number, door_w: number, door_h: number): table", "Split wall collider around doorway"},
-    {"physics", "set_gravity",     l_phys_set_grav,         "(pocket: integer, gx: number, gy: number, gz: number)", "Set linear pocket gravity"},
-    {"physics", "set_planet_gravity", l_phys_planet_grav,   "(pocket: integer, cx: number, cy: number, cz: number, g?: number, seed?: integer, radius?: number)", "Enable radial spherical planet gravity"},
-    {"physics", "add_body",        l_phys_add_body,         "(ent: number, desc: table): integer", "Attach rigid/static/kinematic collider to entity"},
-    {"physics", "set_vel",         l_phys_set_vel,          "(body_id: integer, vx: number, vy: number, vz: number)", "Set linear body velocity"},
-    {"physics", "get_vel",         l_phys_get_vel,          "(body_id: integer): number, number, number", "Get linear body velocity"},
-    {"physics", "move_character",  l_phys_move_char,        "(body_id: integer, dx: number, dy: number, dz: number, step_h?: number): boolean", "Stair-stepping & portal-aware character move"},
-    {"physics", "raycast",         l_phys_raycast,          "(pocket: integer, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max_d?: number): table|nil", "Cross-portal 3D raycast"},
-    {"procgen", "noise2d",         l_proc_noise2d,          "(x: number, y: number, seed?: integer): number", "Seeded 2D Perlin noise"},
-    {"procgen", "fbm3d",           l_proc_fbm3d,            "(x: number, y: number, z: number, seed?: integer, octaves?: integer): number", "Seeded 3D fractal Brownian motion"},
-    {"procgen", "texture",         l_proc_texture,          "(recipe: string, seed?: integer, size?: integer): integer", "Synthesize tileable PBR/retro texture"},
-    {"procgen", "dungeon",         l_proc_dungeon,          "(w?: integer, h?: integer, seed?: integer, style?: string, tile_sz?: number, wall_h?: number): table", "Generate solvable BSP/cave/WFC dungeon"},
-    {"procgen", "planet",          l_proc_planet,           "(seed?: integer, radius?: number, subdiv?: integer, sea_level?: number): integer", "Generate seamless 3D cube-sphere planet"},
-    {"procgen", "tree",            l_proc_tree,             "(seed?: integer, depth?: integer, height?: number, radius?: number): integer", "Generate 3D L-system tree mesh"},
-    {"procgen", "scatter_poisson", l_proc_scatter,          "(seed: integer, w: number, h: number, min_dist: number, max_pts?: integer): table", "Overlap-free 2D Poisson-disk scatter"},
-    {"procgen", "animal",          l_proc_animal,           "(ent: number, seed?: integer, archetype?: string): table", "Generate articulated DNA animal with auto-IK gait"},
-    {"procgen", "person",          l_proc_person,           "(ent: number, seed?: integer): table", "Generate modular rigged humanoid NPC"},
-    {"audio",   "synth",           l_audio_synth,           "(wave?: string, freq_start?: number, dur?: number, freq_end?: number): integer", "Synthesize retro ADSR sound clip"},
-    {"audio",   "play",            l_audio_play,            "(clip_id: integer, x?: number, y?: number, z?: number, pocket?: integer): integer", "Play 2D or cross-portal 3D spatial sound"},
-    {"ai",      "set_grid",        l_ai_set_grid,           "(pocket: integer, cell_size: number, w: integer, d: integer, walk_tbl?: table): boolean", "Register walkable NavGrid"},
-    {"ai",      "find_path",       l_ai_find_path,          "(p0: integer, x0: number, y0: number, z0: number, p1: integer, x1: number, y1: number, z1: number): table", "Portal-traversing A* pathfinding"},
-    {"save",    "write",           l_save_write,            "(slot: string, data: string): boolean", "Write versioned ENGB save slot"},
-    {"save",    "read",            l_save_read,             "(slot: string): string|nil", "Read versioned ENGB save slot"},
-    {"i18n",    "set_lang",        l_i18n_set,              "(lang: string): boolean", "Switch active localization language"},
-    {"i18n",    "t",               l_i18n_t,                "(key: string): string", "Translate UTF-8 key with fallback"},
-    {"mod",     "on",              l_mod_on,                "(event: string, fn: function)", "Register sandboxed mod event hook"},
-    {"mod",     "emit",            l_mod_emit,              "(event: string, payload?: any)", "Emit event to active mods"}
+    {"log",       "info",             l_log_info,              "(msg: string)", "Log informational message (deduplicated)"},
+    {"log",       "warn",             l_log_warn,              "(msg: string)", "Log warning message"},
+    {"log",       "error",            l_log_error,             "(msg: string)", "Log error message"},
+    {"math",      "seed",             l_math_seed,             "(seed: integer)", "Seed deterministic xoshiro128++ PRNG"},
+    {"math",      "rand",             l_math_rand,             "(): number", "Return deterministic float in [0, 1)"},
+    {"math",      "range",            l_math_range,            "(lo: number, hi: number): number", "Return deterministic float in [lo, hi]"},
+    {"math",      "clamp",            l_math_clamp,            "(x: number, lo: number, hi: number): number", "Clamp scalar"},
+    {"math",      "dist3",            l_math_dist3,            "(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): number", "3D Euclidean distance"},
+    {"input",     "down",             l_input_down,            "(action: string): boolean", "True while logical action is held"},
+    {"input",     "pressed",          l_input_pressed,         "(action: string): boolean", "True on rising edge of logical action"},
+    {"input",     "axis2d",           l_input_axis,            "(neg_x: string, pos_x: string, neg_y: string, pos_y: string): number, number", "2D normalized input vector"},
+    {"input",     "inject",           l_input_inject,          "(action: string, down: boolean)", "Inject deterministic virtual input for playtests"},
+    {"xr",        "set_mode",         l_xr_set_mode,           "(mode: string)", "Set WebXR mode: diorama|cockpit|first_person|6dof"},
+    {"xr",        "is_active",        l_xr_active,             "(): boolean", "True while Stereo WebXR session is active"},
+    {"scene",     "spawn",            l_scene_spawn,           "(name?: string): number", "Spawn entity (+X right, +Y up, -Z forward)"},
+    {"scene",     "despawn",          l_scene_despawn,         "(ent: number): boolean", "Destroy entity and attached physics/visuals"},
+    {"scene",     "find",             l_scene_find,            "(name: string): number|nil", "Find entity by name"},
+    {"scene",     "set_pos",          l_scene_set_pos,         "(ent: number, x: number, y: number, z: number)", "Set local position (NaN-trapped)"},
+    {"scene",     "get_pos",          l_scene_get_pos,         "(ent: number): number, number, number", "Get local position"},
+    {"scene",     "set_rot_deg",      l_scene_set_rot_deg,     "(ent: number, pitch: number, yaw: number, roll: number)", "Set Euler rotation in degrees"},
+    {"scene",     "set_scale",        l_scene_set_scale,       "(ent: number, sx: number, sy: number, sz: number)", "Set local scale"},
+    {"scene",     "set_parent",       l_scene_set_parent,      "(child: number, parent?: number)", "Attach child entity to parent hierarchy"},
+    {"scene",     "register_pocket",  l_scene_reg_pocket,      "(name: string): integer", "Register/lookup isolated pocket space ID"},
+    {"scene",     "set_pocket",       l_scene_set_pocket,      "(ent: number, pocket: integer|string)", "Assign entity to pocket space"},
+    {"scene",     "get_pocket",       l_scene_get_pocket,      "(ent: number): integer", "Return entity pocket_id"},
+    {"scene",     "set_mesh",         l_scene_set_mesh,        "(ent: number, mesh_id: integer, opts?: table)", "Attach mesh & PBR/retro material to entity"},
+    {"scene",     "dump_json",        l_scene_dump_json,       "(): string", "Compact JSON entity snapshot for diagnostics"},
+    {"camera",    "set",              l_cam_set,               "(x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer)", "Set active camera pose & pocket"},
+    {"camera",    "look_at",          l_cam_look_at,           "(ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer)", "Aim camera at 3D target"},
+    {"camera",    "get",              l_cam_get,               "(): number, number, number, integer", "Return camera x, y, z, pocket_id"},
+    {"render",    "set_pipeline",     l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
+    {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog & CRT"},
+    {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number)", "Set procedural skybox gradient"},
+    {"render",    "add_light",        l_render_add_light,      "(desc: table)", "Add directional, point, or spot light to pocket"},
+    {"render",    "draw_sprite",      l_render_draw_sprite,    "(x: number, y: number, z: number, w?: number, h?: number, tex?: integer)", "Submit billboard sprite"},
+    {"render",    "draw_text",        l_render_draw_text,      "(text: string, x: number, y: number, scale?: number, r?: number, g?: number, b?: number, a?: number)", "Draw UTF-8 SDF text"},
+    {"asset",     "box",              l_asset_box,             "(w?: number, h?: number, d?: number): integer", "Create procedural box GPU mesh"},
+    {"asset",     "sphere",           l_asset_sphere,          "(radius?: number, rings?: integer, sectors?: integer): integer", "Create procedural sphere GPU mesh"},
+    {"asset",     "cylinder",         l_asset_cylinder,        "(r_bot?: number, r_top?: number, height?: number, slices?: integer): integer", "Create cylinder/cone GPU mesh"},
+    {"asset",     "voxel_ascii",      l_asset_voxel_ascii,     "(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer", "Build greedy-meshed AO voxel chunk from ASCII layers"},
+    {"asset",     "load_mesh",        l_asset_load_mesh,       "(vpath: string): integer", "Load .gltf/.glb/.obj mesh from VFS"},
+    {"asset",     "load_texture",     l_asset_load_tex,        "(vpath: string, nearest?: boolean): integer", "Load PNG/JPG texture from VFS"},
+    {"portal",    "link",             l_portal_link,           "(src_ent: number, dst_ent: number, w: number, h: number, scale_ratio?: number, passable?: boolean, bidir?: boolean): integer", "Link portals across pockets"},
+    {"portal",    "check_crossing",   l_portal_check_crossing, "(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): integer|nil, number, number, number", "Test threshold crossing"},
+    {"portal",    "cut_doorway",      l_portal_cut_doorway,    "(wall_w: number, wall_h: number, thick: number, door_w: number, door_h: number): table", "Split wall collider around doorway"},
+    {"physics",   "set_gravity",      l_phys_set_grav,         "(pocket: integer, gx: number, gy: number, gz: number)", "Set linear pocket gravity"},
+    {"physics",   "set_planet_gravity", l_phys_planet_grav,    "(pocket: integer, cx: number, cy: number, cz: number, g?: number, seed?: integer, radius?: number)", "Enable radial spherical planet gravity"},
+    {"physics",   "add_body",         l_phys_add_body,         "(ent: number, desc: table): integer", "Attach rigid/static/kinematic collider to entity"},
+    {"physics",   "set_vel",          l_phys_set_vel,          "(body_id: integer, vx: number, vy: number, vz: number)", "Set linear body velocity"},
+    {"physics",   "get_vel",          l_phys_get_vel,          "(body_id: integer): number, number, number", "Get linear body velocity"},
+    {"physics",   "move_character",   l_phys_move_char,        "(body_id: integer, dx: number, dy: number, dz: number, step_h?: number): boolean", "Stair-stepping & portal-aware character move"},
+    {"physics",   "raycast",          l_phys_raycast,          "(pocket: integer, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max_d?: number): table|nil", "Cross-portal 3D raycast"},
+    {"procgen",   "noise2d",          l_proc_noise2d,          "(x: number, y: number, seed?: integer): number", "Seeded 2D Perlin noise"},
+    {"procgen",   "noise3d",          l_proc_noise3d,          "(x: number, y: number, z: number, seed?: integer): number", "Seeded 3D Perlin noise"},
+    {"procgen",   "voronoi2d",        l_proc_voronoi2d,        "(x: number, y: number, seed?: integer): number, integer", "Seeded 2D Worley/Voronoi distance and cell ID"},
+    {"procgen",   "fbm3d",            l_proc_fbm3d,            "(x: number, y: number, z: number, seed?: integer, octaves?: integer): number", "Seeded 3D fractal Brownian motion"},
+    {"procgen",   "ridged3d",         l_proc_ridged3d,         "(x: number, y: number, z: number, seed?: integer, octaves?: integer): number", "Seeded 3D ridged multifractal noise"},
+    {"procgen",   "warp3d",           l_proc_warp3d,           "(x: number, y: number, z: number, seed?: integer, warp_amp?: number): number", "Seeded 3D domain-warped noise"},
+    {"procgen",   "texture",          l_proc_texture,          "(recipe: string, seed?: integer, size?: integer): integer", "Synthesize tileable PBR/retro texture"},
+    {"procgen",   "dungeon",          l_proc_dungeon,          "(w?: integer, h?: integer, seed?: integer, style?: string, tile_sz?: number, wall_h?: number): table", "Generate solvable BSP/cave/WFC dungeon"},
+    {"procgen",   "planet",           l_proc_planet,           "(seed?: integer, radius?: number, subdiv?: integer, sea_level?: number): integer", "Generate seamless 3D cube-sphere planet"},
+    {"procgen",   "tree",             l_proc_tree,             "(seed?: integer, depth?: integer, height?: number, radius?: number): integer", "Generate 3D L-system tree mesh"},
+    {"procgen",   "scatter_poisson",  l_proc_scatter,          "(seed: integer, w: number, h: number, min_dist: number, max_pts?: integer): table", "Overlap-free 2D Poisson-disk scatter"},
+    {"procgen",   "scatter_sphere",   l_proc_scatter_sphere,   "(seed: integer, radius: number, min_chord: number, max_pts?: integer): table", "Overlap-free 3D spherical Poisson-disk scatter"},
+    {"procgen",   "animal",           l_proc_animal,           "(ent: number, seed?: integer, archetype?: string): table", "Generate articulated DNA animal with auto-IK gait"},
+    {"procgen",   "person",           l_proc_person,           "(ent: number, seed?: integer): table", "Generate modular rigged humanoid NPC"},
+    {"terrain",   "create",           l_terrain_create,        "(grid_w?: integer, grid_d?: integer, cell_size?: number, seed?: integer, max_h?: number, freq?: number): integer, integer", "Generate heightmap terrain and skirted GPU mesh"},
+    {"terrain",   "height",           l_terrain_height,        "(terrain_id: integer, world_x: number, world_z: number): number", "Sample bilinear terrain world height"},
+    {"particles", "create",           l_part_create,           "(opts?: table): integer", "Create instanced 3D particle emitter"},
+    {"particles", "burst",            l_part_burst,            "(emitter_id: integer, count?: integer): integer", "Emit instant burst of particles"},
+    {"particles", "alive",            l_part_alive,            "(emitter_id: integer): integer", "Return active particle count"},
+    {"anim",      "set_gait_speed",   l_anim_set_gait_speed,   "(ent: number, speed: number)", "Set procedural IK gait playback speed"},
+    {"anim",      "ik_two_bone",      l_anim_ik_two_bone,      "(ent: number, hip: integer, knee: integer, ankle: integer, tx: number, ty: number, tz: number): boolean", "Solve analytical 2-bone limb IK"},
+    {"anim",      "ik_fabrik",        l_anim_ik_fabrik,        "(ent: number, chain_bones: table, tx: number, ty: number, tz: number, iters?: integer): boolean", "Solve multi-joint FABRIK chain IK"},
+    {"audio",     "synth",            l_audio_synth,           "(wave?: string, freq_start?: number, dur?: number, freq_end?: number): integer", "Synthesize retro ADSR sound clip"},
+    {"audio",     "play",             l_audio_play,            "(clip_id: integer, x?: number, y?: number, z?: number, pocket?: integer): integer", "Play 2D or cross-portal 3D spatial sound"},
+    {"ai",        "set_grid",         l_ai_set_grid,           "(pocket: integer, cell_size: number, w: integer, d: integer, walk_tbl?: table): boolean", "Register walkable NavGrid"},
+    {"ai",        "find_path",        l_ai_find_path,          "(p0: integer, x0: number, y0: number, z0: number, p1: integer, x1: number, y1: number, z1: number): table", "Portal-traversing A* pathfinding"},
+    {"net",       "start_loopback",   l_net_start_loopback,    "(): boolean", "Initialize connected in-memory server/client peers"},
+    {"net",       "host",             l_net_host,              "(transport?: string, port?: integer): integer", "Bind server peer (loopback|udp|websocket)"},
+    {"net",       "connect",          l_net_connect,           "(transport?: string, host?: string, port?: integer): boolean", "Connect client peer"},
+    {"net",       "send",             l_net_send,              "(role: string, msg: string, reliable?: boolean): boolean", "Send packet from server or client peer"},
+    {"net",       "poll",             l_net_poll,              "(role: string): string|nil", "Poll next packet on server or client peer"},
+    {"net",       "sync_scene",       l_net_sync_scene,        "(): boolean", "Replicate pocket-aware scene snapshot from server to client"},
+    {"save",      "write",            l_save_write,            "(slot: string, data: string): boolean", "Write versioned ENGB save slot"},
+    {"save",      "read",             l_save_read,             "(slot: string): string|nil", "Read versioned ENGB save slot"},
+    {"i18n",      "set_lang",         l_i18n_set,              "(lang: string): boolean", "Switch active localization language"},
+    {"i18n",      "t",                l_i18n_t,                "(key: string): string", "Translate UTF-8 key with fallback"},
+    {"mod",       "on",               l_mod_on,                "(event: string, fn: function)", "Register sandboxed mod event hook"},
+    {"mod",       "emit",             l_mod_emit,              "(event: string, payload?: any)", "Emit event to active mods"}
 };
 
 /* Strict __index metatable suggesting closest valid function via Levenshtein distance! */
@@ -1100,7 +1315,8 @@ static int strict_root_index(lua_State *L) {
     const char *key = luaL_optstring(L, 2, "?");
     static const char *const mods[] = {
         "log", "math", "input", "xr", "scene", "camera", "render", "asset",
-        "portal", "physics", "procgen", "audio", "ai", "save", "i18n", "mod",
+        "portal", "physics", "procgen", "terrain", "particles", "anim",
+        "audio", "ai", "net", "save", "i18n", "mod",
         "async", "bt", "space", "procgen_ext", "ui", "fun", "test"
     };
     const char *sug = eng_str_suggest(key, mods, sizeof(mods) / sizeof(mods[0]), 4);
@@ -1345,6 +1561,8 @@ void eng_runtime_destroy(eng_runtime_t *rt) {
     if (!rt) return;
     flush_lua_cov(rt);
     if (rt->L) lua_close(rt->L);
+    for (size_t i = 0; i < rt->terrain_count; i++) eng_terrain_free(&rt->terrains[i]);
+    for (size_t i = 0; i < rt->emitter_count; i++) eng_emitter_destroy(rt->emitters[i]);
     eng_net_destroy(rt->net_srv);
     eng_net_destroy(rt->net_cli);
     eng_font_destroy(rt->font);
@@ -1481,7 +1699,17 @@ bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
                 }
                 const char *pipe = eng_json_get_str(root, "pipeline", "forward");
                 eng_renderer_set_pipeline(rt->renderer, strcmp(pipe, "deferred") == 0 ? ENG_PIPELINE_DEFERRED : ENG_PIPELINE_FORWARD);
-                if (eng_json_get_bool(root, "retro_ps1", false)) {
+                const eng_json_val_t *retro_obj = eng_json_get(root, "retro");
+                if (retro_obj && retro_obj->type == ENG_JSON_OBJ) {
+                    eng_retro_cfg_t rc = eng_retro_ps1_preset();
+                    rc.vertex_snap_res = eng_json_get_num(retro_obj, "vertex_snap", rc.vertex_snap_res);
+                    rc.nearest_textures = eng_json_get_bool(retro_obj, "nearest_textures", rc.nearest_textures);
+                    rc.dither_bayer = eng_json_get_bool(retro_obj, "dither_bayer", rc.dither_bayer);
+                    rc.color_bits = (int)eng_json_get_num(retro_obj, "color_bits", (double)rc.color_bits);
+                    rc.crt_scanlines = eng_json_get_bool(retro_obj, "crt_scanlines", false) ? 0.18f : 0.0f;
+                    rc.fog_density = eng_json_get_num(retro_obj, "fog_density", rc.fog_density);
+                    eng_renderer_set_retro(rt->renderer, &rc);
+                } else if (eng_json_get_bool(root, "retro_ps1", false)) {
                     eng_retro_cfg_t ps1 = eng_retro_ps1_preset();
                     eng_renderer_set_retro(rt->renderer, &ps1);
                 }
@@ -1560,6 +1788,10 @@ bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap
         }
     }
 
+    for (size_t i = 0; i < rt->emitter_count; i++) {
+        eng_emitter_step(rt->emitters[i], dt);
+    }
+
     eng_audio_set_listener(rt->audio, rt->cam.pocket_id, rt->cam.pos, eng_v3(0, 0, 0), rt->cam.rot);
     eng_audio_update(rt->audio, rt->scene, rt->portals, dt);
     return true;
@@ -1593,6 +1825,12 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
             .skin_bone_count = v->has_rig ? v->skel.bone_count : 0
         };
         eng_renderer_submit_mesh(rt->renderer, &di);
+    }
+
+    eng_sprite_item_t p_sprites[128];
+    for (size_t i = 0; i < rt->emitter_count; i++) {
+        size_t ns = eng_emitter_collect_sprites(rt->emitters[i], p_sprites, 128);
+        if (ns > 0) eng_renderer_submit_sprites(rt->renderer, p_sprites, ns);
     }
 
     if (!call_sandbox_fn(rt, "draw", 0, 0.0f, err_buf, err_cap)) return false;

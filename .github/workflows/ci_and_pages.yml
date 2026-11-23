@@ -77,23 +77,26 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
   web-build:
-    name: Build Emscripten Web & WebXR Bundle
+    name: Build Emscripten Web & WebXR Bundle + Gallery Thumbnails
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Build Native Thumbnail Renderer (Mesa OpenGL + Xvfb)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build xvfb mesa-utils libgl-dev libegl-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+            libxss-dev libwayland-dev libxkbcommon-dev libasound2-dev libpulse-dev libluajit-5.1-dev
+          cmake -B build-host -GNinja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host -j
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
-      - name: Compile Shared WebAssembly Engine
+      - name: Compile Shared WebAssembly Engine & Render 100 Gallery Thumbnails
         run: |
           emcmake cmake -B build-web -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-web -j
-          if [ -f web/build_pages.py ]; then
-            python3 web/build_pages.py --wasm-dir build-web --out-dir dist
-          else
-            mkdir -p dist
-            cp build-web/engine.* dist/
-          fi
+          xvfb-run -a python3 web/build_pages.py --wasm-dir build-web --engine-bin ./build-host/engine --out-dir dist
       - name: Upload Pages Artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3

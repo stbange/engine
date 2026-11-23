@@ -252,23 +252,39 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
     snprintf(sub, sizeof(sub), "%s/locales", target_dir); ENG_MKDIR(sub);
     snprintf(sub, sizeof(sub), "%s/tests", target_dir);   ENG_MKDIR(sub);
 
-    char game_json[512];
+    /* Derive clean ^[0-9a-z_]+$ id from target_dir basename */
+    const char *base = target_dir;
+    for (const char *p = target_dir; *p; p++) {
+        if (*p == '/' || *p == '\\') base = p + 1;
+    }
+    char slug[64] = {0};
+    size_t si = 0;
+    for (const char *p = base; *p && si + 1 < sizeof(slug); p++) {
+        char c = *p;
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        slug[si++] = ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '_') ? c : '_';
+    }
+    if (si == 0) strcpy(slug, "new_game");
+
+    char game_json[768];
     snprintf(game_json, sizeof(game_json),
              "{\n"
+             "  \"id\": \"%s\",\n"
              "  \"title\": \"Scaffolded %s Game\",\n"
+             "  \"genre\": \"%s\",\n"
+             "  \"primitives\": [\"mesh\", \"voxel\", \"sdf_text\"],\n"
              "  \"engine_version\": \"%s\",\n"
+             "  \"entry_script\": \"scripts/main.lua\",\n"
              "  \"pipeline\": \"forward\",\n"
-             "  \"retro_ps1\": true,\n"
-             "  \"xr_mode\": \"%s\"\n"
+             "  \"xr_mode\": \"%s\",\n"
+             "  \"retro\": {\n"
+             "    \"vertex_snap\": 240,\n"
+             "    \"nearest_textures\": true,\n"
+             "    \"dither_bayer\": true,\n"
+             "    \"color_bits\": 5\n"
+             "  }\n"
              "}\n",
-             tmpl, ENG_VERSION_STRING, strcmp(tmpl, "xr") == 0 ? "6dof" : "diorama");
-
-    const char *main_lua =
-        "function init()\n"
-        "    game.state.ticks = 0\n"
-        "    eng.render.add_light({ type = 'dir', dir = {-0.4, -1.0, -0.5}, color = {2.2, 2.1, 1.9}, shadow = true })\n"
-        "    if '" ;
-    (void)main_lua;
+             slug, tmpl, tmpl, ENG_VERSION_STRING, strcmp(tmpl, "xr") == 0 ? "6dof" : "diorama");
 
     char script_buf[2048];
     if (strcmp(tmpl, "pocket_house") == 0) {

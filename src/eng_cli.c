@@ -100,6 +100,7 @@ int eng_cli_run(int argc, char **argv) {
     bool doctor = false;
     int fuzz_seeds = 0;
     int max_frames = 0;
+    int win_w = 0, win_h = 0;
     uint64_t seed = 42u;
 
     for (int i = 1; i < argc; i++) {
@@ -132,6 +133,10 @@ int eng_cli_run(int argc, char **argv) {
             seed = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if ((strcmp(a, "--max-frames") == 0 || strcmp(a, "--frames") == 0) && i + 1 < argc) {
             max_frames = atoi(argv[++i]);
+        } else if (strcmp(a, "--width") == 0 && i + 1 < argc) {
+            win_w = atoi(argv[++i]);
+        } else if (strcmp(a, "--height") == 0 && i + 1 < argc) {
+            win_h = atoi(argv[++i]);
         } else if (strcmp(a, "--new") == 0 && i + 1 < argc) {
             new_dir = argv[++i];
         } else if (strcmp(a, "--template") == 0 && i + 1 < argc) {
@@ -171,6 +176,8 @@ int eng_cli_run(int argc, char **argv) {
     rcfg.game_dir = game_dir;
     rcfg.mod_dir = mod_dir;
     rcfg.headless = headless;
+    if (win_w > 0) rcfg.width = win_w;
+    if (win_h > 0) rcfg.height = win_h;
     rcfg.seed = seed;
 
     eng_runtime_t *rt = eng_runtime_create(&rcfg);
@@ -247,6 +254,13 @@ int eng_cli_run(int argc, char **argv) {
             int ww = 1280, wh = 720;
             eng_platform_get_size(plat, &ww, &wh);
             eng_vec2_t mp = eng_input_mouse_pos(inp);
+            if (eng_editor_is_open(ed) && mp.x > 560.0f) {
+                eng_camera_t *cam = eng_runtime_camera(rt);
+                eng_vec2_t md = eng_input_mouse_delta(inp);
+                eng_vec3_t rdir = eng_quat_rotate_v3(cam->rot, eng_v3(0.0f, 0.0f, -1.0f));
+                eng_editor_viewport_interact(ed, eng_runtime_scene(rt), cam->pos, rdir,
+                                             eng_input_pressed(inp, "fire"), eng_input_down(inp, "fire"), md.x, md.y);
+            }
             eng_ui_begin_frame(ui, ww, wh, mp.x, mp.y, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
             eng_ui_hud_touch_overlay(ui, inp);
             eng_ui_draw_console(ui, rt);

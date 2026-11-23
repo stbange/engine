@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Package the shared Emscripten WebAssembly engine, unbaked Lua/assets/mods,
-per-game VFS manifests, and the interactive 100-game GitHub Pages overview (dist/index.html)."""
+per-game VFS manifests, optional OpenGL 2x2 contact-sheet thumbnails, and the
+interactive 100-game GitHub Pages overview (dist/index.html)."""
 
 import argparse
-import html
+import concurrent.futures
 import json
 import os
 import shutil
+import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -51,6 +53,30 @@ def detect_tags(meta, lua_src):
     return sorted(set(tags))
 
 
+def capture_one_thumb(engine_bin, slug, out_png):
+    gdir = os.path.join(ROOT, "games", slug)
+    env = os.environ.copy()
+    env["SDL_AUDIODRIVER"] = "dummy"
+    cmd = [
+        engine_bin, "--repo-root", ROOT, "--game", f"games/{slug}",
+        "--width", "200", "--height", "150", "--max-frames", "3",
+        "--seed", "42", "--capture-sheet", out_png,
+    ]
+    if not env.get("DISPLAY"):
+        cmd.append("--headless")
+    r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+    for fn in os.listdir(gdir):
+        if fn.endswith(".engsave"):
+            try:
+                os.remove(os.path.join(gdir, fn))
+            except OSError:
+                pass
+    saves_sub = os.path.join(gdir, "saves")
+    if os.path.isdir(saves_sub):
+        shutil.rmtree(saves_sub, ignore_errors=True)
+    return r.returncode == 0 and os.path.isfile(out_png)
+
+
 def build_index_html(games_meta):
     cards_json = json.dumps(games_meta, separators=(",", ":"))
     total = len(games_meta)
@@ -79,9 +105,13 @@ def build_index_html(games_meta):
     .chip.active, .chip:hover {{ border-color:var(--accent); color:var(--accent); background:#112925; }}
     #count-lbl {{ color:var(--muted); font-size:13px; margin-left:auto; }}
     .grid {{ max-width:1280px; margin:0 auto 56px; padding:0 20px; display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:14px; }}
-    .card {{ background:var(--card); border:1px solid var(--border); border-radius:10px; padding:15px; display:flex; flex-direction:column; justify-content:space-between; transition:transform .12s, border-color .12s; }}
+    .card {{ background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between; transition:transform .12s, border-color .12s; }}
     .card:hover {{ transform:translateY(-2px); border-color:var(--accent); background:var(--card-hi); }}
     .card.flagship {{ border-color:#5a4a22; }}
+    .thumb {{ width:100%; aspect-ratio:4/3; background-color:#0c111b; background-repeat:no-repeat; background-size:200% 200%; background-position:0% 0%; border-bottom:1px solid var(--border); position:relative; transition:background-size .2s ease; image-rendering:pixelated; }}
+    .card:hover .thumb {{ background-size:100% 100%; }}
+    .thumb-hint {{ position:absolute; right:6px; bottom:6px; background:rgba(10,13,20,0.78); color:var(--muted); font-size:10px; padding:2px 6px; border-radius:4px; font-family:ui-monospace,monospace; }}
+    .cbody {{ padding:14px; display:flex; flex-direction:column; flex:1; justify-content:space-between; }}
     .cid {{ font-family:ui-monospace,monospace; font-size:11px; color:var(--muted); }}
     .ctitle {{ margin:4px 0 6px; font-size:17px; font-weight:700; display:flex; align-items:center; gap:6px; }}
     .badge-flag {{ background:#3b2e11; color:var(--gold); border:1px solid #755b1e; font-size:10px; padding:1px 6px; border-radius:4px; text-transform:uppercase; }}
@@ -124,7 +154,7 @@ def build_index_html(games_meta):
 
   <footer>
     MIT License &bull; <a href="https://github.com/stbange/engine" style="color:#4be3b0">github.com/stbange/engine</a> &bull;
-    Auto-switches to Touch HUD on Mobile &bull; WebXR Immersive-VR Ready
+    Hover any thumbnail to inspect its 2&times;2 Multimodal Contact Sheet &bull; Auto Touch HUD on Mobile &bull; WebXR Ready
   </footer>
 
   <script>
@@ -156,17 +186,23 @@ def build_index_html(games_meta):
       grid.innerHTML = filtered.map(g => {{
         const flagBadge = g.flagship ? '<span class="badge-flag">Flagship</span>' : '';
         const tHtml = g.tags.map(t => `<span class="tag ${{t==='portals'||t==='procgen'?'p':''}}">${{esc(t)}}</span>`).join('');
+        const thumbHtml = g.thumb
+          ? `<a href="play.html?game=${{encodeURIComponent(g.slug)}}" class="thumb" style="display:block;background-image:url('thumbs/${{encodeURIComponent(g.slug)}}.png')"><span class="thumb-hint">2&times;2 hover</span></a>`
+          : '';
         return `<article class="card ${{g.flagship?'flagship':''}}">
-          <div>
-            <div class="cid">${{esc(g.slug)}} &bull; ${{esc(g.genre)}} &bull; touch:${{esc(g.touch_preset)}}</div>
-            <div class="ctitle">${{esc(g.title)}} ${{flagBadge}}</div>
-            <p class="cdesc">${{esc(g.description)}}</p>
-            <div class="tags">${{tHtml}}</div>
-          </div>
-          <div class="actions">
-            <a class="btn-play" href="play.html?game=${{encodeURIComponent(g.slug)}}">&#9654; Play</a>
-            <a class="btn-sec" href="play.html?game=${{encodeURIComponent(g.slug)}}&amp;mod=example_retro_pack" title="Launch with Amber CRT &amp; PS1 Mod">+Mod</a>
-            <a class="btn-sec" href="games/${{encodeURIComponent(g.slug)}}/scripts/main.lua" target="_blank">Lua</a>
+          ${{thumbHtml}}
+          <div class="cbody">
+            <div>
+              <div class="cid">${{esc(g.slug)}} &bull; ${{esc(g.genre)}} &bull; touch:${{esc(g.touch_preset)}}</div>
+              <div class="ctitle">${{esc(g.title)}} ${{flagBadge}}</div>
+              <p class="cdesc">${{esc(g.description)}}</p>
+              <div class="tags">${{tHtml}}</div>
+            </div>
+            <div class="actions">
+              <a class="btn-play" href="play.html?game=${{encodeURIComponent(g.slug)}}">&#9654; Play</a>
+              <a class="btn-sec" href="play.html?game=${{encodeURIComponent(g.slug)}}&amp;mod=example_retro_pack" title="Launch with Amber CRT &amp; PS1 Mod">+Mod</a>
+              <a class="btn-sec" href="games/${{encodeURIComponent(g.slug)}}/scripts/main.lua" target="_blank">Lua</a>
+            </div>
           </div>
         </article>`;
       }}).join('');
@@ -191,10 +227,12 @@ def build_index_html(games_meta):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--wasm-dir", default=os.path.join(ROOT, "build-web"))
+    ap.add_argument("--engine-bin", default="", help="Optional native engine binary to render 2x2 gallery thumbnails")
     ap.add_argument("--out-dir", default=os.path.join(ROOT, "dist"))
     args = ap.parse_args()
 
     out_dir = os.path.abspath(args.out_dir)
+    thumbs_dir = os.path.join(out_dir, "thumbs")
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.join(out_dir, "manifests"), exist_ok=True)
 
@@ -218,6 +256,7 @@ def main():
 
     # 3. Package each game + emit per-game HTTP VFS manifest
     games_root = os.path.join(ROOT, "games")
+    slugs = []
     games_meta = []
     if os.path.isdir(games_root):
         for slug in sorted(os.listdir(games_root)):
@@ -225,6 +264,7 @@ def main():
             gjson_path = os.path.join(gdir, "game.json")
             if not os.path.isfile(gjson_path):
                 continue
+            slugs.append(slug)
             with open(gjson_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
             lua_path = os.path.join(gdir, meta.get("entry_script", "scripts/main.lua"))
@@ -254,13 +294,27 @@ def main():
                 "touch_preset": meta.get("touch_preset", "dual_stick"),
                 "xr_mode": meta.get("xr_mode", "diorama"),
                 "tags": detect_tags(meta, lua_src),
+                "thumb": False,
             })
 
-    # 4. Write interactive overview hub index.html
+    # 4. Optional parallel OpenGL 2x2 contact-sheet thumbnail rendering
+    engine_bin = os.path.abspath(args.engine_bin) if args.engine_bin else ""
+    if engine_bin and os.path.isfile(engine_bin) and slugs:
+        os.makedirs(thumbs_dir, exist_ok=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, max(1, os.cpu_count() or 4))) as pool:
+            futs = {
+                slug: pool.submit(capture_one_thumb, engine_bin, slug, os.path.join(thumbs_dir, f"{slug}.png"))
+                for slug in slugs
+            }
+            for gm in games_meta:
+                gm["thumb"] = bool(futs[gm["slug"]].result())
+
+    # 5. Write interactive overview hub index.html
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(build_index_html(games_meta))
 
-    print(f"Packaged GitHub Pages bundle in '{out_dir}' with {len(games_meta)} games and 1 shared engine.wasm.")
+    thumbs_ok = sum(1 for g in games_meta if g["thumb"])
+    print(f"Packaged GitHub Pages bundle in '{out_dir}' with {len(games_meta)} games ({thumbs_ok} thumbnails) and 1 shared engine.wasm.")
 
 
 if __name__ == "__main__":
