@@ -3,6 +3,9 @@
 #include "engine/eng_log.h"
 
 #include <SDL3/SDL.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -92,6 +95,15 @@ eng_platform_t *eng_platform_create(const eng_platform_config_t *cfg_in) {
             eng_platform_move_to_display(p, cfg.display_index);
         }
         p->gl_ctx = SDL_GL_CreateContext(p->window);
+#ifdef __EMSCRIPTEN__
+        if (p->gl_ctx) {
+            EMSCRIPTEN_WEBGL_CONTEXT_HANDLE wctx = emscripten_webgl_get_current_context();
+            if (wctx > 0) {
+                emscripten_webgl_enable_extension(wctx, "EXT_color_buffer_float");
+                emscripten_webgl_enable_extension(wctx, "EXT_color_buffer_half_float");
+            }
+        }
+#endif
     }
 
     if (!p->window || !p->gl_ctx || !eng_gl_load((eng_gl_load_fn)SDL_GL_GetProcAddress, want_gles)) {

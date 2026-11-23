@@ -92,11 +92,12 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
-      - name: Compile Shared WebAssembly Engine & Render 100 Gallery Thumbnails
+      - name: Compile Shared WebAssembly Engine, Render 101 Gallery Thumbnails & Smoke-Test in Chrome
         run: |
           emcmake cmake -B build-web -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-web -j
           xvfb-run -a python3 web/build_pages.py --wasm-dir build-web --engine-bin ./build-host/engine --out-dir dist
+          python3 tests/check_web_bundle.py dist
       - name: Upload Pages Artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3

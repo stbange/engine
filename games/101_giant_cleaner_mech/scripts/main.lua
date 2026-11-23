@@ -103,9 +103,9 @@ function init()
     spawn_part(0, S.knee_r, "shin_r", {0.0, -1.3, 0.0}, {0.95, 2.6, 1.05}, box_m, slate, 0.6, 0.4)
     spawn_part(0, S.knee_r, "boot_r", {0.0, -2.45, -0.35}, {1.5, 0.55, 2.2}, box_m, yellow, 0.5, 0.5)
 
-    -- Left Vortex Vacuum Arm & Right Hydro-Scrubber Arm
-    S.arm_vac = spawn_part(0, mech, "arm_vac", {-3.2, 8.4, -1.5}, {0.9, 0.9, 3.4}, cyl_m, cyan, 0.6, 0.3)
-    S.arm_scrub = spawn_part(0, mech, "arm_scrub", {3.2, 8.4, -1.5}, {0.9, 0.9, 3.4}, cyl_m, {0.22, 0.92, 0.52, 1.0}, 0.6, 0.3)
+    -- Left Vortex Vacuum Arm & Right Hydro-Scrubber Arm (mounted below shoulder observation windows)
+    S.arm_vac = spawn_part(0, mech, "arm_vac", {-3.2, 6.6, -1.5}, {0.9, 0.9, 3.4}, cyl_m, cyan, 0.6, 0.3)
+    S.arm_scrub = spawn_part(0, mech, "arm_scrub", {3.2, 6.6, -1.5}, {0.9, 0.9, 3.4}, cyl_m, {0.22, 0.92, 0.52, 1.0}, 0.6, 0.3)
     S.scrub_disc = spawn_part(0, S.arm_scrub, "scrub_disc", {0.0, -0.4, -1.6}, {2.0, 0.3, 2.0}, cyl_m, {0.85, 0.98, 0.92, 1.0}, 0.2, 0.3)
 
     S.foam_emitter = eng.particles.create({ pos = {3.2, 3.0, 16.0}, dir = {0.0, -1.0, -0.5}, spread = 0.8, speed = 6.0, rate = 0.0, life = 0.6 })

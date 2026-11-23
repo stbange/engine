@@ -113,7 +113,9 @@
           statusEl.textContent = 'Streaming ' + mf.files.length + ' unbaked files into VFS...';
           await preloadList(Module.FS, mf.files);
 
-          const args = ['--repo-root', '/', '--game', '/games/' + gameSlug];
+          const cw = Math.max(320, Module.canvas.clientWidth || window.innerWidth || 1280);
+          const ch = Math.max(240, Module.canvas.clientHeight || (window.innerHeight - 42) || 720);
+          const args = ['--repo-root', '/', '--game', '/games/' + gameSlug, '--width', String(cw), '--height', String(ch)];
           if (modSlug && mf.mod_files) {
             await preloadList(Module.FS, mf.mod_files);
             args.push('--mod', '/mods/' + modSlug);
@@ -123,6 +125,7 @@
           bindTouchButtons();
           initWebXR();
         } catch (err) {
+          statusEl.style.display = 'block';
           statusEl.textContent = 'Load Error: ' + err.message;
           console.error(err);
         }

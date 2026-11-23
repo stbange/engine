@@ -93,6 +93,9 @@ struct eng_runtime_s {
     int mod_hooks_ref;
     int watchdog_left;
 
+    struct { float x, y; char text[160]; } hud_texts[24];
+    size_t hud_text_count;
+
     bool kinematics_synced;
     bool cov_enabled;
     lua_cov_file_t cov_files[16];
@@ -510,8 +513,13 @@ static int l_render_draw_text(lua_State *L) {
     const char *txt = luaL_checkstring(L, 1);
     float x = chk_f(L, 2), y = chk_f(L, 3), scl = opt_f(L, 4, 1.0f);
     eng_vec4_t col = {opt_f(L, 5, 1.0f), opt_f(L, 6, 1.0f), opt_f(L, 7, 1.0f), opt_f(L, 8, 1.0f)};
+    if (rt->hud_text_count < 24) {
+        size_t idx = rt->hud_text_count++;
+        rt->hud_texts[idx].x = x;
+        rt->hud_texts[idx].y = y;
+        snprintf(rt->hud_texts[idx].text, sizeof(rt->hud_texts[idx].text), "%s", txt);
+    }
     eng_mesh_data_t md;
-    /* Place 3D/HUD text cleanly in front of active camera when drawn from HUD */
     eng_vec3_t fwd = eng_quat_rotate_v3(rt->cam.rot, eng_v3(0.0f, 0.0f, -1.5f));
     eng_vec3_t base = eng_v3_add(rt->cam.pos, eng_v3_add(fwd, eng_v3((x - 320.0f) * 0.002f, (240.0f - y) * 0.002f, 0.0f)));
     if (eng_text_build_mesh(rt->font, txt, base, scl * 0.004f, col, &md) > 0) {
@@ -1879,6 +1887,7 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
         if (ns > 0) eng_renderer_submit_sprites(rt->renderer, p_sprites, ns);
     }
 
+    rt->hud_text_count = 0;
     if (!call_sandbox_fn(rt, "draw", 0, 0.0f, err_buf, err_cap)) return false;
 
     /* Flush queued HUD labels/bars */
@@ -1893,6 +1902,17 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
 
     eng_renderer_render_frame(rt->renderer, rt->scene, rt->portals, &rt->cam, rt->xr);
     return true;
+}
+
+size_t eng_runtime_hud_text_count(const eng_runtime_t *rt) {
+    return rt ? rt->hud_text_count : 0;
+}
+
+const char *eng_runtime_hud_text_get(const eng_runtime_t *rt, size_t idx, float *out_x, float *out_y) {
+    if (!rt || idx >= rt->hud_text_count) return NULL;
+    if (out_x) *out_x = rt->hud_texts[idx].x;
+    if (out_y) *out_y = rt->hud_texts[idx].y;
+    return rt->hud_texts[idx].text;
 }
 
 bool eng_runtime_run_playtest(eng_runtime_t *rt, const char *test_vpath, int max_frames,

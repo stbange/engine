@@ -14,6 +14,10 @@ Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the 
   - Default 3-player local split-keyboard action bindings (`p1_*` `WASD+E`, `p2_*` `IJKL+U`, `p3_*` `Arrows+Return`, `switch_crew` `Tab`, `toggle_cam` `C`).
   - **Game `101` (`games/101_giant_cleaner_mech`)**: *Titan Janitor: 3-Crew Cleaning Mech* — three players simultaneously steering, walking, operating Vacuum/Scrubber/Recycler stations, and performing Galilean EVA ramp exits & moving-ramp re-boarding inside a giant 14m bipedal cleaning robot.
 
+### Fixed
+- **Emscripten WebAssembly & Chrome Player (`CMakeLists.txt`, `src/eng_platform.c`, `src/eng_cli.c`, `web/shell_play.html`)**:
+  - Exported `'callMain'` in `EXPORTED_RUNTIME_METHODS`, raised WASM C stack size from Emscripten's 64 KB default to `2 MB` (`-sSTACK_SIZE=2097152`), enabled WebGL2 `EXT_color_buffer_float` for deferred G-buffers, added full-window high-DPI viewport resize + Nuklear HUD label rendering, and added headless Chrome CI smoke gate (`tests/check_web_bundle.py`).
+
 ## [0.1.0] - 2026-11-23
 
 ### Added

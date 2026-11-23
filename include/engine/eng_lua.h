@@ -60,6 +60,8 @@ eng_xr_t *eng_runtime_xr(eng_runtime_t *rt);
 eng_platform_t *eng_runtime_platform(eng_runtime_t *rt);
 eng_camera_t *eng_runtime_camera(eng_runtime_t *rt);
 uint32_t eng_runtime_light_count(const eng_runtime_t *rt);
+size_t eng_runtime_hud_text_count(const eng_runtime_t *rt);
+const char *eng_runtime_hud_text_get(const eng_runtime_t *rt, size_t idx, float *out_x, float *out_y);
 
 /* Load game.json + scenes/main.json (if present) + scripts/main.lua + active mod.lua, then call init(). */
 bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap);
