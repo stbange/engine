@@ -1,0 +1,22 @@
+{
+  "id": "020_boss_colossus",
+  "title": "Boss Colossus",
+  "description": "Ancient arena duel against a towering IK-rigged procedural quadruped colossus: dodge seismic stomp shockwaves and shatter all 3 glowing weak-point crystals.",
+  "genre": "action",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.01
+  },
+  "default_locale": "en"
+}

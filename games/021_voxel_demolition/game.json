@@ -1,0 +1,22 @@
+{
+  "id": "021_voxel_demolition",
+  "title": "Voxel Demolition",
+  "description": "Structural voxel demolition puzzle: plant timed C4 charges on load-bearing ASCII voxel columns to collapse the tower below the target laser line.",
+  "genre": "puzzle_physics",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.015
+  },
+  "default_locale": "en"
+}

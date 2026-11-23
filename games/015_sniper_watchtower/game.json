@@ -1,0 +1,22 @@
+{
+  "id": "015_sniper_watchtower",
+  "title": "Sniper Watchtower",
+  "description": "Elevated watchtower sniper defense featuring gravity drop, crosswind bullet drift, hold-breath scope stabilization, and procedural humanoid infiltrators.",
+  "genre": "shooter",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.012
+  },
+  "default_locale": "en"
+}

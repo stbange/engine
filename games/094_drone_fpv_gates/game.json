@@ -1,0 +1,14 @@
+{
+  "id": "094_drone_fpv_gates",
+  "title": "Drone FPV Gates",
+  "description": "High-speed FPV quadcopter race where Gate #3 is a seamless portal diving from a desert canyon into a bigger-on-the-inside neon reactor core and back out.",
+  "genre": "racing_fpv",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "steering",
+  "xr_mode": "cockpit",
+  "default_locale": "en"
+}

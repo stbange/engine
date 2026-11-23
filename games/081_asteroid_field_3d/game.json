@@ -1,0 +1,22 @@
+{
+  "id": "081_asteroid_field_3d",
+  "title": "Asteroid Field 3D",
+  "description": "Retro 3D orbital starfighter arcade shooter with Newtonian thrust, toroidal sector wrap, and tumbling asteroids that split from large boulders into medium and small fragments.",
+  "genre": "arcade_shooter",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": true,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

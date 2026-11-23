@@ -1,0 +1,21 @@
+{
+  "id": "046_relic_hunter_traps",
+  "title": "Relic Hunter Traps",
+  "description": "Indiana-Jones temple heist dodging swinging pendulum axes, poison wall darts, and a giant rolling stone boulder with the Golden Idol.",
+  "genre": "action",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.018
+  },
+  "default_locale": "en"
+}

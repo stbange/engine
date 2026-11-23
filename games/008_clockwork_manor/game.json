@@ -1,0 +1,22 @@
+{
+  "id": "008_clockwork_manor",
+  "title": "Clockwork Manor",
+  "description": "Non-Euclidean stealth heist across a 3-wing bigger-on-the-inside Victorian clockwork mansion with deferred spotlights, Markov-named gala guests, patrolling guards, and 3 priceless heirlooms.",
+  "genre": "stealth",
+  "flagship": true,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "deferred",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

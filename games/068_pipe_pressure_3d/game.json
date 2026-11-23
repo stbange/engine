@@ -1,0 +1,22 @@
+{
+  "id": "068_pipe_pressure_3d",
+  "title": "Pipe Pressure 3D",
+  "description": "Rotate 3D brass elbow and T-junction pipe segments inside an industrial boiler cube to route high-pressure steam from the inlet manifold to the turbines before the boiler bursts.",
+  "genre": "puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.012
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "089_qbert_pyramid_hop",
+  "title": "Q-Pyramid Hop",
+  "description": "Diagonal 3D arcade hopper across a 4-tier stepped cube pyramid — flip all 10 top tiles to gleaming gold while dodging bouncing crimson hazard orbs and pursuing purple Coily spheres.",
+  "genre": "arcade_puzzle_action",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.010
+  },
+  "default_locale": "en"
+}

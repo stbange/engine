@@ -1,0 +1,22 @@
+{
+  "id": "028_meteor_shelter",
+  "title": "Meteor Shelter",
+  "description": "Survival voxel builder: harvest stone boulders and construct overhead voxel roof slabs before a 3D meteor shower rains down.",
+  "genre": "survival_builder",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.018
+  },
+  "default_locale": "en"
+}

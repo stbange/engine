@@ -1,0 +1,21 @@
+{
+  "id": "033_biplane_barnstormer",
+  "title": "Biplane Barnstormer",
+  "description": "Retro island biplane pitch-and-roll flight through golden sky rings and wooden barn arches in cockpit view.",
+  "genre": "flight",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.009
+  },
+  "default_locale": "en"
+}

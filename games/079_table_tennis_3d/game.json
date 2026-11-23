@@ -1,0 +1,22 @@
+{
+  "id": "079_table_tennis_3d",
+  "title": "Table Tennis 3D",
+  "description": "6DoF-ready 3D ping-pong rally physics featuring Magnus topspin dip, backspin slice float, net-cord deflections, and an agile AI opponent.",
+  "genre": "table",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "6dof",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.005
+  },
+  "default_locale": "en"
+}

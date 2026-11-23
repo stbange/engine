@@ -1,0 +1,21 @@
+{
+  "id": "037_forklift_warehouse",
+  "title": "Forklift Warehouse",
+  "description": "Operate a warehouse forklift to hoist crate pallets and load them up the rear ramp of a compact delivery truck that opens into a cavernous pocket cargo bay.",
+  "genre": "simulation_puzzle",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.010
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "example_retro_pack",
+  "title": "Amber CRT & PS1 Dither Pack",
+  "engine_version": "0.1.0",
+  "author": "stbange/engine",
+  "license": "MIT",
+  "entry_script": "mod.lua"
+}

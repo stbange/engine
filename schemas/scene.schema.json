@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stbange/engine/schemas/scene.schema.json",
+  "title": "Engine Scene Definition (scenes/*.json)",
+  "type": "object",
+  "required": ["name", "entities"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "skybox": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["procedural", "cubemap", "solid"] },
+        "zenith_color": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "horizon_color": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "cubemap_path": { "type": "string" }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "parent": { "type": "string" },
+          "pocket": { "type": "string", "default": "world" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "transform": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pos": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+              "rot_deg": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+              "scale": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+            }
+          },
+          "camera": { "type": "object" },
+          "light": { "type": "object" },
+          "mesh": { "type": "object" },
+          "sprite": { "type": "object" },
+          "voxel": { "type": "object" },
+          "portal": { "type": "object" },
+          "procgen": { "type": "object" },
+          "rigid_body": { "type": "object" },
+          "collider": { "type": "object" },
+          "audio_source": { "type": "object" },
+          "nav_agent": { "type": "object" },
+          "script": { "type": "object" }
+        }
+      }
+    }
+  }
+}

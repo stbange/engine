@@ -1,0 +1,114 @@
+name: CI & GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-and-ci-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  coverage-and-specs:
+    name: OpenSpec, Unit Tests & >=95% Coverage (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Dependencies & OpenSpec
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build lcov libgl-dev libegl-dev libgles-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
+            libxss-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libluajit-5.1-dev luajit xvfb mesa-utils
+          npm install -g @fission-ai/openspec@latest --no-fund --no-audit
+
+      - name: Validate OpenSpec Living Specifications
+        env:
+          OPENSPEC_TELEMETRY: "0"
+        run: openspec validate --specs --strict
+
+      - name: Build & Run Unit Tests with Coverage
+        run: |
+          cmake -B build-cov -GNinja -DENG_ENABLE_COVERAGE=ON
+          cmake --build build-cov -j
+          xvfb-run -a ctest --test-dir build-cov --output-on-failure
+          python3 tests/check_coverage.py build-cov
+
+      - name: Run All 100 Automated Headless Game Audits & Playtests
+        run: |
+          cmake -B build-rel -GNinja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-rel -j
+          python3 tests/run_all_games.py ./build-rel/engine --expect-count 100
+
+  cross-platform-build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux X11/GL Dev Packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxfixes-dev libxi-dev libxss-dev libwayland-dev libxkbcommon-dev \
+            libgl-dev libegl-dev libasound2-dev libpulse-dev libluajit-5.1-dev
+      - name: Configure & Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release -j
+      - name: Run Unit Tests
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  web-build:
+    name: Build Emscripten Web & WebXR Bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+      - name: Compile Shared WebAssembly Engine
+        run: |
+          emcmake cmake -B build-web -GNinja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web -j
+          if [ -f web/build_pages.py ]; then
+            python3 web/build_pages.py --wasm-dir build-web --out-dir dist
+          else
+            mkdir -p dist
+            cp build-web/engine.* dist/
+          fi
+      - name: Upload Pages Artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy-pages:
+    name: Deploy Showcase to GitHub Pages (from main)
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [coverage-and-specs, web-build]
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

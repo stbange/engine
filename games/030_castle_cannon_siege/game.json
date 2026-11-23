@@ -1,0 +1,22 @@
+{
+  "id": "030_castle_cannon_siege",
+  "title": "Castle Cannon Siege",
+  "description": "Ballistic siege artillery: adjust barrel pitch and yaw to breach a WFC-generated voxel fortress curtain wall and shatter the royal crown chest.",
+  "genre": "artillery_physics",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.016
+  },
+  "default_locale": "en"
+}

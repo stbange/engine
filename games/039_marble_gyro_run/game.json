@@ -1,0 +1,21 @@
+{
+  "id": "039_marble_gyro_run",
+  "title": "Marble Gyro Run",
+  "description": "Tilt the world gravity vector to roll a dynamic physics sphere across narrow suspended catwalks, corner gems, and into the golden goal cup.",
+  "genre": "physics_puzzle",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "steering",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.009
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "004_chrono_kart_64",
+  "title": "Chrono Kart 64",
+  "description": "3-cup N64-style arcade kart racer with procedural asphalt/grass textures, Poisson-scattered L-system trees, and 3 rubber-band AI karts.",
+  "genre": "racing",
+  "flagship": true,
+  "primitives": ["mesh", "sprite", "particles", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "steering",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

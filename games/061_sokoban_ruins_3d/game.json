@@ -1,0 +1,22 @@
+{
+  "id": "061_sokoban_ruins_3d",
+  "title": "Sokoban Ruins 3D",
+  "description": "Multi-elevation 3D stone crate pushing puzzle with stone ramps, cliff drops, and sunken glyph switches.",
+  "genre": "puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.015
+  },
+  "default_locale": "en"
+}

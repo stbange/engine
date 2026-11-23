@@ -1,0 +1,22 @@
+{
+  "id": "027_ant_colony_3d",
+  "title": "Ant Colony 3D",
+  "description": "Pheromone trail simulation guiding procedural insectoid worker ants between crystal food clusters and the Queen's voxel nest.",
+  "genre": "simulation",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.016
+  },
+  "default_locale": "en"
+}

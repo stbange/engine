@@ -1,0 +1,14 @@
+{
+  "id": "093_vr_pottery_lathe",
+  "title": "VR Pottery Lathe",
+  "description": "6DoF WebXR ceramic studio — sculpt spinning stacked clay rings and apply procedural glaze textures to match classic vase commissions.",
+  "genre": "creative_xr",
+  "flagship": false,
+  "primitives": ["mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "6dof",
+  "default_locale": "en"
+}

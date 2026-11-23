@@ -1,0 +1,14 @@
+{
+  "id": "096_net_tag_arena",
+  "title": "Net Tag Arena",
+  "description": "Jetpack + portal arena tag — pass the glowing IT crown before the round timer expires using arena warp doorways.",
+  "genre": "arena_net",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "default_locale": "en"
+}

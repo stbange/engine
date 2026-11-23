@@ -1,0 +1,22 @@
+{
+  "id": "010_prism_sanctum_xr",
+  "title": "Prism Sanctum XR",
+  "description": "3-chamber 6DoF WebXR optical portal puzzle: rotate crystal mirrors and 3D elevation prisms so raycast laser beams refract through bigger-on-the-inside pocket portals.",
+  "genre": "puzzle",
+  "flagship": true,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "6dof",
+  "retro": {
+    "vertex_snap": 0,
+    "nearest_textures": false,
+    "dither_bayer": false,
+    "color_bits": 8,
+    "crt_scanlines": false,
+    "fog_density": 0.005
+  },
+  "default_locale": "en"
+}

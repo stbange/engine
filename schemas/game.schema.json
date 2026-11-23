@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stbange/engine/schemas/game.schema.json",
+  "title": "Engine Game Manifest (game.json)",
+  "type": "object",
+  "required": ["id", "title", "engine_version", "entry_script"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[0-9a-z_]+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "genre": { "type": "string" },
+    "flagship": { "type": "boolean", "default": false },
+    "primitives": {
+      "type": "array",
+      "items": { "enum": ["mesh", "sprite", "voxel", "terrain", "particles", "sdf_text"] }
+    },
+    "engine_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$" },
+    "entry_script": { "type": "string", "default": "scripts/main.lua" },
+    "initial_scene": { "type": "string" },
+    "pipeline": { "type": "string", "enum": ["forward", "deferred"], "default": "forward" },
+    "touch_preset": {
+      "type": "string",
+      "enum": ["dual_stick", "dpad_buttons", "tap_drag", "steering"],
+      "default": "dual_stick"
+    },
+    "xr_mode": {
+      "type": "string",
+      "enum": ["diorama", "cockpit", "first_person", "6dof"],
+      "default": "diorama"
+    },
+    "retro": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vertex_snap": { "type": "number", "minimum": 0 },
+        "nearest_textures": { "type": "boolean" },
+        "dither_bayer": { "type": "boolean" },
+        "color_bits": { "type": "integer", "minimum": 2, "maximum": 8 },
+        "crt_scanlines": { "type": "boolean" },
+        "fog_density": { "type": "number", "minimum": 0 }
+      }
+    },
+    "default_locale": { "type": "string", "default": "en" }
+  }
+}

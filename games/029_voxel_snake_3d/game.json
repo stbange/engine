@@ -1,0 +1,22 @@
+{
+  "id": "029_voxel_snake_3d",
+  "title": "Voxel Snake 3D",
+  "description": "3D manifold snake slithering across all 6 faces of a floating mini voxel planetoid eating glowing apples without self-collision.",
+  "genre": "arcade_3d",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.010
+  },
+  "default_locale": "en"
+}

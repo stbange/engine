@@ -1,0 +1,22 @@
+{
+  "id": "053_traffic_director_3d",
+  "title": "Traffic Director 3D",
+  "description": "Manage a busy 4-way WFC city intersection by toggling 3D traffic signals to prevent crashes while clearing 12 vehicles.",
+  "genre": "strategy",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.011
+  },
+  "default_locale": "en"
+}

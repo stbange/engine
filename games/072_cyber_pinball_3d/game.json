@@ -1,0 +1,22 @@
+{
+  "id": "072_cyber_pinball_3d",
+  "title": "Cyber Pinball 3D",
+  "description": "Sloped 3D neon pinball table featuring spring plunge launcher, dual flippers, high-voltage jet bumpers, and a cross-portal upper bonus deck.",
+  "genre": "pinball",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": true,
+    "fog_density": 0.006
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "059_lighthouse_warden",
+  "title": "Lighthouse Warden",
+  "description": "Rotate a volumetric spotlight cone across stormy waves to guide cargo ships safely past jagged sea rocks into harbor.",
+  "genre": "simulation",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "steering",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.018
+  },
+  "default_locale": "en"
+}

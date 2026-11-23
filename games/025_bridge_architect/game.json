@@ -1,0 +1,22 @@
+{
+  "id": "025_bridge_architect",
+  "title": "Bridge Architect",
+  "description": "Engineering physics puzzle: build structural voxel truss spans across a deep canyon and drive a heavy cargo truck across to the goal flag.",
+  "genre": "engineering_physics",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

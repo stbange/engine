@@ -1,0 +1,22 @@
+{
+  "id": "062_mirror_laser_cube",
+  "title": "Mirror Laser Cube",
+  "description": "Rotate 45-degree 3D mirror cubes on an optical board so raycast laser beams energize all crystal receivers.",
+  "genre": "puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.012
+  },
+  "default_locale": "en"
+}

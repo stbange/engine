@@ -1,0 +1,22 @@
+{
+  "id": "058_medieval_catapult_command",
+  "title": "Medieval Catapult Command",
+  "description": "Command pike and archer shieldwall formations while winding up a siege trebuchet to crush charging cavalry waves.",
+  "genre": "strategy",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.012
+  },
+  "default_locale": "en"
+}

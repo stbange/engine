@@ -1,0 +1,22 @@
+{
+  "id": "071_mini_golf_peaks",
+  "title": "Mini Golf Peaks",
+  "description": "3-hole 3D alpine mini-golf featuring 45-degree banked bumpers, a rotating windmill hazard, and a cross-pocket portal putt onto a floating sky island green.",
+  "genre": "sports",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

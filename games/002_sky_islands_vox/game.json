@@ -1,0 +1,22 @@
+{
+  "id": "002_sky_islands_vox",
+  "title": "Sky Islands Vox",
+  "description": "3-stage floating voxel island survival with IK-rigged procedural wildlife, sky crystal harvesting, and a bigger-on-the-inside workshop tent.",
+  "genre": "survival",
+  "flagship": true,
+  "primitives": ["voxel", "mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.012
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "083_frogger_highway_vox",
+  "title": "Frogger Highway Vox",
+  "description": "Voxel arcade hopper crossing multi-lane 3D trucks and riding floating voxel river logs into 3 lily alcoves.",
+  "genre": "arcade_hopper",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.012
+  },
+  "default_locale": "en"
+}

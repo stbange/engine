@@ -1,0 +1,14 @@
+{
+  "id": "097_synth_sequencer_3d",
+  "title": "Synth Sequencer 3D",
+  "description": "Walkable 8-step x 4-track 3D musical tower where toggling glowing note pads triggers polyphonic synth harmonies to unlock the harmonic lock.",
+  "genre": "music_puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "default_locale": "en"
+}

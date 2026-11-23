@@ -1,0 +1,22 @@
+{
+  "id": "084_pac_catacombs",
+  "title": "Pac Catacombs",
+  "description": "3D neon maze chomper featuring seamless left-right warp portals, glowing pellets, power-orbs, and NavGrid A* ghost chasers.",
+  "genre": "arcade_maze",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 280,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": true,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

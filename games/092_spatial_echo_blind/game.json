@@ -1,0 +1,18 @@
+{
+  "id": "092_spatial_echo_blind",
+  "title": "Spatial Echo Blind",
+  "description": "Dark cavern echolocation puzzler — emit sonar pulses that spawn glowing echo rings and cross-portal 3D audio pings leading through a cavern portal to the exit chime.",
+  "genre": "audio_puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "retro": {
+    "dither_bayer": true,
+    "fog_density": 0.038
+  },
+  "default_locale": "en"
+}

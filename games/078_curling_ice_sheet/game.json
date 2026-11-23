@@ -1,0 +1,22 @@
+{
+  "id": "078_curling_ice_sheet",
+  "title": "Curling Ice Sheet",
+  "description": "Slide polished granite stones down a pebbled 3D ice sheet and sweep vigorously to lower ice friction and park closest to the House button.",
+  "genre": "sports",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.006
+  },
+  "default_locale": "en"
+}

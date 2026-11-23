@@ -1,0 +1,21 @@
+{
+  "id": "042_rogue_spire_3d",
+  "title": "Rogue Spire 3D",
+  "description": "3-floor procedural spire roguelike climb with DNA-rigged animal monsters, ATK/DEF loot chests, and an apex Boss Altar.",
+  "genre": "roguelike",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.018
+  },
+  "default_locale": "en"
+}

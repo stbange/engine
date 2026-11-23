@@ -1,0 +1,22 @@
+{
+  "id": "013_mech_siege",
+  "title": "Mech Siege",
+  "description": "Heavy biped walker defense with procedural IK gait, rotary autocannon heat management, jump-jet shockwave slams, and flanking sapper waves targeting a reactor core.",
+  "genre": "action",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.015
+  },
+  "default_locale": "en"
+}

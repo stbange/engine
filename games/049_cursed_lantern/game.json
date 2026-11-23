@@ -1,0 +1,21 @@
+{
+  "id": "049_cursed_lantern",
+  "title": "Cursed Lantern",
+  "description": "Dark L-system forest survival where fueling your voxel lantern point-light radius repels shadow wraiths while igniting 4 ancient beacons.",
+  "genre": "survival",
+  "primitives": ["mesh", "voxel", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.032
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "017_turret_command",
+  "title": "Turret Command",
+  "description": "3D orbital dome defense launching proximity flak counter-missiles from 3 city batteries to detonate incoming meteor and MIRV waves.",
+  "genre": "arcade",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": true,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

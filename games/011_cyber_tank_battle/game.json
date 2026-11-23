@@ -1,0 +1,22 @@
+{
+  "id": "011_cyber_tank_battle",
+  "title": "Cyber Tank Battle",
+  "description": "Battlezone-style retro dithered 3D cyber-tank combat with radar obstacle sweeps, independent turret rotation, parabolic shell ballistics, and enemy vector tanks.",
+  "genre": "shooter",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "steering",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 4,
+    "crt_scanlines": true,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

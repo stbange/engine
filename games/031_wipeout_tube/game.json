@@ -1,0 +1,21 @@
+{
+  "id": "031_wipeout_tube",
+  "title": "Wipeout Tube",
+  "description": "High-speed anti-gravity craft banking around a futuristic 3D neon track with speed pads, hazard mines, and shield hyperboost.",
+  "genre": "racing",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "steering",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

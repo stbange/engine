@@ -1,0 +1,22 @@
+{
+  "id": "060_terra_garden",
+  "title": "Terra Garden",
+  "description": "Orbit a barren 3D cube-sphere planet to seed rainstorms, procedural L-system forests, and articulated DNA wildlife until the planetary biosphere reaches 100%.",
+  "genre": "simulation",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.006
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "091_rhythm_saber_xr",
+  "title": "Rhythm Saber XR",
+  "description": "6DoF WebXR neon beat-slashing arcade synced to synthesized pentatonic pitch sequences for high-combo streaks.",
+  "genre": "rhythm_xr",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "6dof",
+  "default_locale": "en"
+}

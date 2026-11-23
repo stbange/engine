@@ -1,0 +1,22 @@
+{
+  "id": "088_elevator_heist_3d",
+  "title": "Elevator Heist 3D",
+  "description": "Multi-floor 3D cutaway spy tower — ride glass 3D elevators, steal secret dossiers from crimson vault doors, evade patrolling procedural security agents, and escape in the basement getaway car.",
+  "genre": "arcade_stealth_action",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

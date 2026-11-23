@@ -1,0 +1,22 @@
+{
+  "id": "070_domino_chain_lab",
+  "title": "Domino Chain Lab",
+  "description": "Place missing ivory domino slabs into track gaps across curved and bridged laboratory runs, then flick the crimson starter domino to topple the golden bell.",
+  "genre": "puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.009
+  },
+  "default_locale": "en"
+}

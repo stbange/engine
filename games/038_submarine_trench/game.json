@@ -1,0 +1,21 @@
+{
+  "id": "038_submarine_trench",
+  "title": "Submarine Trench",
+  "description": "Pilot a deep-sea submersible with a walkable bigger-on-the-inside control room to sonar-scan hydrothermal vents and procedural aquatic leviathans.",
+  "genre": "exploration_sim",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.018
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "009_voxel_rail_tycoon",
+  "title": "Voxel Rail & Siege",
+  "description": "4-stage voxel quarry logistics & tower defense: shuttle crystal ore on dual minecart rails to build and upgrade prism turrets against insectoid siege waves.",
+  "genre": "strategy",
+  "flagship": true,
+  "primitives": ["voxel", "mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

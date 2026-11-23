@@ -1,0 +1,14 @@
+{
+  "id": "100_engine_meta_arcade",
+  "title": "Engine Meta Arcade",
+  "description": "Celebratory #100 flagship 3D retro arcade hall lined with glowing arcade cabinets whose screens are bigger-on-the-inside pocket portals — win tokens across 3 mini-cabinets to unlock the Golden Master Trophy.",
+  "genre": "meta_arcade",
+  "flagship": true,
+  "primitives": ["mesh", "sprite", "voxel", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "default_locale": "en"
+}

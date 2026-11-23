@@ -1,0 +1,22 @@
+{
+  "id": "075_skeet_clay_range",
+  "title": "Skeet Clay Range",
+  "description": "First-person outdoor skeet shooting range where shotgun pellet spread raycasts shatter parabolic flying clay discs launched from High and Low houses.",
+  "genre": "sports",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "particles", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 320,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.007
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Engine — Web &amp; WebXR Player</title>
+  <style>
+    :root { --bg:#0b0e14; --panel:#151a24; --accent:#4be3b0; --text:#e6edf3; --muted:#8b949e; }
+    * { box-sizing:border-box; user-select:none; -webkit-user-select:none; }
+    html, body { margin:0; padding:0; width:100%; height:100%; background:var(--bg); color:var(--text); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:hidden; }
+    #topbar { position:fixed; top:0; left:0; right:0; height:42px; background:rgba(21,26,36,0.92); border-bottom:1px solid #263042; display:flex; align-items:center; justify-content:space-between; padding:0 12px; z-index:20; font-size:13px; }
+    #topbar a { color:var(--accent); text-decoration:none; font-weight:600; }
+    .controls { display:flex; gap:8px; align-items:center; }
+    button.btn { background:#1e2636; color:var(--text); border:1px solid #33415c; border-radius:4px; padding:4px 10px; font-family:inherit; font-size:12px; cursor:pointer; }
+    button.btn:hover { border-color:var(--accent); color:var(--accent); }
+    button.btn.xr-ready { border-color:var(--accent); background:#13332b; color:var(--accent); font-weight:700; }
+    #canvas-wrap { position:fixed; top:42px; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; }
+    canvas#canvas { width:100%; height:100%; display:block; outline:none; touch-action:none; }
+    #status { position:fixed; top:54px; left:50%; transform:translateX(-50%); background:rgba(15,20,28,0.88); border:1px solid #2d3a4f; padding:6px 14px; border-radius:20px; font-size:12px; color:var(--muted); z-index:15; pointer-events:none; }
+    /* Automatic Mobile Touch Overlay */
+    #touch-hud { position:fixed; inset:42px 0 0 0; pointer-events:none; display:none; z-index:18; }
+    #touch-hud.visible { display:block; }
+    .dpad { position:absolute; left:20px; bottom:24px; width:156px; height:156px; pointer-events:auto; }
+    .dpad button, .apad button { position:absolute; background:rgba(30,40,58,0.68); border:2px solid rgba(75,227,176,0.65); color:#fff; border-radius:12px; font-weight:700; font-size:13px; touch-action:none; }
+    .dpad button:active, .apad button:active { background:rgba(75,227,176,0.45); }
+    .dp-u { left:52px; top:0; width:52px; height:52px; }
+    .dp-d { left:52px; bottom:0; width:52px; height:52px; }
+    .dp-l { left:0; top:52px; width:52px; height:52px; }
+    .dp-r { right:0; top:52px; width:52px; height:52px; }
+    .apad { position:absolute; right:20px; bottom:28px; width:164px; height:120px; pointer-events:auto; }
+    .ap-jump { right:0; bottom:0; width:74px; height:74px; border-radius:50% !important; }
+    .ap-fire { left:0; top:0; width:74px; height:74px; border-radius:50% !important; }
+  </style>
+</head>
+<body>
+  <div id="topbar">
+    <div>
+      <a href="index.html">&larr; All 100 Games</a>
+      <span id="game-title" style="margin-left:10px;color:#e6edf3;font-weight:700;">Loading...</span>
+    </div>
+    <div class="controls">
+      <button id="btn-touch" class="btn" title="Toggle Touch Controls">Touch HUD</button>
+      <button id="btn-xr" class="btn" disabled>WebXR Checking...</button>
+      <button id="btn-fs" class="btn">Fullscreen</button>
+    </div>
+  </div>
+
+  <div id="status">Fetching shared engine &amp; unbaked Lua/assets...</div>
+  <div id="canvas-wrap"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div>
+
+  <div id="touch-hud">
+    <div class="dpad">
+      <button class="dp-u" data-act="up">&uarr;</button>
+      <button class="dp-d" data-act="down">&darr;</button>
+      <button class="dp-l" data-act="left">&larr;</button>
+      <button class="dp-r" data-act="right">&rarr;</button>
+    </div>
+    <div class="apad">
+      <button class="ap-fire" data-act="fire">FIRE</button>
+      <button class="ap-jump" data-act="jump">JUMP</button>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const gameSlug = (params.get('game') || '001_catacomb_blitz').replace(/[^a-zA-Z0-9_-]/g, '');
+    const modSlug  = (params.get('mod') || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    document.getElementById('game-title').textContent = gameSlug;
+    const statusEl = document.getElementById('status');
+
+    // Auto-enable touch controls on mobile/tablet devices
+    const isMobile = (navigator.maxTouchPoints > 0) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    const touchHud = document.getElementById('touch-hud');
+    if (isMobile) touchHud.classList.add('visible');
+    document.getElementById('btn-touch').onclick = () => touchHud.classList.toggle('visible');
+    document.getElementById('btn-fs').onclick = () => document.getElementById('canvas').requestFullscreen?.();
+
+    function ensureDir(FS, filePath) {
+      const parts = filePath.split('/').slice(0, -1);
+      let cur = '';
+      for (const p of parts) {
+        if (!p) continue;
+        cur += '/' + p;
+        try { FS.mkdir(cur); } catch (_) {}
+      }
+    }
+
+    async function preloadList(FS, files) {
+      await Promise.all(files.map(async (rel) => {
+        const res = await fetch(rel);
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' loading ' + rel);
+        const buf = new Uint8Array(await res.arrayBuffer());
+        const dst = '/' + rel;
+        ensureDir(FS, dst);
+        FS.writeFile(dst, buf);
+      }));
+    }
+
+    var Module = {
+      preRun: [],
+      noInitialRun: true,
+      canvas: document.getElementById('canvas'),
+      print: (t) => console.log('[Engine]', t),
+      printErr: (t) => console.warn('[Engine]', t),
+      onRuntimeInitialized: async function() {
+        try {
+          try { Module.FS.mkdir('/saves'); Module.FS.mount(Module.IDBFS, {}, '/saves'); } catch (_) {}
+          const mfRes = await fetch('manifests/' + gameSlug + '.json');
+          if (!mfRes.ok) throw new Error('Missing game manifest manifests/' + gameSlug + '.json');
+          const mf = await mfRes.json();
+          if (mf.title) document.getElementById('game-title').textContent = mf.title + ' (' + gameSlug + ')';
+          statusEl.textContent = 'Streaming ' + mf.files.length + ' unbaked files into VFS...';
+          await preloadList(Module.FS, mf.files);
+
+          const args = ['--repo-root', '/', '--game', '/games/' + gameSlug];
+          if (modSlug && mf.mod_files) {
+            await preloadList(Module.FS, mf.mod_files);
+            args.push('--mod', '/mods/' + modSlug);
+          }
+          statusEl.style.display = 'none';
+          Module.callMain(args);
+          bindTouchButtons();
+          initWebXR();
+        } catch (err) {
+          statusEl.textContent = 'Load Error: ' + err.message;
+          console.error(err);
+        }
+      }
+    };
+
+    function bindTouchButtons() {
+      const inject = Module.cwrap('eng_web_inject_action', null, ['string', 'number']);
+      document.querySelectorAll('#touch-hud [data-act]').forEach((btn) => {
+        const act = btn.getAttribute('data-act');
+        const down = (e) => { e.preventDefault(); inject(act, 1); };
+        const up   = (e) => { e.preventDefault(); inject(act, 0); };
+        btn.addEventListener('pointerdown', down);
+        btn.addEventListener('pointerup', up);
+        btn.addEventListener('pointercancel', up);
+        btn.addEventListener('pointerleave', up);
+      });
+    }
+
+    async function initWebXR() {
+      const btn = document.getElementById('btn-xr');
+      if (!navigator.xr) { btn.textContent = 'WebXR Unavailable'; return; }
+      const ok = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
+      if (!ok) { btn.textContent = 'No VR Headset'; return; }
+      btn.disabled = false;
+      btn.textContent = 'Enter VR';
+      btn.classList.add('xr-ready');
+
+      let xrSession = null;
+      const headPtr  = Module._malloc(7 * 4);
+      const eyesPtr  = Module._malloc(64 * 4);
+      const vpPtr    = Module._malloc(8 * 4);
+      const handsPtr = Module._malloc(24 * 4);
+
+      btn.onclick = async () => {
+        if (xrSession) { await xrSession.end(); return; }
+        const gl = Module.ctx || Module.canvas.getContext('webgl2');
+        await gl.makeXRCompatible();
+        xrSession = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor'] });
+        btn.textContent = 'Exit VR';
+        const layer = new XRWebGLLayer(xrSession, gl);
+        xrSession.updateRenderState({ baseLayer: layer });
+        const refSpace = await xrSession.requestReferenceSpace('local-floor').catch(() => xrSession.requestReferenceSpace('local'));
+
+        let fboId = 0;
+        if (layer.framebuffer && Module.GL) {
+          fboId = Module.GL.getNewId(Module.GL.framebuffers);
+          Module.GL.framebuffers[fboId] = layer.framebuffer;
+        }
+
+        xrSession.addEventListener('end', () => {
+          Module._eng_web_end_xr();
+          xrSession = null;
+          btn.textContent = 'Enter VR';
+        });
+
+        const onXRFrame = (time, frame) => {
+          if (!xrSession) return;
+          xrSession.requestAnimationFrame(onXRFrame);
+          const pose = frame.getViewerPose(refSpace);
+          if (!pose) return;
+
+          const p = pose.transform.position, o = pose.transform.orientation;
+          Module.HEAPF32.set([p.x, p.y, p.z, o.x, o.y, o.z, o.w], headPtr >> 2);
+
+          for (let e = 0; e < Math.min(2, pose.views.length); e++) {
+            const v = pose.views[e];
+            const vp = layer.getViewport(v);
+            Module.HEAPF32.set(v.transform.inverse.matrix, (eyesPtr >> 2) + e * 32);
+            Module.HEAPF32.set(v.projectionMatrix, (eyesPtr >> 2) + e * 32 + 16);
+            Module.HEAP32.set([vp.x, vp.y, vp.width, vp.height], (vpPtr >> 2) + e * 4);
+          }
+
+          const hArr = new Float32Array(24);
+          let hIdx = 0;
+          for (const src of xrSession.inputSources) {
+            if (hIdx >= 2) break;
+            const space = src.gripSpace || src.targetRaySpace;
+            const sp = space ? frame.getPose(space, refSpace) : null;
+            if (sp) {
+              const hp = sp.transform.position, ho = sp.transform.orientation;
+              const gp = src.gamepad;
+              const trig = gp && gp.buttons[0] ? gp.buttons[0].value : 0;
+              const grip = gp && gp.buttons[1] ? gp.buttons[1].value : 0;
+              const sx   = gp && gp.axes.length > 2 ? gp.axes[2] : 0;
+              const sy   = gp && gp.axes.length > 3 ? gp.axes[3] : 0;
+              hArr.set([hp.x, hp.y, hp.z, ho.x, ho.y, ho.z, ho.w, trig, grip, sx, sy, 1.0], hIdx * 12);
+            }
+            hIdx++;
+          }
+          Module.HEAPF32.set(hArr, handsPtr >> 2);
+          Module._eng_web_submit_xr_frame(fboId, headPtr, eyesPtr, vpPtr, handsPtr);
+        };
+        xrSession.requestAnimationFrame(onXRFrame);
+      };
+    }
+  </script>
+  <script src="engine.js"></script>
+</body>
+</html>

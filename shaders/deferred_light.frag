@@ -1,0 +1,64 @@
+#include "shaders/common.glsl"
+
+in vec2 v_uv;
+
+uniform sampler2D u_gb_albedo_met;
+uniform sampler2D u_gb_norm_rough;
+uniform sampler2D u_gb_pos_ao;
+uniform sampler2D u_shadow_tex;
+uniform mat4 u_light_vp;
+uniform vec3 u_cam_pos;
+uniform vec3 u_ambient;
+uniform vec4 u_fog;
+uniform int u_light_count;
+uniform vec4 u_light_pos_type[8];
+uniform vec4 u_light_dir_range[8];
+uniform vec4 u_light_color_cone[8];
+uniform int u_has_shadow;
+
+layout(location = 0) out vec4 o_color;
+
+void main() {
+    vec4 pa = texture(u_gb_pos_ao, v_uv);
+    if (pa.w < 0.5) discard;
+    vec4 am = texture(u_gb_albedo_met, v_uv);
+    vec4 nr = texture(u_gb_norm_rough, v_uv);
+
+    vec3 world_pos = pa.xyz;
+    vec3 N = normalize(nr.xyz * 2.0 - 1.0);
+    vec3 V = normalize(u_cam_pos - world_pos);
+    vec3 albedo = am.rgb;
+    float metallic = am.w;
+    float roughness = nr.w;
+
+    float sh = 1.0;
+    if (u_has_shadow != 0) {
+        vec4 sc = u_light_vp * vec4(world_pos, 1.0);
+        vec3 proj = (sc.xyz / max(sc.w, 0.0001)) * 0.5 + 0.5;
+        if (proj.x >= 0.0 && proj.x <= 1.0 && proj.y >= 0.0 && proj.y <= 1.0 && proj.z <= 1.0) {
+            sh = (proj.z - 0.003 > texture(u_shadow_tex, proj.xy).r) ? 0.30 : 1.0;
+        }
+    }
+
+    vec3 Lo = u_ambient * albedo;
+    for (int i = 0; i < 8; i++) {
+        if (i >= u_light_count) break;
+        float ltype = u_light_pos_type[i].w;
+        vec3 L;
+        float atten = 1.0;
+        if (ltype < 0.5) {
+            L = normalize(-u_light_dir_range[i].xyz);
+            atten = sh;
+        } else {
+            vec3 to_l = u_light_pos_type[i].xyz - world_pos;
+            float dist = length(to_l);
+            L = to_l / max(dist, 0.0001);
+            float fall = clamp(1.0 - (dist / max(u_light_dir_range[i].w, 0.1)), 0.0, 1.0);
+            atten = fall * fall;
+        }
+        Lo += eng_pbr_eval(N, V, L, albedo, metallic, roughness, u_light_color_cone[i].rgb * atten);
+    }
+
+    float fog_f = 1.0 - exp(-u_fog.w * length(u_cam_pos - world_pos));
+    o_color = vec4(mix(Lo, u_fog.rgb, clamp(fog_f, 0.0, 1.0)), 1.0);
+}

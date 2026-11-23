@@ -1,0 +1,14 @@
+{
+  "id": "098_creature_zoo_lab",
+  "title": "Creature Zoo Lab",
+  "description": "Interactive procedural safari and DNA lab showcasing a live cube-sphere planet globe, all 6 DNA animal archetypes with IK gaits, and procedural keepers.",
+  "genre": "procgen_safari",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "default_locale": "en"
+}

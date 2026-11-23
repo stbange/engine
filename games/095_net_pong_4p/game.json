@@ -1,0 +1,14 @@
+{
+  "id": "095_net_pong_4p",
+  "title": "Net Pong 4P",
+  "description": "4-wall square arena 4-player paddle battle (1 local player + 3 replicated bot peers) defending all 4 goal walls from multi-ball chaos.",
+  "genre": "arcade_net",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "default_locale": "en"
+}

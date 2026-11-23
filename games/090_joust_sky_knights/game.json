@@ -1,0 +1,22 @@
+{
+  "id": "090_joust_sky_knights",
+  "title": "Joust Sky Knights",
+  "description": "Flap a procedural winged avian mount over bubbling lava platforms — win aerial lance collisions from higher Y altitude and swoop in to collect every dropped knight egg.",
+  "genre": "arcade_aerial_combat",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.010
+  },
+  "default_locale": "en"
+}

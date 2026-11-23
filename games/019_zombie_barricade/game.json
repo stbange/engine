@@ -1,0 +1,22 @@
+{
+  "id": "019_zombie_barricade",
+  "title": "Zombie Barricade",
+  "description": "Cabin holdout survival: hammer wooden plank barricades across 3 cabin windows with interact while blasting shambling zombie waves with a raycast pump-shotgun.",
+  "genre": "shooter",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.024
+  },
+  "default_locale": "en"
+}

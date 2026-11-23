@@ -1,0 +1,22 @@
+{
+  "id": "067_pocket_worlds_tardis",
+  "title": "Pocket Worlds TARDIS",
+  "description": "Nested bigger-on-the-inside non-Euclidean puzzle: step into a tiny blue booth housing a grand cathedral hall, shrink into a miniature chest pocket (scale_ratio = 0.5), claim the Chrono-Key, and unlock the outer Time Obelisk!",
+  "genre": "puzzle",
+  "flagship": true,
+  "primitives": ["mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

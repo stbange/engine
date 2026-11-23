@@ -1,0 +1,22 @@
+{
+  "id": "085_centipede_mushroom_3d",
+  "title": "Centipede Mushroom 3D",
+  "description": "Arcade garden shooter blasting a descending multi-segment procedural serpent weaving and splitting through 3D L-system mushroom patches.",
+  "genre": "arcade_shooter",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 280,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": true,
+    "fog_density": 0.009
+  },
+  "default_locale": "en"
+}

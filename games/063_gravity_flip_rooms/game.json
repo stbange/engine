@@ -1,0 +1,22 @@
+{
+  "id": "063_gravity_flip_rooms",
+  "title": "Gravity Flip Rooms",
+  "description": "Rotate room gravity along all 6 cardinal axes to slide physics key cubes across baffles onto wall and ceiling sockets.",
+  "genre": "puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.01
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "082_brick_prism_breaker",
+  "title": "Brick Prism Breaker",
+  "description": "3D corridor Curveball/Arkanoid bouncing spin-charged energy spheres down-tunnel into layered glass and crystal prism brick walls.",
+  "genre": "arcade_paddle",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": true,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

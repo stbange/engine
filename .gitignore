@@ -1,0 +1,30 @@
+# Build artifacts
+build/
+build-*/
+cmake-build-*/
+dist/
+out/
+
+# Coverage & profiling
+*.gcno
+*.gcda
+*.gcov
+*.info
+coverage/
+luacov.*.out
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+compile_commands.json
+
+# Temporary test outputs & runtime saves
+/tmp_*
+*.tmp.png
+user_saves/
+saves/
+*.engsave

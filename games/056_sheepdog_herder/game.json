@@ -1,0 +1,22 @@
+{
+  "id": "056_sheepdog_herder",
+  "title": "Sheepdog Herder",
+  "description": "Boids flocking physics herding game — sprint and bark around meadow hills to guide procedural quadruped sheep into the wooden pen.",
+  "genre": "simulation",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.010
+  },
+  "default_locale": "en"
+}

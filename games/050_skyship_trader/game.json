@@ -1,0 +1,21 @@
+{
+  "id": "050_skyship_trader",
+  "title": "Skyship Trader",
+  "description": "Pilot an airship across floating sky islands while stepping through a seamless hatch portal into its bigger-on-the-inside cargo hold to buy low and sell high spice crates.",
+  "genre": "rpg",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.008
+  },
+  "default_locale": "en"
+}

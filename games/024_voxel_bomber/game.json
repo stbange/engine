@@ -1,0 +1,22 @@
+{
+  "id": "024_voxel_bomber",
+  "title": "Voxel Bomber 3D",
+  "description": "3D grid Bomberman arena: blast destructible voxel crates, trigger cross-lane chain detonations, and outsmart rival AI bombers.",
+  "genre": "arcade_action",
+  "flagship": false,
+  "primitives": ["voxel", "mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

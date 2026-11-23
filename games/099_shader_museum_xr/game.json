@@ -1,0 +1,14 @@
+{
+  "id": "099_shader_museum_xr",
+  "title": "Shader Museum XR",
+  "description": "Deferred-rendered WebXR bigger-on-the-inside architectural gallery exhibiting metallic/roughness PBR spheres, PS1 dither plinths, AO voxels, sprites, and recursive portals.",
+  "genre": "showcase_xr",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "voxel", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "deferred",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "default_locale": "en"
+}

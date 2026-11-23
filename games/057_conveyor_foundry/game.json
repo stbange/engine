@@ -1,0 +1,22 @@
+{
+  "id": "057_conveyor_foundry",
+  "title": "Conveyor Foundry",
+  "description": "Rotate directional 3D conveyor belts on an industrial factory floor to route raw ore through blast smelters into the shipping crate.",
+  "genre": "strategy",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "tap_drag",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 5,
+    "crt_scanlines": false,
+    "fog_density": 0.011
+  },
+  "default_locale": "en"
+}

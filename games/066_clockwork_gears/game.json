@@ -1,0 +1,22 @@
+{
+  "id": "066_clockwork_gears",
+  "title": "Clockwork Gears",
+  "description": "Mount 3D brass gear wheels onto multi-plane axles so angular velocity propagates from the drive shaft to the escapement bell.",
+  "genre": "puzzle",
+  "flagship": false,
+  "primitives": ["mesh", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "diorama",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.01
+  },
+  "default_locale": "en"
+}

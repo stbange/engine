@@ -1,0 +1,22 @@
+{
+  "id": "003_nebula_wing_6dof",
+  "title": "Nebula Wing",
+  "description": "4-mission 6DoF space & planet combat sim launching from a bigger-on-the-inside carrier hangar into orbit around a seamless 3D procedural planet.",
+  "genre": "space_sim",
+  "flagship": true,
+  "primitives": ["mesh", "sprite", "particles", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 0,
+    "nearest_textures": true,
+    "dither_bayer": false,
+    "color_bits": 8,
+    "crt_scanlines": true,
+    "fog_density": 0.002
+  },
+  "default_locale": "en"
+}

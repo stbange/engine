@@ -1,0 +1,21 @@
+{
+  "id": "035_lunar_lander_3d",
+  "title": "Lunar Lander 3D",
+  "description": "6DoF thruster fuel and velocity vector management landing softly on illuminated pads across a cratered procedural moon.",
+  "genre": "space_flight",
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "6dof",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": false,
+    "fog_density": 0.004
+  },
+  "default_locale": "en"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "087_tempest_prism_web",
+  "title": "Tempest Prism Web",
+  "description": "3D vector-neon tube shooter where a yellow claw blaster slides around a 12-lane geometric prism rim firing down-well at climbing bow-tie flippers.",
+  "genre": "arcade_tube_shooter",
+  "flagship": false,
+  "primitives": ["mesh", "sprite", "sdf_text"],
+  "engine_version": "0.1.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dpad_buttons",
+  "xr_mode": "cockpit",
+  "retro": {
+    "vertex_snap": 240,
+    "nearest_textures": true,
+    "dither_bayer": true,
+    "color_bits": 6,
+    "crt_scanlines": true,
+    "fog_density": 0.014
+  },
+  "default_locale": "en"
+}

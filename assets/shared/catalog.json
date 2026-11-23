@@ -1,0 +1,202 @@
+{
+  "schema_version": "0.1.0",
+  "coordinate_system": {
+    "right": "+X",
+    "up": "+Y",
+    "forward": "-Z",
+    "unit": "1.0 = 1 meter"
+  },
+  "license": "MIT",
+  "assets": [
+    {
+      "id": "mesh.crate",
+      "path": "assets/shared/meshes/crate.obj",
+      "type": "mesh",
+      "bounds_m": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "pivot": "bottom_center",
+      "tags": [
+        "prop",
+        "crate",
+        "physics"
+      ]
+    },
+    {
+      "id": "mesh.pillar",
+      "path": "assets/shared/meshes/pillar.obj",
+      "type": "mesh",
+      "bounds_m": [
+        0.9,
+        3.0,
+        0.9
+      ],
+      "pivot": "bottom_center",
+      "tags": [
+        "architecture",
+        "temple",
+        "dungeon"
+      ]
+    },
+    {
+      "id": "mesh.archway",
+      "path": "assets/shared/meshes/archway.obj",
+      "type": "mesh",
+      "bounds_m": [
+        2.3,
+        2.9,
+        0.5
+      ],
+      "pivot": "bottom_center",
+      "doorway_opening_m": [
+        1.5,
+        2.5
+      ],
+      "tags": [
+        "portal",
+        "doorway",
+        "architecture"
+      ]
+    },
+    {
+      "id": "mesh.starfighter",
+      "path": "assets/shared/meshes/starfighter.obj",
+      "type": "mesh",
+      "bounds_m": [
+        3.2,
+        0.75,
+        2.8
+      ],
+      "pivot": "center",
+      "forward": "-Z",
+      "tags": [
+        "vehicle",
+        "space",
+        "cockpit"
+      ]
+    },
+    {
+      "id": "mesh.crystal",
+      "path": "assets/shared/meshes/crystal.obj",
+      "type": "mesh",
+      "bounds_m": [
+        0.7,
+        1.2,
+        0.7
+      ],
+      "pivot": "bottom_center",
+      "tags": [
+        "pickup",
+        "magic",
+        "sci-fi"
+      ]
+    },
+    {
+      "id": "mesh.chest",
+      "path": "assets/shared/meshes/chest.obj",
+      "type": "mesh",
+      "bounds_m": [
+        0.94,
+        0.68,
+        0.64
+      ],
+      "pivot": "bottom_center",
+      "tags": [
+        "loot",
+        "dungeon",
+        "prop"
+      ]
+    },
+    {
+      "id": "voxel.lantern",
+      "path": "assets/shared/voxels/lantern.vox",
+      "type": "voxel",
+      "grid": [
+        4,
+        4,
+        8
+      ],
+      "pivot": "origin",
+      "tags": [
+        "light",
+        "voxel",
+        "prop"
+      ]
+    },
+    {
+      "id": "tex.checker",
+      "path": "assets/shared/textures/checker.png",
+      "type": "texture",
+      "resolution": [
+        32,
+        32
+      ],
+      "tileable": true,
+      "tags": [
+        "grid",
+        "retro",
+        "floor"
+      ]
+    },
+    {
+      "id": "sprite.orb",
+      "path": "assets/shared/sprites/orb_sprite.png",
+      "type": "sprite",
+      "resolution": [
+        32,
+        32
+      ],
+      "tags": [
+        "projectile",
+        "particle",
+        "pickup"
+      ]
+    },
+    {
+      "id": "sfx.pickup",
+      "path": "assets/shared/audio/pickup.wav",
+      "type": "audio",
+      "duration_s": 0.18,
+      "tags": [
+        "sfx",
+        "pickup",
+        "positive"
+      ]
+    },
+    {
+      "id": "sfx.laser",
+      "path": "assets/shared/audio/laser.wav",
+      "type": "audio",
+      "duration_s": 0.16,
+      "tags": [
+        "sfx",
+        "weapon",
+        "retro"
+      ]
+    },
+    {
+      "id": "sfx.portal_hum",
+      "path": "assets/shared/audio/portal_hum.wav",
+      "type": "audio",
+      "duration_s": 0.3,
+      "tags": [
+        "sfx",
+        "portal",
+        "ambient"
+      ]
+    },
+    {
+      "id": "font.proggy_clean",
+      "path": "assets/shared/fonts/proggy_clean.ttf",
+      "type": "font",
+      "license": "MIT (Tristan Grimmer)",
+      "tags": [
+        "ui",
+        "hud",
+        "sdf"
+      ]
+    }
+  ]
+}

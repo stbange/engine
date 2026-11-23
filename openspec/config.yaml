@@ -1,0 +1,9 @@
+schema: spec-driven
+
+context: |
+  Engine (stbange/engine) is a 100% pure C11 + SDL3 + OpenGL 3.3 Core / WebGL2 (GLES 3.0) + Lua 5.1 (LuaJIT 2.1 on Desktop, PUC-Rio Lua 5.1.5 + LuaBitOp on Emscripten Web) retro-optimized 3D game engine.
+  All code, dependencies, fonts, and shared assets MUST use MIT, zlib, or CC0 licenses only.
+  Apply Ponytail discipline: smallest complete implementation, zero C++ dependencies, zero baked game assets or Lua scripts in the binary.
+  Target platforms: Windows, Linux, macOS, Emscripten Web (with automatic mobile touch controls), and Stereo WebXR (immersive-vr).
+  Quality gate: >= 95.0% line coverage on src/*.c AND lua/eng/*.lua, plus deterministic headless playtests across all 100 example games on the main branch only.
+  Every breaking change to include/engine/*.h, eng.* Lua APIs, or schemas/*.schema.json MUST be documented in CHANGELOG.md and UPGRADING.md.
