@@ -169,7 +169,7 @@ bool eng_bootstrap_selfcheck(const char *repo_root, const char *lua_lcov_out_pat
             lua_getfield(L, -1, "is_finite");
             lua_pushnumber(L, 42.5);
             ok = (lua_pcall(L, 1, 1, 0) == 0) && lua_toboolean(L, -1) &&
-                 ((unsigned int)combined == 0xABCD1234u);
+                 ((uint32_t)(int64_t)combined == 0xABCD1234u);
             lua_pop(L, 1);
         }
     }
