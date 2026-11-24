@@ -27,15 +27,18 @@ function playtest_frame(f)
         end
     end
 
+    local gx, gz = tx, tz
+    local path = eng.ai.find_path(0, S.px, 0.0, S.pz, 0, gx, 0.0, gz)
+    if path and #path >= 2 then tx, tz = path[2][1], path[2][3] end
     local dx, dz = tx - S.px, tz - S.pz
     local d = math.sqrt(dx * dx + dz * dz)
     eng.input.inject("left", dx < -0.25)
     eng.input.inject("right", dx > 0.25)
     eng.input.inject("up", dz < -0.25)
     eng.input.inject("down", dz > 0.25)
-    if d > 0.2 then
-        S.px = S.px + (dx / d) * 0.55
-        S.pz = S.pz + (dz / d) * 0.55
+    if d > 0.15 then
+        local step = math.min(0.55, d)
+        S.px, S.pz = eng.physics.slide_move(0, S.px, 1.0, S.pz, (dx / d) * step, (dz / d) * step, 0.38)
     end
 end
 

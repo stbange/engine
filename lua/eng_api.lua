@@ -205,6 +205,9 @@ function eng.physics.get_vel(body_id: integer): number, number, number end
 --- Stair-stepping & portal-aware character move
 function eng.physics.move_character(body_id: integer, dx: number, dy: number, dz: number, step_h?: number): boolean end
 
+--- Slide XZ position against static AABB/voxel walls in pocket
+function eng.physics.slide_move(pocket: integer, x: number, y: number, z: number, dx: number, dz: number, radius?: number): number, number end
+
 --- Cross-portal 3D raycast
 function eng.physics.raycast(pocket: integer, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max_d?: number): table|nil end
 

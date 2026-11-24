@@ -102,6 +102,10 @@ bool eng_physics_move_character(eng_physics_t *phys, const eng_scene_t *scene,
                                 const eng_portal_sys_t *portals, uint32_t body_id,
                                 eng_vec3_t wish_disp, float max_step_height, bool *out_grounded);
 
+/* Lateral XZ sphere collision + wall sliding against static AABB/voxel colliders in pocket_id. */
+eng_vec3_t eng_physics_slide_xz(const eng_physics_t *phys, uint16_t pocket_id,
+                                eng_vec3_t pos, float dx, float dz, float radius);
+
 /* Cross-portal & BVH-accelerated raycast (traverses open portals across pocket spaces). */
 eng_raycast_hit_t eng_physics_raycast(const eng_physics_t *phys, const eng_scene_t *scene,
                                       const eng_portal_sys_t *portals, uint16_t start_pocket,

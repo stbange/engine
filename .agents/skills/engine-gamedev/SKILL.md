@@ -26,9 +26,10 @@ Never recompile C to build a standard game. Every game lives in its own external
 - `tests/playtest.lua` — deterministic headless playtest.
 
 ## 2b. Camera, Pointer Lock & Movement
-- **First-person, free-roam & walkable interiors**: Never aim a moving player with `eng.camera.look_at(px, py, pz, FIXED_X, FIXED_Y, FIXED_Z)` (it makes movement orbit that fixed point). Call `eng.input.set_mouse_lock(true)` in `init()`, update with `yaw, pitch, dx, dz = eng.camera.fps_steer(yaw, pitch, speed, dt)` for mouse look + camera-relative WASD forward/back/left-strafe/right-strafe, and apply `eng.camera.set(px, py, pz, pitch, yaw, 0, pocket)`.
+- **First-person, free-roam & walkable interiors**: Never aim a moving player with `eng.camera.look_at(px, py, pz, FIXED_X, FIXED_Y, FIXED_Z)` (it makes movement orbit that fixed point). Call `eng.input.set_mouse_lock(true)` in `init()`, update with `yaw, pitch, dx, dz = eng.camera.fps_steer(yaw, pitch, speed, dt)` for mouse look + camera-relative WASD/Arrow forward/back/strafe, resolve walls with `nx, nz = eng.physics.slide_move(pocket, px, py, pz, dx, dz, 0.38)` (attaching `{ shape = "voxel", motion = "static", voxel_id = d.voxel_id }` on procedural dungeons), and apply `eng.camera.set(px, py, pz, pitch, yaw, 0, pocket)`.
 - **Aim / turret / flight views**: Use `eng.input.set_mouse_lock(true)` + `mdx, mdy = eng.input.mouse_delta()` (on Web, canvas click locks and `ESC` unlocks automatically; mobile right-half touch drag feeds `mouse_delta`).
 - **Top-down / third-person follow cameras**: Translate both camera position and `look_at` target with the player/vehicle so the view never pivots around world origin.
+- **Avoid Z-fighting**: Never render a separate floor mesh coplanar (`y = 0`) with a procedural dungeon mesh (use a physics-only collider or offset Y by at least `0.02m`).
 
 ## 3. "Bigger on the Inside" Pocket Spaces (`eng.space.*` & `eng.portal.*`)
 - **Never** fake oversized interiors by placing rooms at `[10000, -5000, 0]`. Instead, assign interior entities to a named **pocket space** (`pocket = "cabin_inside"`) centered cleanly around local `(0, 0, 0)`.

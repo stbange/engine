@@ -33,9 +33,11 @@ function playtest_frame(f)
             steer_toward(S.exit_x, S.exit_z)
         else
             local w = S.wings[target_idx]
-            -- Align X with wing doorway first, then step through portal (-Z)
-            if math.abs(S.px - w.cfg.ext_x) > 0.30 then
-                steer_toward(w.cfg.ext_x, w.door_z + 0.9)
+            -- Step clear of adjacent wing walls into courtyard before aligning X with next doorway
+            if math.abs(S.px - w.cfg.ext_x) > 0.28 and S.pz < -2.4 then
+                eng.input.inject("down", true)
+            elseif math.abs(S.px - w.cfg.ext_x) > 0.25 then
+                steer_toward(w.cfg.ext_x, -2.2)
             else
                 eng.input.inject("up", true)
             end

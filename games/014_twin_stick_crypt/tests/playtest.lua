@@ -34,10 +34,13 @@ function playtest_frame(f)
     end
 
     if gx and gz then
-        if gx - S.px > 0.6 then eng.input.inject("right", true)
-        elseif gx - S.px < -0.6 then eng.input.inject("left", true) end
-        if gz - S.pz < -0.6 then eng.input.inject("up", true)
-        elseif gz - S.pz > 0.6 then eng.input.inject("down", true) end
+        local tx, tz = gx, gz
+        local path = eng.ai.find_path(0, S.px, 0.0, S.pz, 0, gx, 0.0, gz)
+        if path and #path >= 2 then tx, tz = path[2][1], path[2][3] end
+        if tx - S.px > 0.35 then eng.input.inject("right", true)
+        elseif tx - S.px < -0.35 then eng.input.inject("left", true) end
+        if tz - S.pz < -0.35 then eng.input.inject("up", true)
+        elseif tz - S.pz > 0.35 then eng.input.inject("down", true) end
     end
 
     eng.input.inject("jump", (f % 48) == 5)

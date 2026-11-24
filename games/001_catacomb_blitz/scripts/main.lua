@@ -12,6 +12,20 @@ local function clear_entities()
     S.enemies = {}
 end
 
+local function snap_walkable(d, x, z)
+    local bx, bz, bd = d.start_x, d.start_z, 1e9
+    for gy = 1, d.height do
+        for gx = 1, d.width do
+            if d.walkable[(gy - 1) * d.width + gx] == 1 then
+                local wx, wz = (gx - 0.5) * d.tile_size, (gy - 0.5) * d.tile_size
+                local dist = (wx - x) * (wx - x) + (wz - z) * (wz - z)
+                if dist < bd then bd, bx, bz = dist, wx, wz end
+            end
+        end
+    end
+    return bx, bz
+end
+
 local function build_stage(stage_idx)
     clear_entities()
     S.stage = stage_idx
@@ -23,40 +37,38 @@ local function build_stage(stage_idx)
     local d_ent = eng.scene.spawn("catacomb_stage_" .. tostring(stage_idx))
     local tex = eng.procgen.texture(TEX_RECIPES[((stage_idx - 1) % #TEX_RECIPES) + 1], seed_base, 64)
     eng.scene.set_mesh(d_ent, d.mesh_id, { tex = tex, roughness = 0.85 })
+    eng.physics.add_body(d_ent, { shape = "voxel", motion = "static", voxel_id = d.voxel_id })
     S.ents[#S.ents + 1] = d_ent
 
-    -- Floor collider & NavGrid for A* monster pursuit
+    -- Physics-only floor collider (d_ent already renders floor tiles, preventing coplanar Z-fighting)
     local floor_e = eng.scene.spawn("catacomb_floor")
     eng.scene.set_pos(floor_e, 18.0, -0.25, 18.0)
-    eng.scene.set_scale(floor_e, 40.0, 0.5, 40.0)
-    eng.scene.set_mesh(floor_e, S.box_mesh, { tex = tex, color = {0.55, 0.52, 0.50, 1.0} })
     eng.physics.add_body(floor_e, { shape = "aabb", motion = "static", half_extents = {20.0, 0.25, 20.0} })
     S.ents[#S.ents + 1] = floor_e
-    eng.ai.set_grid(0, 2.0, 18, 18)
+    eng.ai.set_grid(0, 2.0, 18, 18, d.walkable)
 
     S.px, S.py, S.pz = d.start_x, 1.4, d.start_z
     S.ex, S.ez = d.exit_x, d.exit_z
     S.yaw = math.deg(math.atan2(S.px - S.ex, S.pz - S.ez))
     S.pitch = 0.0
 
-    -- Exit Shrine Crystal + Relic Key
+    -- Exit Shrine Crystal + Relic Key on guaranteed walkable cells
     local exit_e = eng.scene.spawn("exit_portal_pillar")
     eng.scene.set_pos(exit_e, S.ex, 0.0, S.ez)
     eng.scene.set_mesh(exit_e, S.arch_mesh, { color = {0.35, 0.9, 1.0, 1.0} })
     S.ents[#S.ents + 1] = exit_e
 
-    S.kx, S.kz = (S.px + S.ex) * 0.5, (S.pz + S.ez) * 0.5
+    S.kx, S.kz = d.key_x, d.key_z
     S.has_key = false
     S.key_ent = eng.scene.spawn("relic_key")
     eng.scene.set_pos(S.key_ent, S.kx, 0.8, S.kz)
     eng.scene.set_mesh(S.key_ent, S.crystal_mesh, { color = {1.0, 0.85, 0.2, 1.0} })
     S.ents[#S.ents + 1] = S.key_ent
 
-    -- Spawn 3 catacomb guardians with raycast hitboxes
+    -- Spawn 3 catacomb guardians on walkable cells with raycast hitboxes
     for i = 1, 3 do
         local t = i / 4.0
-        local gx = S.px + (S.ex - S.px) * t + (i - 2) * 1.6
-        local gz = S.pz + (S.ez - S.pz) * t
+        local gx, gz = snap_walkable(d, S.px + (S.ex - S.px) * t + (i - 2) * 1.6, S.pz + (S.ez - S.pz) * t)
         local ge = eng.scene.spawn("ghoul_" .. tostring(i))
         eng.scene.set_pos(ge, gx, 0.9, gz)
         eng.scene.set_scale(ge, 0.8, 1.6, 0.8)
@@ -97,9 +109,9 @@ end
 function fire_shotgun()
     local rad = math.rad(S.yaw or 0.0)
     local dx, dz = -math.sin(rad), -math.cos(rad)
-    -- Aim along view ray (with generous cone snap when locked, or nearest target in headless playtest)
+    -- Aim along view ray (cone snap once mouse-aimed, smart target for keyboard/playtest)
     local best_d = 22.0
-    local locked = eng.input.is_mouse_locked()
+    local manual = (S.manual_aimed == true)
     for i = 1, #S.enemies do
         local en = S.enemies[i]
         if en.alive then
@@ -107,7 +119,7 @@ function fire_shotgun()
             local d = math.sqrt(ex * ex + ez * ez)
             if d > 0.01 and d < best_d then
                 local dot = (ex / d) * dx + (ez / d) * dz
-                if (not locked) or dot > 0.94 then
+                if (not manual) or dot > 0.94 then
                     best_d = d; dx = ex / d; dz = ez / d
                 end
             end
@@ -136,11 +148,14 @@ function update(dt)
     if S.won then return end
     S.cooldown = math.max(0.0, S.cooldown - dt)
 
+    local mdx, mdy = eng.input.mouse_delta()
+    if math.abs(mdx) > 0.01 or math.abs(mdy) > 0.01 then S.manual_aimed = true end
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 7.5, dt)
     if math.abs(dx) > 1e-4 or math.abs(dz) > 1e-4 then
-        S.px = eng.math.clamp(S.px + dx, 1.5, 34.5)
-        S.pz = eng.math.clamp(S.pz + dz, 1.5, 34.5)
+        local nx, nz = eng.physics.slide_move(0, S.px, S.py, S.pz, dx, dz, 0.38)
+        S.px = eng.math.clamp(nx, 1.5, 34.5)
+        S.pz = eng.math.clamp(nz, 1.5, 34.5)
     end
 
     if (eng.input.pressed("fire") or eng.input.down("fire")) and S.cooldown <= 0.0 then
@@ -166,8 +181,7 @@ function update(dt)
             local vx, vz = tx - en.x, tz - en.z
             local vl = math.sqrt(vx * vx + vz * vz)
             if vl > 0.4 then
-                en.x = en.x + (vx / vl) * 2.4 * dt
-                en.z = en.z + (vz / vl) * 2.4 * dt
+                en.x, en.z = eng.physics.slide_move(0, en.x, 0.9, en.z, (vx / vl) * 2.4 * dt, (vz / vl) * 2.4 * dt, 0.42)
                 eng.scene.set_pos(en.ent, en.x, 0.9, en.z)
             end
         end

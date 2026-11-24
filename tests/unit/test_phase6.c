@@ -164,6 +164,12 @@ static void test_ai_portal_astar_and_bt(void) {
     assert(wp_pockets[0] == p_world && wp_pockets[wn - 1] == p_ship);
     assert(eng_v3_len(eng_v3_sub(wps[wn - 1], eng_v3(6.5f, 0.0f, 6.5f))) < 0.01f);
 
+    /* Replacing p_world grid with a complete wall across X=4 must block cross-wall routing */
+    g_out[6 * 8 + 4] = 0; g_out[7 * 8 + 4] = 0;
+    assert(eng_nav_set_grid(nav, p_world, eng_v3(0, 0, 0), 1.0f, 8, 8, g_out));
+    assert(eng_ai_find_path(nav, p_world, eng_v3(1.5f, 0.0f, 1.5f),
+                            p_world, eng_v3(6.5f, 0.0f, 1.5f), wps, wp_pockets, 32) == 0);
+
     eng_nav_destroy(nav);
     eng_portal_sys_destroy(ps);
     eng_scene_destroy(sc);

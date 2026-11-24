@@ -609,7 +609,7 @@ static void draw_pocket_sprites(eng_renderer_t *r, uint16_t pocket_id, const eng
 
     eng_shader_bind(&r->sh_forward);
     eng_shader_set_mat4(&r->sh_forward, "u_vp", vp);
-    eng_shader_set_float(&r->sh_forward, "u_vertex_snap", r->retro.vertex_snap_res);
+    eng_shader_set_float(&r->sh_forward, "u_vertex_snap", 0.0f);
     eng_shader_set_int(&r->sh_forward, "u_skinned", 0);
     eng_shader_set_v4(&r->sh_forward, "u_tint", (eng_vec4_t){1, 1, 1, 1});
     eng_shader_set_v3(&r->sh_forward, "u_mat_mr", eng_v3(0.0f, 0.9f, 0.0f));
@@ -617,6 +617,8 @@ static void draw_pocket_sprites(eng_renderer_t *r, uint16_t pocket_id, const eng
     gl->ActiveTexture(ENG_GL_TEXTURE0 + 1u);
     gl->BindTexture(ENG_GL_TEXTURE_2D, r->shadow_tex);
     eng_shader_set_int(&r->sh_forward, "u_shadow_tex", 1);
+    gl->Enable(ENG_GL_BLEND);
+    gl->BlendFunc(ENG_GL_SRC_ALPHA, ENG_GL_ONE_MINUS_SRC_ALPHA);
 
     /* Batch per unique texture ID in pocket */
     for (size_t i = 0; i < r->sprite_count; i++) {
@@ -652,6 +654,7 @@ static void draw_pocket_sprites(eng_renderer_t *r, uint16_t pocket_id, const eng
         eng_mesh_data_free(&smd);
         free(sub);
     }
+    gl->Disable(ENG_GL_BLEND);
 }
 
 static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,

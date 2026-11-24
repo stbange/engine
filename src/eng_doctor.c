@@ -342,7 +342,7 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
                  "    s.ticks = s.ticks + 1\n"
                  "    local dx, dz\n"
                  "    s.yaw, s.pitch, dx, dz = eng.camera.fps_steer(s.yaw, s.pitch, 6.0, dt)\n"
-                 "    s.px, s.pz = s.px + dx, s.pz + dz\n"
+                 "    s.px, s.pz = eng.physics.slide_move(0, s.px, s.py, s.pz, dx, dz, 0.38)\n"
                  "    eng.camera.set(s.px, s.py, s.pz, s.pitch, s.yaw, 0, 0)\n"
                  "end\n"
                  "function draw() eng.ui.label(16, 16, eng.i18n.t('title'), 1.0) end\n");

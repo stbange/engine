@@ -38,27 +38,45 @@ function M.create_pocket_building(eng_root, cfg)
     M.cut_wall_with_door(eng_root, cfg.outer_pocket or "world",
                          {ext_p[1], ext_p[2], front_z}, {ext_s[1], ext_s[2], 0.2}, door_s, box_mesh, cfg.exterior_color)
 
-    -- Exterior back/roof shell
+    -- Exterior back/roof shell + side/back solid wall colliders (front doorway stays clear)
     local shell = eng_root.scene.spawn((cfg.pocket or "hut") .. "_shell")
     eng_root.scene.set_pocket(shell, p_out)
     eng_root.scene.set_pos(shell, ext_p[1], ext_p[2] + ext_s[2] * 0.5, ext_p[3] - 0.15)
     eng_root.scene.set_scale(shell, ext_s[1], ext_s[2], ext_s[3] - 0.3)
     eng_root.scene.set_mesh(shell, box_mesh, { color = cfg.exterior_color or {0.6, 0.35, 0.22, 1.0}, cast_shadow = true })
+    local function add_wall_col(pk, name, x, y, z, hx, hy, hz)
+        local w = eng_root.scene.spawn(name)
+        eng_root.scene.set_pocket(w, pk)
+        eng_root.scene.set_pos(w, x, y, z)
+        eng_root.physics.add_body(w, { shape = "aabb", motion = "static", pocket = pk, half_extents = {hx, hy, hz} })
+    end
+    local pfx = cfg.pocket or "hut"
+    add_wall_col(p_out, pfx .. "_ext_back", ext_p[1], ext_p[2] + ext_s[2] * 0.5, ext_p[3] - ext_s[3] * 0.5 + 0.12, ext_s[1] * 0.5, ext_s[2] * 0.5, 0.12)
+    add_wall_col(p_out, pfx .. "_ext_left", ext_p[1] - ext_s[1] * 0.5 + 0.12, ext_p[2] + ext_s[2] * 0.5, ext_p[3] - 0.15, 0.12, ext_s[2] * 0.5, (ext_s[3] - 0.3) * 0.5)
+    add_wall_col(p_out, pfx .. "_ext_right", ext_p[1] + ext_s[1] * 0.5 - 0.12, ext_p[2] + ext_s[2] * 0.5, ext_p[3] - 0.15, 0.12, ext_s[2] * 0.5, (ext_s[3] - 0.3) * 0.5)
 
     -- Oversized interior floor centered around (0, 0, 0) in isolated pocket
-    local floor_e = eng_root.scene.spawn((cfg.pocket or "hut") .. "_floor")
+    local floor_e = eng_root.scene.spawn(pfx .. "_floor")
     eng_root.scene.set_pocket(floor_e, p_in)
     eng_root.scene.set_pos(floor_e, 0.0, -0.25, 0.0)
     eng_root.scene.set_scale(floor_e, int_s[1], 0.5, int_s[3])
     eng_root.scene.set_mesh(floor_e, box_mesh, { color = cfg.interior_color or {0.35, 0.42, 0.52, 1.0} })
     eng_root.physics.add_body(floor_e, { shape = "aabb", motion = "static", pocket = p_in, half_extents = {int_s[1] * 0.5, 0.25, int_s[3] * 0.5} })
+    add_wall_col(p_in, pfx .. "_int_back", 0.0, int_s[2] * 0.5, -int_s[3] * 0.5 - 0.1, int_s[1] * 0.5, int_s[2] * 0.5, 0.1)
+    add_wall_col(p_in, pfx .. "_int_left", -int_s[1] * 0.5 - 0.1, int_s[2] * 0.5, 0.0, 0.1, int_s[2] * 0.5, int_s[3] * 0.5)
+    add_wall_col(p_in, pfx .. "_int_right", int_s[1] * 0.5 + 0.1, int_s[2] * 0.5, 0.0, 0.1, int_s[2] * 0.5, int_s[3] * 0.5)
+    local side_w = (int_s[1] - door_s[1]) * 0.5
+    if side_w > 0.1 then
+        add_wall_col(p_in, pfx .. "_int_fl", -(door_s[1] + side_w) * 0.5, int_s[2] * 0.5, int_s[3] * 0.5 - 0.1, side_w * 0.5, int_s[2] * 0.5, 0.12)
+        add_wall_col(p_in, pfx .. "_int_fr",  (door_s[1] + side_w) * 0.5, int_s[2] * 0.5, int_s[3] * 0.5 - 0.1, side_w * 0.5, int_s[2] * 0.5, 0.12)
+    end
 
     -- Link exterior & interior portal entities
-    local d_ext = eng_root.scene.spawn((cfg.pocket or "hut") .. "_door_ext")
+    local d_ext = eng_root.scene.spawn(pfx .. "_door_ext")
     eng_root.scene.set_pocket(d_ext, p_out)
     eng_root.scene.set_pos(d_ext, ext_p[1], ext_p[2] + door_s[2] * 0.5, front_z)
 
-    local d_int = eng_root.scene.spawn((cfg.pocket or "hut") .. "_door_int")
+    local d_int = eng_root.scene.spawn(pfx .. "_door_int")
     eng_root.scene.set_pocket(d_int, p_in)
     eng_root.scene.set_pos(d_int, 0.0, door_s[2] * 0.5, int_s[3] * 0.5 - 0.2)
     eng_root.scene.set_rot_deg(d_int, 0.0, 180.0, 0.0)

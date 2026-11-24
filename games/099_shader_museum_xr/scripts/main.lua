@@ -166,8 +166,8 @@ function update(dt)
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 11.8, dt)
     if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
-        local nx = eng.math.clamp(S.px + dx, -10.0, 10.0)
-        local nz = S.pz + dz
+        local nx, nz = eng.physics.slide_move(S.pocket, S.px, S.py, S.pz, dx, dz, 0.32)
+        nx = eng.math.clamp(nx, -10.0, 10.0)
         local dst_p, wx, wy, wz = eng.portal.check_crossing(S.pocket, S.px, S.py, S.pz, nx, S.py, nz)
         if dst_p then
             S.pocket = dst_p

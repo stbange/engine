@@ -24,6 +24,10 @@ Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the 
 - **Relative Mouse Pointer Lock & Camera-Relative WASD Strafing (`eng_platform`, `eng_input`, `eng_lua`, `web/shell_play.html`, Games `001`–`100`)**:
   - Added cross-platform pointer lock (`eng_platform_set_mouse_lock` / `SDL_SetWindowRelativeMouseMode` on Desktop, HTML5 `requestPointerLock()` + `#lock-hint` pill + `ESC` unlock on Web) and Lua helpers (`eng.input.set_mouse_lock`, `eng.input.is_mouse_locked`, `eng.input.mouse_delta`, `eng.camera.fps_steer`).
   - Replaced fixed-target orbiting `look_at` cameras across all first-person, free-roam, walkable-interior, and fixed-center follow games with mouse-locked yaw/pitch look and camera-relative forward/backward/left-strafe/right-strafe movement, and updated the default `fps` scaffold template.
+- **WASD + Arrow Dual Bindings, Solid Wall Collision & Floor/Sprite Z-Fighting (`eng_input`, `eng_physics`, `eng_procgen`, `eng_sprite`, `eng_render`, `lua/eng/space.lua`)**:
+  - Fixed `eng_input_bind_key` overwriting `WASD` with `Arrow` keys by storing both primary `key` and secondary `alt_key` per action (plus auto-focusing the Web canvas on boot).
+  - Added `eng_physics_slide_xz` / `eng.physics.slide_move`, procedural dungeon wall voxel colliders (`voxel_id`, `walkable`, `key_x/key_z`), solid exterior/interior perimeter walls on `eng.space.create_pocket_building`, fixed `eng_nav_set_grid` to replace existing pocket NavGrids across stage transitions, and wired wall blocking + sliding into dungeon and walkable FPS games.
+  - Eliminated floor/sprite Z-fighting flicker by offsetting dungeon floor tiles (`+0.01m`), removing redundant coplanar floor meshes in dungeon games (`001`, `014`, `030`, `042`), biasing billboard sprites slightly toward the camera and above `y = 0`, disabling PS1 vertex-snap jitter on sprites, and enabling alpha blending in `draw_pocket_sprites`.
 
 ## [0.1.0] - 2026-11-23
 

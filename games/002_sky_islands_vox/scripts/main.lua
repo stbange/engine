@@ -179,8 +179,7 @@ function update(dt)
     local spd = 7.5 + S.gear_tier * 1.5
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, spd, dt)
-    S.px = S.px + dx
-    S.pz = S.pz + dz
+    S.px, S.pz = eng.physics.slide_move(S.pocket, S.px, S.py, S.pz, dx, dz, 0.32)
 
     if eng.input.pressed("jump") and S.py <= 1.25 then
         S.vy = 5.2

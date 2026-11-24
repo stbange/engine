@@ -20,10 +20,14 @@ function playtest_frame(f)
         -- Walk straight backward (+Z) out of Mini Chest Vault -> Grand Hall -> Courtyard!
         eng.input.inject("down", true)
     else
-        -- Back in Courtyard at full 1.0x scale: walk toward Outer Time Obelisk (5.0, -4.0)
-        if S.px < S.obelisk_x - 0.3 then eng.input.inject("right", true) end
-        if S.pz > S.obelisk_z + 0.3 then eng.input.inject("up", true)
-        elseif S.pz < S.obelisk_z - 0.3 then eng.input.inject("down", true) end
+        -- Back in Courtyard at full 1.0x scale: clear booth doorway wall first, then walk to Outer Time Obelisk
+        if S.px < 1.6 and S.pz < -1.8 then
+            eng.input.inject("down", true)
+        else
+            if S.px < S.obelisk_x - 0.3 then eng.input.inject("right", true) end
+            if S.pz > S.obelisk_z + 0.3 then eng.input.inject("up", true)
+            elseif S.pz < S.obelisk_z - 0.3 then eng.input.inject("down", true) end
+        end
     end
 end
 

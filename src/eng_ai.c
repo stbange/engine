@@ -46,21 +46,33 @@ void eng_nav_destroy(eng_nav_t *nav) {
 
 bool eng_nav_set_grid(eng_nav_t *nav, uint16_t pocket_id, eng_vec3_t origin,
                       float cell_size, int w, int d, const uint8_t *walkable_cells) {
-    if (!nav || w < 2 || d < 2 || cell_size <= 0.05f || !walkable_cells || nav->grid_count >= ENG_MAX_NAV_GRIDS) {
-        return false;
+    if (!nav || w < 2 || d < 2 || cell_size <= 0.05f || !walkable_cells) return false;
+    nav_grid_t *g = NULL;
+    for (size_t i = 0; i < nav->grid_count; i++) {
+        if (nav->grids[i].valid && nav->grids[i].pocket_id == pocket_id) { g = &nav->grids[i]; break; }
     }
-    nav_grid_t *g = &nav->grids[nav->grid_count++];
+    if (!g && nav->grid_count >= ENG_MAX_NAV_GRIDS) return false;
+    uint8_t *buf = (uint8_t *)malloc((size_t)(w * d));
+    if (!buf) return false;
+    memcpy(buf, walkable_cells, (size_t)(w * d));
+    if (!g) {
+        g = &nav->grids[nav->grid_count++];
+    } else {
+        free(g->walk);
+        nav->link_count = 0; /* Invalidate stale node links when a pocket grid is replaced */
+    }
     g->valid = true;
     g->pocket_id = pocket_id;
     g->origin = origin;
     g->cell_size = cell_size;
     g->w = w;
     g->d = d;
-    g->base_node = nav->total_nodes;
-    g->walk = (uint8_t *)malloc((size_t)(w * d));
-    if (!g->walk) return false;
-    memcpy(g->walk, walkable_cells, (size_t)(w * d));
-    nav->total_nodes += w * d;
+    g->walk = buf;
+    nav->total_nodes = 0;
+    for (size_t i = 0; i < nav->grid_count; i++) {
+        nav->grids[i].base_node = nav->total_nodes;
+        nav->total_nodes += nav->grids[i].w * nav->grids[i].d;
+    }
     return true;
 }
 
@@ -132,12 +144,16 @@ size_t eng_nav_sync_portals(eng_nav_t *nav, const eng_scene_t *scene, const eng_
 
 static bool grid_los_clear(const nav_grid_t *g, eng_vec3_t a, eng_vec3_t b) {
     float dist = eng_v3_len(eng_v3_sub(b, a));
-    int steps = (int)ceilf(dist / (g->cell_size * 0.35f));
+    int steps = (int)ceilf(dist / (g->cell_size * 0.25f));
+    float m = g->cell_size * 0.24f;
+    static const float ox[4] = {-1.0f, 1.0f, -1.0f, 1.0f}, oz[4] = {-1.0f, -1.0f, 1.0f, 1.0f};
     for (int s = 1; s < steps; s++) {
         eng_vec3_t p = eng_v3_lerp(a, b, (float)s / (float)steps);
-        int gx = (int)floorf((p.x - g->origin.x) / g->cell_size);
-        int gz = (int)floorf((p.z - g->origin.z) / g->cell_size);
-        if (gx < 0 || gz < 0 || gx >= g->w || gz >= g->d || !g->walk[gz * g->w + gx]) return false;
+        for (int k = 0; k < 4; k++) {
+            int gx = (int)floorf((p.x + ox[k] * m - g->origin.x) / g->cell_size);
+            int gz = (int)floorf((p.z + oz[k] * m - g->origin.z) / g->cell_size);
+            if (gx < 0 || gz < 0 || gx >= g->w || gz >= g->d || !g->walk[gz * g->w + gx]) return false;
+        }
     }
     return true;
 }

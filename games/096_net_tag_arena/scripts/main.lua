@@ -133,8 +133,9 @@ function update(dt)
     local ny = eng.math.clamp(p.y + p.vy * dt, 1.25, 3.8)
     if ny <= 1.25 and p.vy < 0.0 then p.vy = 0.0 end
 
-    local nx = eng.math.clamp(p.x + dx, -9.0, 9.0)
-    local nz = eng.math.clamp(p.z + dz, -9.2, 9.2)
+    local nx, nz = eng.physics.slide_move(p.pocket, p.x, p.y, p.z, dx, dz, 0.35)
+    nx = eng.math.clamp(nx, -9.0, 9.0)
+    nz = eng.math.clamp(nz, -9.2, 9.2)
     local dst_p, wx, wy, wz = eng.portal.check_crossing(p.pocket, p.x, p.y, p.z, nx, ny, nz)
     if dst_p then
         p.pocket = dst_p

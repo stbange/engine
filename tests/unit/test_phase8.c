@@ -277,6 +277,42 @@ int main(void) {
     eng_runtime_format_controls(rt, hctrl, sizeof(hctrl));
     assert(strstr(hctrl, "[Mouse] Look") != NULL);
 
+    /* Exercise dual keyboard bindings (WASD + Arrows both active simultaneously!) */
+    SDL_Event kev;
+    memset(&kev, 0, sizeof(kev));
+    kev.type = SDL_EVENT_KEY_DOWN; kev.key.scancode = SDL_SCANCODE_W;
+    eng_input_process_event(inp, plat, &kev);
+    assert(eng_input_down(inp, "up"));
+    kev.type = SDL_EVENT_KEY_UP; eng_input_process_event(inp, plat, &kev);
+    assert(!eng_input_down(inp, "up"));
+    kev.type = SDL_EVENT_KEY_DOWN; kev.key.scancode = SDL_SCANCODE_UP;
+    eng_input_process_event(inp, plat, &kev);
+    assert(eng_input_down(inp, "up"));
+    kev.type = SDL_EVENT_KEY_UP; eng_input_process_event(inp, plat, &kev);
+    kev.type = SDL_EVENT_KEY_DOWN; kev.key.scancode = SDL_SCANCODE_A;
+    eng_input_process_event(inp, plat, &kev);
+    assert(eng_input_down(inp, "left"));
+    kev.type = SDL_EVENT_KEY_UP; eng_input_process_event(inp, plat, &kev);
+
+    /* Exercise solid wall blocking + tangential sliding against AABB & procedural dungeon voxel walls */
+    assert(eng_runtime_exec_lua(rt, "=wall_slide_test",
+        "local w = eng.scene.spawn('SolidWall'); eng.scene.set_pos(w, 0.0, 1.5, -2.0)\n"
+        "eng.physics.add_body(w, { shape = 'aabb', motion = 'static', half_extents = {3.0, 1.5, 0.5} })\n"
+        "local nx, nz = eng.physics.slide_move(0, 0.0, 1.2, -1.0, 0.6, -1.0, 0.38)\n"
+        "assert(nz > -1.15 and nx > 0.5, 'wall must block -Z while allowing +X slide')\n"
+        "local dg = eng.procgen.dungeon(12, 12, 77, 'bsp', 2.0, 3.0)\n"
+        "assert(dg.voxel_id >= 1 and dg.key_x ~= nil and #dg.walkable == 144)\n"
+        "local de = eng.scene.spawn('TestDung')\n"
+        "eng.physics.add_body(de, { shape = 'voxel', motion = 'static', pocket = 5, voxel_id = dg.voxel_id })\n"
+        "local bx, bz = eng.physics.slide_move(5, dg.start_x, 1.2, dg.start_z, -10.0, 0.0, 0.38)\n"
+        "assert(bx ~= nil and bz ~= nil)\n"
+        "eng.render.draw_sprite(0.0, 0.0, -3.0, 0.5, 0.5, 0)\n"
+        "eng.scene.despawn(de); eng.scene.despawn(w)\n"
+        "return 'wall_ok'", lrep, sizeof(lrep)));
+    assert(strcmp(lrep, "wall_ok") == 0);
+    eng_vec3_t null_slide = eng_physics_slide_xz(NULL, 0, eng_v3(1, 1, 1), 2.0f, 3.0f, 0.38f);
+    assert(fabsf(null_slide.x - 3.0f) < 0.01f && fabsf(null_slide.z - 4.0f) < 0.01f);
+
     assert(eng_runtime_step(rt, 1.0f / 60.0f, err, sizeof(err)));
     assert(eng_runtime_render(rt, err, sizeof(err)));
     assert(eng_renderer_resize(eng_runtime_renderer(rt), 120, 240));

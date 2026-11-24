@@ -181,8 +181,9 @@ function update(dt)
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 9.0, dt)
     local prev_x, prev_y, prev_z = S.px, S.py, S.pz
-    S.px = eng.math.clamp(S.px + dx, -14.0, 14.0)
-    S.pz = eng.math.clamp(S.pz + dz, -12.0, 12.0)
+    local nx, nz = eng.physics.slide_move(0, S.px, S.py, S.pz, dx, dz, 0.35)
+    S.px = eng.math.clamp(nx, -14.0, 14.0)
+    S.pz = eng.math.clamp(nz, -12.0, 12.0)
 
     if eng.input.pressed("jump") or eng.input.pressed("interact") then
         S.hp = math.min(100, S.hp + 10)

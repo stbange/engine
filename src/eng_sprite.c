@@ -57,12 +57,14 @@ size_t eng_sprite_build_batch(const eng_sprite_item_t *items, size_t count,
         eng_vec3_t ry = eng_v3_scale(up, sp->size.y);
         eng_vec3_t nrm = eng_v3_norm(eng_v3_sub(cam_pos, sp->pos));
         if (eng_v3_dot(nrm, nrm) < 0.1f) nrm = eng_v3(0.0f, 0.0f, 1.0f);
+        eng_vec3_t base_p = eng_v3_add(sp->pos, eng_v3_scale(nrm, 0.025f));
+        if (fabsf(sp->pos.y) < 0.015f) base_p.y = 0.015f;
 
         eng_vec3_t corners[4] = {
-            eng_v3_sub(sp->pos, rx),
-            eng_v3_add(sp->pos, rx),
-            eng_v3_add(eng_v3_add(sp->pos, rx), ry),
-            eng_v3_add(eng_v3_sub(sp->pos, rx), ry)
+            eng_v3_sub(base_p, rx),
+            eng_v3_add(base_p, rx),
+            eng_v3_add(eng_v3_add(base_p, rx), ry),
+            eng_v3_add(eng_v3_sub(base_p, rx), ry)
         };
         float uvs[4][2] = {{uv.x, uv.w}, {uv.z, uv.w}, {uv.z, uv.y}, {uv.x, uv.y}};
 

@@ -33,7 +33,7 @@ function init()
     local wfc = eng.procgen.dungeon(12, 12, seed, "wfc", 1.6, 2.8)
     S.wfc_solvable = wfc.solvable
     local keep = eng.scene.spawn("wfc_fortress_keep")
-    eng.scene.set_pos(keep, -9.6, 0.0, -34.0)
+    eng.scene.set_pos(keep, -9.6, 0.02, -34.0)
     eng.scene.set_mesh(keep, wfc.mesh_id, { tex = stone_tex, color = {0.72, 0.70, 0.68, 1.0} })
 
     local wall_vox = eng.asset.voxel_ascii({

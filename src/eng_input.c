@@ -17,6 +17,7 @@
 typedef struct {
     char name[48];
     SDL_Scancode key;
+    SDL_Scancode alt_key;
     uint8_t mouse_btn;
     int gamepad_btn; /* -1 if unbound */
     bool injected_down;
@@ -116,6 +117,7 @@ static void refresh_actions(eng_input_t *inp) {
         eng_action_slot_t *a = &inp->actions[i];
         bool d = a->injected_down;
         if (a->key != SDL_SCANCODE_UNKNOWN && a->key < SDL_SCANCODE_COUNT && inp->keys[a->key]) d = true;
+        if (a->alt_key != SDL_SCANCODE_UNKNOWN && a->alt_key < SDL_SCANCODE_COUNT && inp->keys[a->alt_key]) d = true;
         if (a->mouse_btn > 0 && a->mouse_btn < 8 && inp->mouse_btns[a->mouse_btn]) d = true;
         if (a->gamepad_btn >= 0 && a->gamepad_btn < SDL_GAMEPAD_BUTTON_COUNT && inp->gp_btns[a->gamepad_btn]) d = true;
         if (inp->touch_active) {
@@ -261,7 +263,8 @@ void eng_input_poll_sdl(eng_input_t *inp, eng_platform_t *plat) {
 bool eng_input_bind_key(eng_input_t *inp, const char *action, SDL_Scancode key) {
     eng_action_slot_t *a = get_or_add_action(inp, action);
     if (!a) return false;
-    a->key = key;
+    if (a->key == SDL_SCANCODE_UNKNOWN || a->key == key) a->key = key;
+    else a->alt_key = key;
     refresh_actions(inp);
     return true;
 }
@@ -387,12 +390,12 @@ size_t eng_input_save_bindings_json(const eng_input_t *inp, char *out_buf, size_
     out_buf[0] = '\0';
     if (!inp) return 0;
     size_t pos = (size_t)snprintf(out_buf, out_cap, "{\n  \"actions\": [\n");
-    for (size_t i = 0; i < inp->action_count && pos + 96 < out_cap; i++) {
+    for (size_t i = 0; i < inp->action_count && pos + 112 < out_cap; i++) {
         const eng_action_slot_t *a = &inp->actions[i];
         pos += (size_t)snprintf(
             out_buf + pos, out_cap - pos,
-            "    {\"name\": \"%s\", \"key\": %d, \"mouse\": %u, \"gamepad\": %d}%s\n",
-            a->name, (int)a->key, (unsigned)a->mouse_btn, a->gamepad_btn,
+            "    {\"name\": \"%s\", \"key\": %d, \"alt_key\": %d, \"mouse\": %u, \"gamepad\": %d}%s\n",
+            a->name, (int)a->key, (int)a->alt_key, (unsigned)a->mouse_btn, a->gamepad_btn,
             (i + 1 < inp->action_count) ? "," : ""
         );
     }
@@ -401,7 +404,7 @@ size_t eng_input_save_bindings_json(const eng_input_t *inp, char *out_buf, size_
 }
 
 static const char *const k_bind_root_keys[] = {"actions"};
-static const char *const k_bind_item_keys[] = {"name", "key", "mouse", "gamepad"};
+static const char *const k_bind_item_keys[] = {"name", "key", "alt_key", "mouse", "gamepad"};
 
 bool eng_input_load_bindings_json(eng_input_t *inp, const char *json_src, char *err_buf, size_t err_cap) {
     if (!inp || !json_src) return false;
@@ -419,7 +422,7 @@ bool eng_input_load_bindings_json(eng_input_t *inp, const char *json_src, char *
     }
     for (size_t i = 0; i < arr->u.arr.len; i++) {
         const eng_json_val_t *it = arr->u.arr.items[i];
-        if (!eng_json_validate_keys(it, k_bind_item_keys, 4, err_buf, err_cap)) {
+        if (!eng_json_validate_keys(it, k_bind_item_keys, 5, err_buf, err_cap)) {
             eng_arena_destroy(&arena);
             return false;
         }
@@ -431,6 +434,7 @@ bool eng_input_load_bindings_json(eng_input_t *inp, const char *json_src, char *
         eng_action_slot_t *a = get_or_add_action(inp, name);
         if (a) {
             a->key = (SDL_Scancode)(int)eng_json_get_num(it, "key", (double)a->key);
+            a->alt_key = (SDL_Scancode)(int)eng_json_get_num(it, "alt_key", (double)a->alt_key);
             a->mouse_btn = (uint8_t)eng_json_get_num(it, "mouse", (double)a->mouse_btn);
             a->gamepad_btn = (int)eng_json_get_num(it, "gamepad", (double)a->gamepad_btn);
         }

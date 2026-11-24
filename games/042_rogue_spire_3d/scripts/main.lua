@@ -29,31 +29,35 @@ local function build_floor(fl)
     local wall_tex = eng.procgen.texture(fl == 3 and "lava_cracks" or "stone_brick", seed, 64)
     local d_ent = spawn_tracked("spire_dungeon_" .. fl)
     eng.scene.set_mesh(d_ent, d.mesh_id, { tex = wall_tex, roughness = 0.8 })
+    eng.physics.add_body(d_ent, { shape = "voxel", motion = "static", voxel_id = d.voxel_id })
+    eng.ai.set_grid(0, 2.0, 16, 16, d.walkable)
 
-    local floor_e = spawn_tracked("spire_floor_" .. fl)
-    eng.scene.set_pos(floor_e, 16.0, -0.2, 16.0)
-    eng.scene.set_scale(floor_e, 36.0, 0.4, 36.0)
-    eng.scene.set_mesh(floor_e, S.box_mesh, { tex = wall_tex, color = {0.5, 0.48, 0.54, 1.0} })
-    eng.ai.set_grid(0, 2.0, 16, 16)
+    local function snap_walkable(x, z)
+        local bx, bz, bd = d.start_x, d.start_z, 1e9
+        for gy = 1, d.height do
+            for gx = 1, d.width do
+                if d.walkable[(gy - 1) * d.width + gx] == 1 then
+                    local wx, wz = (gx - 0.5) * d.tile_size, (gy - 0.5) * d.tile_size
+                    local dist = (wx - x) * (wx - x) + (wz - z) * (wz - z)
+                    if dist < bd then bd, bx, bz = dist, wx, wz end
+                end
+            end
+        end
+        return bx, bz
+    end
 
     S.px, S.pz = d.start_x, d.start_z
     S.ex, S.ez = d.exit_x, d.exit_z
-    -- Ensure start and exit have comfortable separation
-    if eng.math.dist3(S.px, 0, S.pz, S.ex, 0, S.ez) < 6.0 then
-        S.px, S.pz = 6.0, 24.0
-        S.ex, S.ez = 24.0, 8.0
-    end
 
     S.hero_ent = spawn_tracked("spire_hero")
     eng.scene.set_pos(S.hero_ent, S.px, 0.0, S.pz)
     eng.procgen.person(S.hero_ent, S.run_seed + 5)
 
-    -- 2 Upgrade Chests along the spire route: [1] = +ATK, [2] = +DEF
+    -- 2 Upgrade Chests on walkable spire cells: [1] = +ATK, [2] = +DEF
     local kinds = { "atk", "def" }
     for i = 1, 2 do
         local t = 0.25 * i
-        local cx = S.px + (S.ex - S.px) * t + (i == 1 and -1.8 or 1.8)
-        local cz = S.pz + (S.ez - S.pz) * t
+        local cx, cz = snap_walkable(S.px + (S.ex - S.px) * t + (i == 1 and -1.8 or 1.8), S.pz + (S.ez - S.pz) * t)
         local ce = spawn_tracked("chest_" .. i)
         eng.scene.set_pos(ce, cx, 0.0, cz)
         local col = (kinds[i] == "atk") and {1.0, 0.45, 0.25, 1.0} or {0.3, 0.75, 1.0, 1.0}
@@ -66,8 +70,7 @@ local function build_floor(fl)
     for i = 1, count do
         local is_boss = (fl == 3 and i == 3)
         local t = is_boss and 0.88 or (0.38 + i * 0.20)
-        local mx = S.px + (S.ex - S.px) * t + ((i % 2 == 0) and 1.4 or -1.4)
-        local mz = S.pz + (S.ez - S.pz) * t
+        local mx, mz = snap_walkable(S.px + (S.ex - S.px) * t + ((i % 2 == 0) and 1.4 or -1.4), S.pz + (S.ez - S.pz) * t)
         if is_boss then mx, mz = S.ex, S.ez end
         local me = spawn_tracked(is_boss and "spire_boss" or ("beast_" .. i))
         eng.scene.set_pos(me, mx, 0.0, mz)
@@ -150,8 +153,9 @@ function update(dt)
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + mx * 7.5 * dt, 1.5, 30.5)
-        S.pz = eng.math.clamp(S.pz - my * 7.5 * dt, 1.5, 30.5)
+        local nx, nz = eng.physics.slide_move(0, S.px, 1.0, S.pz, mx * 7.5 * dt, -my * 7.5 * dt, 0.38)
+        S.px = eng.math.clamp(nx, 1.5, 30.5)
+        S.pz = eng.math.clamp(nz, 1.5, 30.5)
         eng.scene.set_rot_deg(S.hero_ent, 0.0, math.deg(math.atan2(-mx, my)), 0.0)
     end
     eng.scene.set_pos(S.hero_ent, S.px, 0.0, S.pz)

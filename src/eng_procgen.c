@@ -616,7 +616,7 @@ bool eng_procgen_dungeon_build_mesh(const eng_dungeon_t *d, float tile_size, flo
                 eng_vec4_t fc = (t == ENG_TILE_ENTRANCE) ? (eng_vec4_t){0.2f, 0.8f, 0.4f, 1.0f} :
                                 (t == ENG_TILE_EXIT)     ? (eng_vec4_t){0.9f, 0.8f, 0.2f, 1.0f} :
                                                            (eng_vec4_t){0.52f, 0.50f, 0.46f, 1.0f};
-                eng_mesh_append_box(out_mesh, eng_v3(cx, -0.05f, cz),
+                eng_mesh_append_box(out_mesh, eng_v3(cx, -0.04f, cz),
                                     eng_v3(tile_size, 0.10f, tile_size), fc);
             }
         }

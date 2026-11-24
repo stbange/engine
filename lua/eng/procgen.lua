@@ -4,9 +4,13 @@ local M = {}
 function M.spawn_dungeon_entity(eng_root, cfg)
     local d = eng_root.procgen.dungeon(cfg.width or 24, cfg.height or 24, cfg.seed or 42, cfg.style or "bsp", cfg.tile_size or 2.0, cfg.wall_height or 3.0)
     local ent = eng_root.scene.spawn(cfg.name or "proc_dungeon")
-    if cfg.pocket then eng_root.scene.set_pocket(ent, eng_root.scene.register_pocket(cfg.pocket)) end
+    local pid = cfg.pocket and eng_root.scene.register_pocket(cfg.pocket) or 0
+    if cfg.pocket then eng_root.scene.set_pocket(ent, pid) end
     local tex = eng_root.procgen.texture(cfg.texture or "stone_brick", cfg.seed or 42, 64)
     eng_root.scene.set_mesh(ent, d.mesh_id, { tex = tex })
+    if d.voxel_id and d.voxel_id > 0 then
+        eng_root.physics.add_body(ent, { shape = "voxel", motion = "static", pocket = pid, voxel_id = d.voxel_id })
+    end
     d.entity = ent
     return d
 end

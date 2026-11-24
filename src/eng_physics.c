@@ -721,6 +721,45 @@ bool eng_physics_move_character(eng_physics_t *phys, const eng_scene_t *scene,
     return true;
 }
 
+eng_vec3_t eng_physics_slide_xz(const eng_physics_t *phys, uint16_t pocket_id,
+                                eng_vec3_t pos, float dx, float dz, float radius) {
+    eng_vec3_t out = eng_v3(pos.x + dx, pos.y, pos.z + dz);
+    if (!phys) return out;
+    eng_body_desc_t probe = eng_body_default_desc(ENG_SHAPE_SPHERE, ENG_BODY_KINEMATIC);
+    probe.pocket_id = pocket_id;
+    probe.radius = (radius > 0.05f) ? radius : 0.38f;
+    probe.pos = pos;
+    float dist = sqrtf(dx * dx + dz * dz);
+    int steps = (dist > probe.radius * 0.5f) ? (int)ceilf(dist / (probe.radius * 0.5f)) : 1;
+    if (steps > 16) steps = 16;
+    float sdx = dx / (float)steps, sdz = dz / (float)steps;
+    for (int st = 0; st < steps; st++) {
+        probe.pos.x += sdx;
+        probe.pos.z += sdz;
+        for (int iter = 0; iter < 3; iter++) {
+            bool hit_any = false;
+            eng_aabb_t pbox = compute_body_aabb(&probe);
+            for (uint32_t j = 0; j < phys->body_high; j++) {
+                const body_slot_t *sb = &phys->bodies[j];
+                if (!sb->active || sb->b.pocket_id != pocket_id || sb->b.is_trigger || sb->b.motion != ENG_BODY_STATIC) continue;
+                eng_vec3_t n = {0, 1, 0};
+                float pen = 0.0f;
+                if (!test_pair(&probe, pbox, &sb->b, sb->world_aabb, &n, &pen)) continue;
+                if (fabsf(n.y) > 0.65f) continue; /* ignore floors/ceilings */
+                float nlen = sqrtf(n.x * n.x + n.z * n.z);
+                if (nlen > 1e-4f) {
+                    probe.pos.x -= (n.x / nlen) * pen;
+                    probe.pos.z -= (n.z / nlen) * pen;
+                    pbox = compute_body_aabb(&probe);
+                    hit_any = true;
+                }
+            }
+            if (!hit_any) break;
+        }
+    }
+    return eng_v3(probe.pos.x, pos.y, probe.pos.z);
+}
+
 static bool ray_vs_sphere(eng_vec3_t o, eng_vec3_t d, eng_vec3_t c, float r, float max_d, float *out_t, eng_vec3_t *out_n) {
     eng_vec3_t oc = eng_v3_sub(o, c);
     float b = eng_v3_dot(oc, d);

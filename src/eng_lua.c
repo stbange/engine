@@ -85,6 +85,9 @@ struct eng_runtime_s {
     size_t persist_light_count;
     eng_terrain_t terrains[8];
     size_t terrain_count;
+    eng_voxel_chunk_t dungeon_chunks[8];
+    bool dungeon_chunk_valid[8];
+    size_t dungeon_chunk_cursor;
     eng_emitter_t *emitters[16];
     size_t emitter_count;
 
@@ -375,7 +378,12 @@ static int l_scene_despawn(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
     eng_entity_t e = (eng_entity_t)luaL_checknumber(L, 1);
     uint32_t bid = find_ent_body(rt, e);
-    if (bid) eng_physics_remove_body(rt->physics, bid);
+    if (bid) {
+        eng_physics_remove_body(rt->physics, bid);
+        for (size_t i = 0; i < rt->body_map_count; i++) {
+            if (rt->body_map[i].ent == e) { rt->body_map[i] = rt->body_map[--rt->body_map_count]; break; }
+        }
+    }
     for (size_t i = 0; i < rt->visual_count; i++) {
         if (rt->visuals[i].ent == e) { rt->visuals[i] = rt->visuals[--rt->visual_count]; break; }
     }
@@ -746,7 +754,8 @@ static int l_phys_add_body(lua_State *L) {
     lua_getfield(L, 2, "shape");
     const char *sh = lua_isstring(L, -1) ? lua_tostring(L, -1) : "aabb";
     eng_shape_type_t st = (strcmp(sh, "sphere") == 0) ? ENG_SHAPE_SPHERE :
-                          (strcmp(sh, "capsule") == 0) ? ENG_SHAPE_CAPSULE : ENG_SHAPE_AABB;
+                          (strcmp(sh, "capsule") == 0) ? ENG_SHAPE_CAPSULE :
+                          (strcmp(sh, "voxel") == 0) ? ENG_SHAPE_VOXEL_CHUNK : ENG_SHAPE_AABB;
     lua_pop(L, 1);
 
     lua_getfield(L, 2, "motion");
@@ -768,6 +777,14 @@ static int l_phys_add_body(lua_State *L) {
     lua_getfield(L, 2, "vel"); bd.vel = opt_tbl_v3(L, lua_gettop(L), bd.vel); lua_pop(L, 1);
     lua_getfield(L, 2, "restitution"); if (lua_isnumber(L, -1)) bd.restitution = (float)lua_tonumber(L, -1); lua_pop(L, 1);
     lua_getfield(L, 2, "trigger"); if (!lua_isnil(L, -1)) bd.is_trigger = lua_toboolean(L, -1); lua_pop(L, 1);
+    if (st == ENG_SHAPE_VOXEL_CHUNK) {
+        lua_getfield(L, 2, "voxel_id");
+        int vid = (int)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+        if (vid >= 1 && vid <= 8 && rt->dungeon_chunk_valid[vid - 1]) {
+            bd.voxel_chunk = &rt->dungeon_chunks[vid - 1];
+        }
+    }
 
     uint32_t bid = eng_physics_add_body(rt->physics, &bd);
     if (bid && rt->body_map_count < ENG_MAX_ENT_VISUALS) {
@@ -800,6 +817,16 @@ static int l_phys_move_char(lua_State *L) {
     }
     lua_pushboolean(L, grounded);
     return 1;
+}
+static int l_phys_slide_move(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = (uint16_t)luaL_checkinteger(L, 1);
+    eng_vec3_t res = eng_physics_slide_xz(rt->physics, pk,
+                                          eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4)),
+                                          chk_f(L, 5), chk_f(L, 6), opt_f(L, 7, 0.38f));
+    lua_pushnumber(L, res.x);
+    lua_pushnumber(L, res.z);
+    return 2;
 }
 static int l_phys_raycast(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
@@ -869,12 +896,75 @@ static int l_proc_dungeon(lua_State *L) {
     uint32_t mid = eng_asset_upload_mesh(rt->assets, "proc_dungeon", &md);
     eng_mesh_data_free(&md);
 
+    /* Build matching static wall voxel collider in runtime ring buffer */
+    size_t slot = rt->dungeon_chunk_cursor++ & 7u;
+    int sy = (int)ceilf(wh / fmaxf(ts, 0.1f));
+    if (sy < 1) sy = 1;
+    rt->dungeon_chunk_valid[slot] = (d.width <= ENG_VOXEL_MAX_DIM && d.height <= ENG_VOXEL_MAX_DIM && sy <= ENG_VOXEL_MAX_DIM);
+    if (rt->dungeon_chunk_valid[slot]) eng_voxel_chunk_init(&rt->dungeon_chunks[slot], d.width, sy, d.height, ts);
+    int key_gx = d.has_key_lock ? d.key_x : d.entrance_x;
+    int key_gy = d.has_key_lock ? d.key_y : d.entrance_y;
+    int best_key_d = -1;
+
     lua_newtable(L);
     lua_pushinteger(L, mid); lua_setfield(L, -2, "mesh_id");
+    lua_pushinteger(L, rt->dungeon_chunk_valid[slot] ? (lua_Integer)(slot + 1u) : 0); lua_setfield(L, -2, "voxel_id");
+    lua_pushinteger(L, d.width); lua_setfield(L, -2, "width");
+    lua_pushinteger(L, d.height); lua_setfield(L, -2, "height");
+    lua_pushnumber(L, ts); lua_setfield(L, -2, "tile_size");
     lua_pushnumber(L, ((float)d.entrance_x + 0.5f) * ts); lua_setfield(L, -2, "start_x");
     lua_pushnumber(L, ((float)d.entrance_y + 0.5f) * ts); lua_setfield(L, -2, "start_z");
     lua_pushnumber(L, ((float)d.exit_x + 0.5f) * ts); lua_setfield(L, -2, "exit_x");
     lua_pushnumber(L, ((float)d.exit_y + 0.5f) * ts); lua_setfield(L, -2, "exit_z");
+
+    /* Flood-fill from entrance so d.walkable & key_x/key_z exclude disconnected cave pockets */
+    int ncells = d.width * d.height;
+    uint8_t *reach = (uint8_t *)calloc((size_t)ncells, 1);
+    int *q = (int *)malloc((size_t)ncells * sizeof(int));
+    if (reach && q && d.entrance_x >= 0 && d.entrance_x < d.width && d.entrance_y >= 0 && d.entrance_y < d.height) {
+        int qh = 0, qt = 0;
+        int start_i = d.entrance_y * d.width + d.entrance_x;
+        reach[start_i] = 1;
+        q[qt++] = start_i;
+        static const int k_dx[4] = {1, -1, 0, 0}, k_dy[4] = {0, 0, 1, -1};
+        while (qh < qt) {
+            int cur = q[qh++];
+            int cx = cur % d.width, cy = cur / d.width;
+            for (int k = 0; k < 4; k++) {
+                int nx = cx + k_dx[k], ny = cy + k_dy[k];
+                if (nx < 0 || nx >= d.width || ny < 0 || ny >= d.height) continue;
+                int ni = ny * d.width + nx;
+                if (!reach[ni] && eng_dungeon_get(&d, nx, ny) != ENG_TILE_WALL) {
+                    reach[ni] = 1;
+                    q[qt++] = ni;
+                }
+            }
+        }
+    }
+
+    lua_newtable(L);
+    int idx = 1;
+    for (int gy = 0; gy < d.height; gy++) {
+        for (int gx = 0; gx < d.width; gx++) {
+            bool is_wall = (eng_dungeon_get(&d, gx, gy) == ENG_TILE_WALL);
+            bool is_reach = reach ? (reach[gy * d.width + gx] != 0) : !is_wall;
+            if (is_wall && rt->dungeon_chunk_valid[slot]) {
+                for (int vy = 0; vy < sy; vy++) eng_voxel_set(&rt->dungeon_chunks[slot], gx, vy, gy, 1u);
+            } else if (is_reach && !d.has_key_lock) {
+                int ds = abs(gx - d.entrance_x) + abs(gy - d.entrance_y);
+                int de = abs(gx - d.exit_x) + abs(gy - d.exit_y);
+                int score = (ds < de) ? ds : de;
+                if (score > best_key_d) { best_key_d = score; key_gx = gx; key_gy = gy; }
+            }
+            lua_pushinteger(L, is_reach ? 1 : 0);
+            lua_rawseti(L, -2, idx++);
+        }
+    }
+    free(reach);
+    free(q);
+    lua_setfield(L, -2, "walkable");
+    lua_pushnumber(L, ((float)key_gx + 0.5f) * ts); lua_setfield(L, -2, "key_x");
+    lua_pushnumber(L, ((float)key_gy + 0.5f) * ts); lua_setfield(L, -2, "key_z");
     lua_pushboolean(L, eng_procgen_dungeon_is_solvable(&d)); lua_setfield(L, -2, "solvable");
     eng_dungeon_free(&d);
     return 1;
@@ -1349,6 +1439,7 @@ static const lua_fn_desc_t k_api_table[] = {
     {"physics",   "set_vel",          l_phys_set_vel,          "(body_id: integer, vx: number, vy: number, vz: number)", "Set linear body velocity"},
     {"physics",   "get_vel",          l_phys_get_vel,          "(body_id: integer): number, number, number", "Get linear body velocity"},
     {"physics",   "move_character",   l_phys_move_char,        "(body_id: integer, dx: number, dy: number, dz: number, step_h?: number): boolean", "Stair-stepping & portal-aware character move"},
+    {"physics",   "slide_move",       l_phys_slide_move,       "(pocket: integer, x: number, y: number, z: number, dx: number, dz: number, radius?: number): number, number", "Slide XZ position against static AABB/voxel walls in pocket"},
     {"physics",   "raycast",          l_phys_raycast,          "(pocket: integer, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max_d?: number): table|nil", "Cross-portal 3D raycast"},
     {"procgen",   "noise2d",          l_proc_noise2d,          "(x: number, y: number, seed?: integer): number", "Seeded 2D Perlin noise"},
     {"procgen",   "noise3d",          l_proc_noise3d,          "(x: number, y: number, z: number, seed?: integer): number", "Seeded 3D Perlin noise"},

@@ -33,13 +33,26 @@ function init()
 
     local crypt_e = eng.scene.spawn("bsp_crypt")
     eng.scene.set_mesh(crypt_e, d.mesh_id, { tex = brick_tex, roughness = 0.85 })
+    eng.physics.add_body(crypt_e, { shape = "voxel", motion = "static", voxel_id = d.voxel_id })
 
     local floor_e = eng.scene.spawn("crypt_floor")
     eng.scene.set_pos(floor_e, 18.0, -0.25, 18.0)
-    eng.scene.set_scale(floor_e, 40.0, 0.5, 40.0)
-    eng.scene.set_mesh(floor_e, S.box_mesh, { tex = brick_tex, color = {0.42, 0.38, 0.52, 1.0} })
     eng.physics.add_body(floor_e, { shape = "aabb", motion = "static", half_extents = {20.0, 0.25, 20.0} })
-    eng.ai.set_grid(0, 2.0, 18, 18)
+    eng.ai.set_grid(0, 2.0, 18, 18, d.walkable)
+
+    local function snap_walkable(x, z)
+        local bx, bz, bd = d.start_x, d.start_z, 1e9
+        for gy = 1, d.height do
+            for gx = 1, d.width do
+                if d.walkable[(gy - 1) * d.width + gx] == 1 then
+                    local wx, wz = (gx - 0.5) * d.tile_size, (gy - 0.5) * d.tile_size
+                    local dist = (wx - x) * (wx - x) + (wz - z) * (wz - z)
+                    if dist < bd then bd, bx, bz = dist, wx, wz end
+                end
+            end
+        end
+        return bx, bz
+    end
 
     S.px, S.pz = d.start_x, d.start_z
     S.ex, S.ez = d.exit_x, d.exit_z
@@ -65,22 +78,19 @@ function init()
     S.powerups = {}
     S.targets = {}
 
-    -- Spawn 2 weapon powerup crystals along the BSP route
+    -- Spawn 2 weapon powerup crystals on walkable BSP cells
     for i = 1, 2 do
         local t = i * 0.32
-        local ux = S.px + (S.ex - S.px) * t
-        local uz = S.pz + (S.ez - S.pz) * t
+        local ux, uz = snap_walkable(S.px + (S.ex - S.px) * t, S.pz + (S.ez - S.pz) * t)
         local pe = eng.scene.spawn("crypt_powerup_" .. tostring(i))
         eng.scene.set_pos(pe, ux, 0.35, uz)
         eng.scene.set_mesh(pe, (i == 1) and S.crystal_mesh or S.chest_mesh, { color = {0.3, 1.0, 0.65, 1.0} })
         S.powerups[i] = { ent = pe, x = ux, z = uz, taken = false }
     end
 
-    -- Spawn 2 Spawner Obelisks + 6 Crypt Swarmers
-    local ob_coords = {
-        { S.px + (S.ex - S.px) * 0.55, S.pz + (S.ez - S.pz) * 0.55 },
-        { S.ex, S.ez }
-    }
+    -- Spawn 2 Spawner Obelisks + 6 Crypt Swarmers on walkable cells
+    local ob1x, ob1z = snap_walkable(S.px + (S.ex - S.px) * 0.55, S.pz + (S.ez - S.pz) * 0.55)
+    local ob_coords = { { ob1x, ob1z }, { S.ex, S.ez } }
     for i = 1, 2 do
         local oe = eng.scene.spawn("crypt_obelisk_" .. tostring(i))
         eng.scene.set_pos(oe, ob_coords[i][1], 0.0, ob_coords[i][2])
@@ -90,8 +100,7 @@ function init()
 
     for i = 1, 6 do
         local t = 0.25 + i * 0.11
-        local sx = eng.math.clamp(S.px + (S.ex - S.px) * t + ((i % 2 == 0) and 2.2 or -2.2), 2.5, 33.5)
-        local sz = eng.math.clamp(S.pz + (S.ez - S.pz) * t, 2.5, 33.5)
+        local sx, sz = snap_walkable(S.px + (S.ex - S.px) * t + ((i % 2 == 0) and 2.2 or -2.2), S.pz + (S.ez - S.pz) * t)
         S.targets[#S.targets + 1] = spawn_swarmer(i, sx, sz)
     end
 
@@ -141,8 +150,9 @@ function update(dt)
         spd = 26.0
     end
     if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + mx * spd * dt, 2.0, 34.0)
-        S.pz = eng.math.clamp(S.pz - my * spd * dt, 2.0, 34.0)
+        local nx, nz = eng.physics.slide_move(0, S.px, 1.0, S.pz, mx * spd * dt, -my * spd * dt, 0.38)
+        S.px = eng.math.clamp(nx, 2.0, 34.0)
+        S.pz = eng.math.clamp(nz, 2.0, 34.0)
         S.aim_yaw = math.deg(math.atan2(-mx, my))
     end
 
