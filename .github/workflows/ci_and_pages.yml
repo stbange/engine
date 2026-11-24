@@ -24,12 +24,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux Dependencies & OpenSpec
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build lcov libgl-dev libegl-dev libgles-dev \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev \
-            libxss-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev \
-            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libluajit-5.1-dev luajit xvfb mesa-utils
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=20
+          sudo apt-get install -y --no-install-recommends ninja-build lcov xvfb mesa-utils \
+            libgl-dev libegl-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxfixes-dev libxi-dev libxss-dev libwayland-dev libxkbcommon-dev \
+            libasound2-dev libpulse-dev libluajit-5.1-dev
           npm install -g @fission-ai/openspec@latest --no-fund --no-audit
 
       - name: Validate OpenSpec Living Specifications
