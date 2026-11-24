@@ -67,6 +67,7 @@ static GLuint compile_stage(GLenum type, const char *full_src) {
         char log[512] = {0};
         gl->GetShaderInfoLog(s, sizeof(log), NULL, log);
         ENG_LOGE("shader", "Compile error: %s", log);
+        fprintf(stderr, "[shader] Compile error: %s\n", log);
         gl->DeleteShader(s);
         return 0;
     }
@@ -108,6 +109,7 @@ bool eng_shader_compile(eng_shader_t *out, const eng_vfs_t *vfs,
         char log[512] = {0};
         gl->GetProgramInfoLog(prog, sizeof(log), NULL, log);
         ENG_LOGE("shader", "Link error: %s", log);
+        fprintf(stderr, "[shader] Link error: %s\n", log);
         gl->DeleteProgram(prog);
         return false;
     }

@@ -98,7 +98,7 @@ def build_index_html(games_meta):
     h1 {{ margin:0 0 8px; font-size:28px; letter-spacing:-0.02em; }}
     h1 span {{ color:var(--accent); }}
     .sub {{ color:var(--muted); max-width:920px; margin:0 0 16px; font-size:15px; }}
-    .clone-box {{ background:#0f141f; border:1px solid var(--border); border-radius:8px; padding:10px 14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--accent2); display:inline-block; margin-bottom:14px; }}
+    .clone-box {{ background:#0f141f; border:1px solid var(--border); border-radius:8px; padding:10px 14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--accent2); display:inline-block; max-width:100%; overflow-x:auto; margin-bottom:14px; }}
     .toolbar {{ max-width:1280px; margin:18px auto; padding:0 20px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }}
     #search {{ flex:1; min-width:220px; background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:9px 12px; font-size:14px; }}
     .chip {{ background:var(--card); color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:6px 13px; font-size:12px; font-weight:600; cursor:pointer; }}

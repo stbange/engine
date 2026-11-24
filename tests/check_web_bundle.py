@@ -25,6 +25,9 @@ FATAL_MARKERS = (
     "Aborted(",
     "Load Error:",
     "Boot failed",
+    "[shader] Compile error",
+    "[shader] Link error",
+    "[render] hdr_fbo incomplete",
 )
 
 
@@ -34,6 +37,26 @@ def find_chrome():
         if p:
             return p
     return None
+
+
+def run_case(chrome, url, out_png, label, extra_args=(), budget_ms=4000):
+    cmd = [
+        chrome, "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+        "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+        "--enable-webgl", "--ignore-gpu-blocklist",
+        f"--virtual-time-budget={budget_ms}", "--enable-logging=stderr",
+        *extra_args, f"--screenshot={out_png}", url,
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    for ln in (res.stderr or "").splitlines():
+        if "CONSOLE" in ln and any(m in ln for m in FATAL_MARKERS):
+            print(f"[WEB FAIL] {label}: {ln}", file=sys.stderr)
+            return False
+    if not os.path.isfile(out_png) or os.path.getsize(out_png) < 8192:
+        print(f"[WEB FAIL] {label}: missing or blank screenshot", file=sys.stderr)
+        return False
+    print(f"[WEB PASS] {label} rendered cleanly in headless Chrome ({os.path.getsize(out_png)} bytes)")
+    return True
 
 
 def main():
@@ -53,23 +76,13 @@ def main():
             for slug in SMOKE_SLUGS:
                 out_png = os.path.join(tmp, f"{slug}.png")
                 url = f"http://127.0.0.1:{port}/play.html?game={slug}"
-                cmd = [
-                    chrome, "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
-                    "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-                    "--enable-webgl", "--ignore-gpu-blocklist", "--window-size=960,600",
-                    "--virtual-time-budget=4000", "--enable-logging=stderr",
-                    f"--screenshot={out_png}", url,
-                ]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
-                console_lines = [ln for ln in (res.stderr or "").splitlines() if "CONSOLE" in ln]
-                for ln in console_lines:
-                    if any(m in ln for m in FATAL_MARKERS):
-                        print(f"[WEB FAIL] {slug}: {ln}", file=sys.stderr)
-                        return 1
-                if not os.path.isfile(out_png) or os.path.getsize(out_png) < 8192:
-                    print(f"[WEB FAIL] {slug}: missing or blank screenshot", file=sys.stderr)
+                if not run_case(chrome, url, out_png, slug, ("--window-size=960,600",)):
                     return 1
-                print(f"[WEB PASS] {slug} rendered cleanly in headless Chrome ({os.path.getsize(out_png)} bytes)")
+            mob_png = os.path.join(tmp, "mobile_001.png")
+            mob_url = f"http://127.0.0.1:{port}/play.html?game=001_catacomb_blitz&touch=1"
+            if not run_case(chrome, mob_url, mob_png, "mobile-portrait-3x",
+                            ("--window-size=390,844", "--force-device-scale-factor=3"), budget_ms=600):
+                return 1
     finally:
         srv.shutdown()
 

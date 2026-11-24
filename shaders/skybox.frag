@@ -9,11 +9,11 @@ layout(location = 0) out vec4 o_color;
 
 void main() {
     vec3 d = normalize(v_ray_dir);
-    float up_t = clamp(d.y, 0.0, 1.0);
-    float dn_t = clamp(-d.y, 0.0, 1.0);
+    float up_t = clamp(d.y, 0.0001, 1.0);
+    float dn_t = clamp(-d.y, 0.0001, 1.0);
     vec3 sky = mix(u_sky_horizon, u_sky_zenith, pow(up_t, 0.6));
     sky = mix(sky, u_sky_ground, pow(dn_t, 0.5));
-    float sun = max(dot(d, normalize(-u_sun_dir)), 0.0);
+    float sun = max(dot(d, normalize(-u_sun_dir)), 0.0001);
     sky += vec3(1.0, 0.92, 0.72) * pow(sun, 128.0) * 1.5;
     o_color = vec4(sky, 1.0);
 }

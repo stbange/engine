@@ -9,8 +9,8 @@ Defines the pure-C Nuklear immediate-mode debug UI and Lua-accessible In-Game HU
 The engine SHALL render Nuklear debug/editor panels over OpenGL 3.3 / GLES 3.0 and SHALL expose anchored, resolution-independent In-Game UI widgets (labels, buttons, bars, menus, touch joysticks) to C and Lua.
 
 #### Scenario: Resolution-anchored HUD scaling
-- **WHEN** the window resizes from `1280x720` to `1920x1080` or HiDPI scale changes
-- **THEN** anchored HUD widgets reposition proportionally without clipping off-screen
+- **WHEN** the window resizes from `1280x720` to `1920x1080`, switches to a narrow mobile portrait viewport, or HiDPI framebuffer scale changes (`eng_ui_set_fb_size`)
+- **THEN** anchored HUD widgets lay out in logical window pixels while viewport/scissor scale to the physical framebuffer without clipping or squishing text
 
 ### Requirement: Drop-Down Console, Profiler, and 3D Debug Draw
 The engine SHALL provide a toggleable `~` console with log filtering, CVars, and live sandboxed Lua REPL, alongside scoped CPU/GPU frame timings, memory arena meters, and 3D debug wireframe/collider/skeleton/navmesh drawing.
@@ -30,5 +30,5 @@ The engine SHALL include a toggleable `F1` editor featuring entity hierarchy, EC
 The UI subsystem (`eng_ui`) SHALL display a compact, click-through on-screen help overlay (`eng_ui_draw_help`, toggleable via `H` / `eng_ui_toggle_help`) showing the active game's goal description from `game.json` and control hints derived from `locales` `"controls"` or runtime-polled input actions.
 
 #### Scenario: Viewing and toggling per-game help on Desktop and Web
-- **WHEN** any game launches in interactive Desktop or Web mode
-- **THEN** a bottom-left help card displays the game's description and active keybindings without capturing pointer clicks, and pressing `H` collapses it to a minimal `[H] Help` hint
+- **WHEN** any game launches in interactive Desktop or Web mode (including mobile portrait viewports)
+- **THEN** a help card displays the game's description and active keybindings without capturing pointer clicks or colliding with bottom touch controls, and toggling `H` collapses it to a minimal `[H] Help` hint

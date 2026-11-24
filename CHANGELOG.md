@@ -18,6 +18,9 @@ Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the 
 ### Fixed
 - **Emscripten WebAssembly & Chrome Player (`CMakeLists.txt`, `src/eng_platform.c`, `src/eng_cli.c`, `web/shell_play.html`)**:
   - Exported `'callMain'` in `EXPORTED_RUNTIME_METHODS`, raised WASM C stack size from Emscripten's 64 KB default to `2 MB` (`-sSTACK_SIZE=2097152`), enabled WebGL2 `EXT_color_buffer_float` for deferred G-buffers, added full-window high-DPI viewport resize + Nuklear HUD label rendering, and added headless Chrome CI smoke gate (`tests/check_web_bundle.py`).
+- **Mobile Chrome WebGL2 & Portrait Responsive Layout (`shaders/forward.vert`, `src/eng_render.c`, `src/eng_ui.c`, `src/eng_cli.c`, `web/shell_play.html`)**:
+  - Reduced `u_bones` from `64` (`266` vec4) to `48` (`202` vec4) to fit within the GLES 3.0 / WebGL2 `256`-vector vertex uniform minimum on Android mobile GPUs (fixing blank 3D scenes on phones), guarded `pow(0, y)` calls, reset `GL_BLEND` between 3D and UI passes, and added Hor+ portrait FOV compensation.
+  - Separated logical CSS UI coordinates from physical HiDPI framebuffer dimensions (`eng_ui_set_fb_size`), fixed narrow portrait HUD & help positioning above bottom touch controls, removed duplicate Nuklear touch widgets on Web, added a `USE` (`interact`) touch button, and converted `web/shell_play.html` to a non-overlapping flex layout so topbar buttons never clip on phones.
 
 ## [0.1.0] - 2026-11-23
 

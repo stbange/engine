@@ -35,6 +35,8 @@ struct eng_ui_s {
 
     int win_w;
     int win_h;
+    int fb_w;
+    int fb_h;
 
     bool console_open;
     bool help_open;
@@ -160,6 +162,8 @@ eng_ui_t *eng_ui_create(void) {
     if (!ui) return NULL;
     ui->win_w = 1280;
     ui->win_h = 720;
+    ui->fb_w = 1280;
+    ui->fb_h = 720;
     ui->help_open = true;
     ui->vbuf_cpu = (uint8_t *)malloc(ENG_UI_MAX_VBUF);
     ui->ebuf_cpu = (uint8_t *)malloc(ENG_UI_MAX_EBUF);
@@ -241,6 +245,8 @@ void eng_ui_begin_frame(eng_ui_t *ui, int win_w, int win_h,
     if (!ui) return;
     ui->win_w = (win_w > 0) ? win_w : 1280;
     ui->win_h = (win_h > 0) ? win_h : 720;
+    ui->fb_w = ui->win_w;
+    ui->fb_h = ui->win_h;
 
     nk_input_begin(&ui->ctx);
     nk_input_motion(&ui->ctx, (int)mouse_x, (int)mouse_y);
@@ -249,13 +255,26 @@ void eng_ui_begin_frame(eng_ui_t *ui, int win_w, int win_h,
     nk_input_end(&ui->ctx);
 }
 
+void eng_ui_set_fb_size(eng_ui_t *ui, int fb_w, int fb_h) {
+    if (!ui) return;
+    if (fb_w > 0) ui->fb_w = fb_w;
+    if (fb_h > 0) ui->fb_h = fb_h;
+}
+
 void eng_ui_hud_label(eng_ui_t *ui, const char *id, eng_ui_anchor_t anchor,
                       float x, float y, float w, float h, const char *text) {
     if (!ui || !id || !text) return;
     eng_ui_rect_t r = eng_ui_resolve_anchor(anchor, x, y, w, h, ui->win_w, ui->win_h);
+    if (r.h < 22.0f) r.h = 22.0f;
+    if (ui->win_w < 700 && w >= 200.0f) {
+        float max_w = (float)ui->win_w - 16.0f;
+        if (max_w > r.w) r.w = max_w;
+        if (r.x + r.w > (float)ui->win_w) r.x = (float)ui->win_w - r.w;
+        if (r.x < 0.0f) r.x = 0.0f;
+    }
     if (nk_begin(&ui->ctx, id, nk_rect(r.x, r.y, r.w, r.h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT | NK_WINDOW_BACKGROUND)) {
-        nk_layout_row_dynamic(&ui->ctx, r.h - 8.0f, 1);
+        nk_layout_row_dynamic(&ui->ctx, r.h - 6.0f, 1);
         nk_label(&ui->ctx, text, NK_TEXT_LEFT);
     }
     nk_end(&ui->ctx);
@@ -415,7 +434,9 @@ void eng_ui_draw_help(eng_ui_t *ui, const eng_runtime_t *rt) {
     float fw = (float)(ui->win_w > 0 ? ui->win_w : 1280);
     float fh = (float)(ui->win_h > 0 ? ui->win_h : 720);
     if (!ui->help_open) {
-        if (nk_begin(&ui->ctx, "__help_pill", nk_rect(12.0f, fh - 36.0f, 88.0f, 24.0f),
+        float px = (fw < 640.0f) ? (fw - 96.0f) : 12.0f;
+        float py = (fw < 640.0f) ? 8.0f : (fh - 36.0f);
+        if (nk_begin(&ui->ctx, "__help_pill", nk_rect(px, py, 88.0f, 24.0f),
                      NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT | NK_WINDOW_BACKGROUND | NK_WINDOW_BORDER)) {
             nk_layout_row_dynamic(&ui->ctx, 16.0f, 1);
             nk_label_colored(&ui->ctx, "[H] Help", NK_TEXT_LEFT, nk_rgb(110, 235, 195));
@@ -440,8 +461,11 @@ void eng_ui_draw_help(eng_ui_t *ui, const eng_runtime_t *rt) {
     if (clines < 1) clines = 1;
     float ctrl_h = (float)clines * 16.0f + 4.0f;
     float box_h = desc_h + ctrl_h + 18.0f;
+    float bottom_pad = (fw < 640.0f && fh > 420.0f) ? 188.0f : 12.0f;
+    float box_y = fh - box_h - bottom_pad;
+    if (box_y < 68.0f) box_y = 68.0f;
 
-    if (nk_begin(&ui->ctx, "__help_bar", nk_rect(12.0f, fh - box_h - 12.0f, box_w, box_h),
+    if (nk_begin(&ui->ctx, "__help_bar", nk_rect(12.0f, box_y, box_w, box_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT | NK_WINDOW_BACKGROUND | NK_WINDOW_BORDER)) {
         if (dlines > 0) {
             nk_layout_row_dynamic(&ui->ctx, desc_h, 1);
@@ -508,12 +532,18 @@ uint32_t eng_ui_render(eng_ui_t *ui) {
     uint32_t draws = 0;
     const eng_gl_api_t *gl = eng_gl();
     if (ui->gl_ready && gl && gl->DrawElements) {
+        int fbw = ui->fb_w > 0 ? ui->fb_w : ui->win_w;
+        int fbh = ui->fb_h > 0 ? ui->fb_h : ui->win_h;
+        float sx = (float)fbw / (float)ui->win_w;
+        float sy = (float)fbh / (float)ui->win_h;
         float ortho[16] = {
             2.0f / (float)ui->win_w, 0.0f, 0.0f, 0.0f,
             0.0f, -2.0f / (float)ui->win_h, 0.0f, 0.0f,
             0.0f, 0.0f, -1.0f, 0.0f,
             -1.0f, 1.0f, 0.0f, 1.0f
         };
+        gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, 0);
+        gl->Viewport(0, 0, fbw, fbh);
         gl->Enable(ENG_GL_BLEND);
         gl->BlendFunc(ENG_GL_SRC_ALPHA, ENG_GL_ONE_MINUS_SRC_ALPHA);
         gl->Disable(ENG_GL_CULL_FACE);
@@ -535,16 +565,20 @@ uint32_t eng_ui_render(eng_ui_t *ui) {
         nk_draw_foreach(cmd, &ui->ctx, &ui->cmds) {
             if (!cmd->elem_count) continue;
             gl->BindTexture(ENG_GL_TEXTURE_2D, (GLuint)cmd->texture.id);
-            int sy = (int)((float)ui->win_h - (cmd->clip_rect.y + cmd->clip_rect.h));
-            if (sy < 0) sy = 0;
-            gl->Scissor((GLint)cmd->clip_rect.x, (GLint)sy,
-                        (GLsizei)(cmd->clip_rect.w > 0 ? cmd->clip_rect.w : 0),
-                        (GLsizei)(cmd->clip_rect.h > 0 ? cmd->clip_rect.h : 0));
+            int sc_x = (int)(cmd->clip_rect.x * sx);
+            int sc_y = (int)(((float)ui->win_h - (cmd->clip_rect.y + cmd->clip_rect.h)) * sy);
+            int sc_w = (int)(cmd->clip_rect.w * sx);
+            int sc_h = (int)(cmd->clip_rect.h * sy);
+            if (sc_y < 0) sc_y = 0;
+            gl->Scissor((GLint)sc_x, (GLint)sc_y,
+                        (GLsizei)(sc_w > 0 ? sc_w : 0),
+                        (GLsizei)(sc_h > 0 ? sc_h : 0));
             gl->DrawElements(ENG_GL_TRIANGLES, (GLsizei)cmd->elem_count, ENG_GL_UNSIGNED_SHORT, offset);
             offset += cmd->elem_count;
             draws++;
         }
         gl->Disable(ENG_GL_SCISSOR_TEST);
+        gl->Disable(ENG_GL_BLEND);
         gl->Enable(ENG_GL_DEPTH_TEST);
         gl->BindVertexArray(0);
     }

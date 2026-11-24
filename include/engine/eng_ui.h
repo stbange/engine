@@ -39,9 +39,11 @@ int eng_ui_height(const eng_ui_t *ui);
 eng_ui_rect_t eng_ui_resolve_anchor(eng_ui_anchor_t anchor, float offset_x, float offset_y,
                                     float w, float h, int actual_w, int actual_h);
 
-/* Begin Nuklear UI frame and feed mouse/touch pointer state. */
+/* Begin Nuklear UI frame in logical window coordinates and feed mouse/touch pointer state. */
 void eng_ui_begin_frame(eng_ui_t *ui, int win_w, int win_h,
                         float mouse_x, float mouse_y, bool mouse_down, float wheel);
+/* Set physical GL framebuffer dimensions when HiDPI scale != 1 (defaults to win_w x win_h). */
+void eng_ui_set_fb_size(eng_ui_t *ui, int fb_w, int fb_h);
 
 /* Immediate-mode anchored In-Game HUD widgets */
 void eng_ui_hud_label(eng_ui_t *ui, const char *id, eng_ui_anchor_t anchor,

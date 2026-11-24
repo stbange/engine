@@ -7,58 +7,79 @@
   <style>
     :root { --bg:#0b0e14; --panel:#151a24; --accent:#4be3b0; --text:#e6edf3; --muted:#8b949e; }
     * { box-sizing:border-box; user-select:none; -webkit-user-select:none; }
-    html, body { margin:0; padding:0; width:100%; height:100%; background:var(--bg); color:var(--text); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:hidden; }
-    #topbar { position:fixed; top:0; left:0; right:0; height:42px; background:rgba(21,26,36,0.92); border-bottom:1px solid #263042; display:flex; align-items:center; justify-content:space-between; padding:0 12px; z-index:20; font-size:13px; }
-    #topbar a { color:var(--accent); text-decoration:none; font-weight:600; }
-    .controls { display:flex; gap:8px; align-items:center; flex-shrink:0; }
-    button.btn { background:#1e2636; color:var(--text); border:1px solid #33415c; border-radius:4px; padding:4px 10px; font-family:inherit; font-size:12px; cursor:pointer; white-space:nowrap; }
+    html, body { margin:0; padding:0; width:100%; height:100vh; height:100dvh; background:var(--bg); color:var(--text); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:hidden; }
+    body { display:flex; flex-direction:column; }
+    #topbar { flex:0 0 auto; min-height:42px; background:rgba(21,26,36,0.96); border-bottom:1px solid #263042; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 12px; z-index:20; font-size:13px; }
+    .bar-left { display:flex; align-items:center; gap:8px; min-width:0; flex:1 1 auto; overflow:hidden; }
+    #topbar a { color:var(--accent); text-decoration:none; font-weight:600; white-space:nowrap; flex-shrink:0; }
+    #game-title { color:#e6edf3; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+    .controls { display:flex; gap:6px; align-items:center; flex-shrink:0; }
+    button.btn { background:#1e2636; color:var(--text); border:1px solid #33415c; border-radius:4px; padding:4px 9px; font-family:inherit; font-size:12px; cursor:pointer; white-space:nowrap; }
     button.btn:hover { border-color:var(--accent); color:var(--accent); }
     button.btn.xr-ready { border-color:var(--accent); background:#13332b; color:var(--accent); font-weight:700; }
-    #canvas-wrap { position:fixed; top:42px; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; }
+    #canvas-wrap { position:relative; flex:1 1 auto; min-height:0; width:100%; overflow:hidden; display:flex; align-items:center; justify-content:center; }
     canvas#canvas { width:100%; height:100%; display:block; outline:none; touch-action:none; }
-    #status { position:fixed; top:54px; left:50%; transform:translateX(-50%); background:rgba(15,20,28,0.88); border:1px solid #2d3a4f; padding:6px 14px; border-radius:20px; font-size:12px; color:var(--muted); z-index:15; pointer-events:none; }
+    #status { position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(15,20,28,0.88); border:1px solid #2d3a4f; padding:6px 14px; border-radius:20px; font-size:12px; color:var(--muted); z-index:15; pointer-events:none; max-width:92%; text-align:center; }
     /* Automatic Mobile Touch Overlay */
-    #touch-hud { position:fixed; inset:42px 0 0 0; pointer-events:none; display:none; z-index:18; }
+    #touch-hud { position:absolute; inset:0; pointer-events:none; display:none; z-index:18; }
     #touch-hud.visible { display:block; }
-    .dpad { position:absolute; left:20px; bottom:24px; width:156px; height:156px; pointer-events:auto; }
+    .dpad { position:absolute; left:16px; bottom:18px; width:150px; height:150px; pointer-events:auto; }
     .dpad button, .apad button { position:absolute; background:rgba(30,40,58,0.68); border:2px solid rgba(75,227,176,0.65); color:#fff; border-radius:12px; font-weight:700; font-size:13px; touch-action:none; }
     .dpad button:active, .apad button:active { background:rgba(75,227,176,0.45); }
-    .dp-u { left:52px; top:0; width:52px; height:52px; }
-    .dp-d { left:52px; bottom:0; width:52px; height:52px; }
-    .dp-l { left:0; top:52px; width:52px; height:52px; }
-    .dp-r { right:0; top:52px; width:52px; height:52px; }
-    .apad { position:absolute; right:20px; bottom:28px; width:164px; height:120px; pointer-events:auto; }
-    .ap-jump { right:0; bottom:0; width:74px; height:74px; border-radius:50% !important; }
-    .ap-fire { left:0; top:0; width:74px; height:74px; border-radius:50% !important; }
+    .dp-u { left:50px; top:0; width:50px; height:50px; }
+    .dp-d { left:50px; bottom:0; width:50px; height:50px; }
+    .dp-l { left:0; top:50px; width:50px; height:50px; }
+    .dp-r { right:0; top:50px; width:50px; height:50px; }
+    .apad { position:absolute; right:16px; bottom:18px; width:164px; height:146px; pointer-events:auto; }
+    .ap-jump { right:0; bottom:0; width:72px; height:72px; border-radius:50% !important; }
+    .ap-fire { left:0; bottom:24px; width:72px; height:72px; border-radius:50% !important; }
+    .ap-use  { right:12px; top:0; width:52px; height:42px; font-size:11px !important; }
+    @media (max-width: 640px) {
+      #topbar { flex-wrap:wrap; padding:6px 8px; gap:5px; font-size:12px; }
+      .bar-left { flex:1 1 100%; }
+      .controls { width:100%; justify-content:space-between; gap:5px; }
+      button.btn { flex:1 1 auto; padding:5px 6px; font-size:11px; text-align:center; }
+      .dpad { left:12px; bottom:14px; width:136px; height:136px; }
+      .dp-u { left:45px; top:0; width:46px; height:46px; }
+      .dp-d { left:45px; bottom:0; width:46px; height:46px; }
+      .dp-l { left:0; top:45px; width:46px; height:46px; }
+      .dp-r { right:0; top:45px; width:46px; height:46px; }
+      .apad { right:12px; bottom:14px; width:152px; height:136px; }
+      .ap-jump { width:64px; height:64px; }
+      .ap-fire { bottom:20px; width:64px; height:64px; }
+      .ap-use  { right:8px; top:0; width:48px; height:38px; }
+    }
   </style>
 </head>
 <body>
   <div id="topbar">
-    <div>
-      <a href="index.html">&larr; All Games</a>
-      <span id="game-title" style="margin-left:10px;color:#e6edf3;font-weight:700;">Loading...</span>
+    <div class="bar-left">
+      <a href="index.html">&larr; Games</a>
+      <span id="game-title">Loading...</span>
     </div>
     <div class="controls">
-      <button id="btn-help" class="btn" title="Toggle On-Screen Help (H)">Help (H)</button>
-      <button id="btn-touch" class="btn" title="Toggle Touch Controls">Touch HUD</button>
-      <button id="btn-xr" class="btn" disabled>WebXR Checking...</button>
-      <button id="btn-fs" class="btn">Fullscreen</button>
+      <button id="btn-help" class="btn" title="Toggle On-Screen Help (H)">Help</button>
+      <button id="btn-touch" class="btn" title="Toggle Touch Controls">Touch</button>
+      <button id="btn-xr" class="btn" disabled>VR...</button>
+      <button id="btn-fs" class="btn">Full</button>
     </div>
   </div>
 
-  <div id="status">Fetching shared engine &amp; unbaked Lua/assets...</div>
-  <div id="canvas-wrap"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div>
-
-  <div id="touch-hud">
-    <div class="dpad">
-      <button class="dp-u" data-act="up">&uarr;</button>
-      <button class="dp-d" data-act="down">&darr;</button>
-      <button class="dp-l" data-act="left">&larr;</button>
-      <button class="dp-r" data-act="right">&rarr;</button>
-    </div>
-    <div class="apad">
-      <button class="ap-fire" data-act="fire">FIRE</button>
-      <button class="ap-jump" data-act="jump">JUMP</button>
+  <div id="canvas-wrap">
+    <div id="status">Fetching shared engine &amp; unbaked Lua/assets...</div>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <div id="touch-hud">
+      <div class="dpad">
+        <button class="dp-u" data-act="up">&uarr;</button>
+        <button class="dp-d" data-act="down">&darr;</button>
+        <button class="dp-l" data-act="left">&larr;</button>
+        <button class="dp-r" data-act="right">&rarr;</button>
+      </div>
+      <div class="apad">
+        <button class="ap-use" data-act="interact">USE</button>
+        <button class="ap-fire" data-act="fire">FIRE</button>
+        <button class="ap-jump" data-act="jump">JUMP</button>
+      </div>
     </div>
   </div>
 
@@ -66,16 +87,18 @@
     const params = new URLSearchParams(location.search);
     const gameSlug = (params.get('game') || '001_catacomb_blitz').replace(/[^a-zA-Z0-9_-]/g, '');
     const modSlug  = (params.get('mod') || '').replace(/[^a-zA-Z0-9_-]/g, '');
-    document.getElementById('game-title').textContent = gameSlug;
+    const titleEl  = document.getElementById('game-title');
+    titleEl.textContent = gameSlug;
+    titleEl.title = gameSlug;
     const statusEl = document.getElementById('status');
 
-    // Auto-enable touch controls on mobile/tablet devices
+    // Auto-enable touch controls on mobile/tablet devices (or ?touch=1)
     const isMobile = (navigator.maxTouchPoints > 0) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     const touchHud = document.getElementById('touch-hud');
-    if (isMobile) touchHud.classList.add('visible');
+    if (isMobile || params.get('touch') === '1') touchHud.classList.add('visible');
     document.getElementById('btn-help').onclick = () => { Module._eng_web_toggle_help?.(); Module.canvas.focus(); };
     document.getElementById('btn-touch').onclick = () => touchHud.classList.toggle('visible');
-    document.getElementById('btn-fs').onclick = () => document.getElementById('canvas').requestFullscreen?.();
+    document.getElementById('btn-fs').onclick = () => document.getElementById('canvas-wrap').requestFullscreen?.();
     window.addEventListener('keydown', (e) => { if (e.key === 'Tab') e.preventDefault(); });
 
     function ensureDir(FS, filePath) {
@@ -111,12 +134,13 @@
           const mfRes = await fetch('manifests/' + gameSlug + '.json');
           if (!mfRes.ok) throw new Error('Missing game manifest manifests/' + gameSlug + '.json');
           const mf = await mfRes.json();
-          if (mf.title) document.getElementById('game-title').textContent = mf.title + ' (' + gameSlug + ')';
+          if (mf.title) { titleEl.textContent = mf.title; titleEl.title = mf.title + ' (' + gameSlug + ')'; }
           statusEl.textContent = 'Streaming ' + mf.files.length + ' unbaked files into VFS...';
           await preloadList(Module.FS, mf.files);
 
-          const cw = Math.max(320, Module.canvas.clientWidth || window.innerWidth || 1280);
-          const ch = Math.max(240, Module.canvas.clientHeight || (window.innerHeight - 42) || 720);
+          const rect = document.getElementById('canvas-wrap').getBoundingClientRect();
+          const cw = Math.max(240, Math.round(rect.width || window.innerWidth || 1280));
+          const ch = Math.max(200, Math.round(rect.height || (window.innerHeight - 42) || 720));
           const args = ['--repo-root', '/', '--game', '/games/' + gameSlug, '--width', String(cw), '--height', String(ch)];
           if (modSlug && mf.mod_files) {
             await preloadList(Module.FS, mf.mod_files);
@@ -149,9 +173,9 @@
 
     async function initWebXR() {
       const btn = document.getElementById('btn-xr');
-      if (!navigator.xr) { btn.textContent = 'WebXR Unavailable'; return; }
+      if (!navigator.xr) { btn.textContent = 'No WebXR'; return; }
       const ok = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
-      if (!ok) { btn.textContent = 'No VR Headset'; return; }
+      if (!ok) { btn.textContent = 'No VR'; return; }
       btn.disabled = false;
       btn.textContent = 'Enter VR';
       btn.classList.add('xr-ready');

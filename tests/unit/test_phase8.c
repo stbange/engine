@@ -127,7 +127,19 @@ int main(void) {
     tev.tfinger.y = 0.8f;
     eng_input_process_event(eng_runtime_input(rt), eng_runtime_platform(rt), &tev);
 
+    /* Exercise narrow portrait mobile viewport (390x780 logical, 3x HiDPI framebuffer) */
+    eng_ui_begin_frame(ui, 390, 780, 20.0f, 20.0f, false, 0.0f);
+    eng_ui_set_fb_size(ui, 1170, 2340);
+    assert(eng_ui_width(ui) == 390 && eng_ui_height(ui) == 780);
+    eng_ui_hud_label(ui, "mob_hud", ENG_UI_TOP_LEFT, 16.0f, 14.0f, 680.0f, 26.0f, "MOBILE HUD");
+    eng_ui_draw_help(ui, rt);
+    eng_ui_toggle_help(ui);
+    eng_ui_draw_help(ui, rt);
+    eng_ui_toggle_help(ui);
+    assert(eng_ui_render(ui) > 0);
+
     eng_ui_begin_frame(ui, 1280, 720, 40.0f, 40.0f, false, 0.0f);
+    eng_ui_set_fb_size(ui, 2560, 1440);
     assert(eng_ui_width(ui) == 1280 && eng_ui_height(ui) == 720);
     eng_ui_hud_label(ui, "hud_score", ENG_UI_TOP_LEFT, 12.0f, 12.0f, 180.0f, 36.0f, "SCORE: 100");
     (void)eng_ui_hud_button(ui, "hud_btn", ENG_UI_TOP_LEFT, 12.0f, 56.0f, 140.0f, 36.0f, "Click Me");
@@ -235,6 +247,8 @@ int main(void) {
         "assert(#sp > 0 and tid >= 1 and tmesh >= 1 and burst_n == 8 and alive_n == 8 and ik2 ~= nil and ikf ~= nil)\n"
         "return tostring(math.floor((n3 + vd + r3 + w3 + th) * 100))", lrep, sizeof(lrep)));
     assert(eng_runtime_step(rt, 1.0f / 60.0f, err, sizeof(err)));
+    assert(eng_runtime_render(rt, err, sizeof(err)));
+    assert(eng_renderer_resize(eng_runtime_renderer(rt), 120, 240));
     assert(eng_runtime_render(rt, err, sizeof(err)));
 
     eng_editor_draw_ui(ed, ui, scene, eng_runtime_portals(rt), prof);

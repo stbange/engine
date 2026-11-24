@@ -15,7 +15,8 @@ uniform mat4 u_vp;
 uniform mat4 u_light_vp;
 uniform float u_vertex_snap;
 uniform int u_skinned;
-uniform mat4 u_bones[64];
+/* GLES 3.0 / WebGL2 min MAX_VERTEX_UNIFORM_VECTORS is 256; 48*4 + 10 = 202 vec4s */
+uniform mat4 u_bones[48];
 
 out vec3 v_world_pos;
 out vec3 v_norm;
@@ -28,7 +29,7 @@ void main() {
     vec4 local_pos = vec4(a_pos, 1.0);
     vec3 local_nrm = a_norm;
     if (u_skinned != 0) {
-        ivec4 j = ivec4(a_joints + 0.5);
+        ivec4 j = clamp(ivec4(a_joints + 0.5), 0, 47);
         mat4 skin = a_weights.x * u_bones[j.x]
                   + a_weights.y * u_bones[j.y]
                   + a_weights.z * u_bones[j.z]

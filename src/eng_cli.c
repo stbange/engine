@@ -9,10 +9,18 @@
 
 static void draw_runtime_hud(eng_ui_t *ui, const eng_runtime_t *rt) {
     size_t n = eng_runtime_hud_text_count(rt);
+    int uw = eng_ui_width(ui), uh = eng_ui_height(ui);
+    float sh = (uh > 0) ? ((float)uh / 720.0f) : 1.0f;
+    float min_y = 0.0f;
     for (size_t i = 0; i < n; i++) {
         float hx = 16.0f, hy = 16.0f;
         const char *txt = eng_runtime_hud_text_get(rt, i, &hx, &hy);
         if (!txt || !txt[0]) continue;
+        if (uw < 700 || sh < 0.85f) {
+            float eff_y = hy * sh;
+            if (eff_y < min_y) hy = min_y / (sh > 0.01f ? sh : 1.0f);
+            min_y = hy * sh + 24.0f;
+        }
         char id[32];
         snprintf(id, sizeof(id), "__hud_%zu", i);
         eng_ui_hud_label(ui, id, ENG_UI_TOP_LEFT, hx, hy, 680.0f, 26.0f, txt);
@@ -45,16 +53,17 @@ static void eng_web_tick_one(void) {
         eng_runtime_step(g_web.rt, dt, err, sizeof(err));
     }
     if (!eng_xr_is_active(eng_runtime_xr(g_web.rt))) {
-        int pw = 1280, ph = 720;
+        int ww = 1280, wh = 720, pw = 1280, ph = 720;
+        eng_platform_get_size(plat, &ww, &wh);
         eng_platform_get_pixel_size(plat, &pw, &ph);
         eng_renderer_resize(eng_runtime_renderer(g_web.rt), pw, ph);
         eng_runtime_render(g_web.rt, err, sizeof(err));
         eng_vec2_t mp = eng_input_mouse_pos(inp);
-        float dpr = eng_platform_dpi_scale(plat);
-        eng_ui_begin_frame(g_web.ui, pw, ph, mp.x * dpr, mp.y * dpr, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
+        eng_ui_begin_frame(g_web.ui, ww, wh, mp.x, mp.y, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
+        eng_ui_set_fb_size(g_web.ui, pw, ph);
         draw_runtime_hud(g_web.ui, g_web.rt);
-        if (!eng_editor_is_open(g_web.ed) && !eng_input_is_touch_active(inp)) eng_ui_draw_help(g_web.ui, g_web.rt);
-        eng_ui_hud_touch_overlay(g_web.ui, inp);
+        /* HTML #touch-hud provides mobile touch controls on Web, so draw help without Nuklear touch duplicates */
+        if (!eng_editor_is_open(g_web.ed)) eng_ui_draw_help(g_web.ui, g_web.rt);
         eng_ui_draw_console(g_web.ui, g_web.rt);
         eng_editor_draw_ui(g_web.ed, g_web.ui, eng_runtime_scene(g_web.rt), eng_runtime_portals(g_web.rt), g_web.prof);
         eng_ui_render(g_web.ui);
@@ -265,7 +274,8 @@ int eng_cli_run(int argc, char **argv) {
                                : true;
             eng_profiler_end_scope(prof, "step");
 
-            int pw = 1280, ph = 720;
+            int ww = 1280, wh = 720, pw = 1280, ph = 720;
+            eng_platform_get_size(plat, &ww, &wh);
             eng_platform_get_pixel_size(plat, &pw, &ph);
             eng_renderer_resize(eng_runtime_renderer(rt), pw, ph);
 
@@ -279,7 +289,6 @@ int eng_cli_run(int argc, char **argv) {
             }
 
             eng_vec2_t mp = eng_input_mouse_pos(inp);
-            float dpr = eng_platform_dpi_scale(plat);
             if (eng_editor_is_open(ed) && mp.x > 560.0f) {
                 eng_camera_t *cam = eng_runtime_camera(rt);
                 eng_vec2_t md = eng_input_mouse_delta(inp);
@@ -287,7 +296,8 @@ int eng_cli_run(int argc, char **argv) {
                 eng_editor_viewport_interact(ed, eng_runtime_scene(rt), cam->pos, rdir,
                                              eng_input_pressed(inp, "fire"), eng_input_down(inp, "fire"), md.x, md.y);
             }
-            eng_ui_begin_frame(ui, pw, ph, mp.x * dpr, mp.y * dpr, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
+            eng_ui_begin_frame(ui, ww, wh, mp.x, mp.y, eng_input_down(inp, "fire"), eng_input_mouse_wheel(inp));
+            eng_ui_set_fb_size(ui, pw, ph);
             draw_runtime_hud(ui, rt);
             if (!eng_editor_is_open(ed) && !eng_input_is_touch_active(inp)) eng_ui_draw_help(ui, rt);
             eng_ui_hud_touch_overlay(ui, inp);

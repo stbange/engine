@@ -157,7 +157,9 @@ static bool create_targets(eng_renderer_t *r, int w, int h) {
     gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
     gl->FramebufferTexture2D(ENG_GL_FRAMEBUFFER, ENG_GL_COLOR_ATTACHMENT0, ENG_GL_TEXTURE_2D, r->hdr_color_tex, 0);
     gl->FramebufferTexture2D(ENG_GL_FRAMEBUFFER, ENG_GL_DEPTH_STENCIL_ATTACHMENT, ENG_GL_TEXTURE_2D, r->hdr_ds_tex, 0);
-    if (gl->CheckFramebufferStatus(ENG_GL_FRAMEBUFFER) != ENG_GL_FRAMEBUFFER_COMPLETE) {
+    GLenum hdr_st = gl->CheckFramebufferStatus(ENG_GL_FRAMEBUFFER);
+    if (hdr_st != ENG_GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "[render] hdr_fbo incomplete: 0x%x (%dx%d)\n", hdr_st, r->width, r->height);
         return false;
     }
 
@@ -170,7 +172,7 @@ static bool create_targets(eng_renderer_t *r, int w, int h) {
 
     r->gb_albedo_tex = make_tex2d(r->width, r->height, ENG_GL_RGBA8, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, ENG_GL_NEAREST);
     r->gb_norm_tex = make_tex2d(r->width, r->height, ENG_GL_RGBA8, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, ENG_GL_NEAREST);
-    r->gb_pos_tex = make_tex2d(r->width, r->height, ENG_GL_RGBA16F, ENG_GL_RGBA, ENG_GL_FLOAT, ENG_GL_NEAREST);
+    r->gb_pos_tex = make_tex2d(r->width, r->height, hdr_ifmt, ENG_GL_RGBA, hdr_type, ENG_GL_NEAREST);
     gl->GenFramebuffers(1, &r->gbuf_fbo);
     gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->gbuf_fbo);
     gl->FramebufferTexture2D(ENG_GL_FRAMEBUFFER, ENG_GL_COLOR_ATTACHMENT0, ENG_GL_TEXTURE_2D, r->gb_albedo_tex, 0);
@@ -180,7 +182,6 @@ static bool create_targets(eng_renderer_t *r, int w, int h) {
     const GLenum gbuf_atts[3] = {ENG_GL_COLOR_ATTACHMENT0, ENG_GL_COLOR_ATTACHMENT1, ENG_GL_COLOR_ATTACHMENT2};
     gl->DrawBuffers(3, gbuf_atts);
     if (gl->CheckFramebufferStatus(ENG_GL_FRAMEBUFFER) != ENG_GL_FRAMEBUFFER_COMPLETE) {
-        /* Fallback when GLES lacks EXT_color_buffer_float on RT2 */
         gl->DeleteTextures(1, &r->gb_pos_tex);
         r->gb_pos_tex = make_tex2d(r->width, r->height, ENG_GL_RGBA8, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, ENG_GL_NEAREST);
         gl->FramebufferTexture2D(ENG_GL_FRAMEBUFFER, ENG_GL_COLOR_ATTACHMENT2, ENG_GL_TEXTURE_2D, r->gb_pos_tex, 0);
@@ -203,8 +204,8 @@ bool eng_renderer_reload_shaders(eng_renderer_t *r) {
     if (!r || !r->vfs) return false;
     bool ok = true;
     ok &= eng_shader_load_vfs(&r->sh_forward, r->vfs, "shaders/forward.vert", "shaders/forward.frag");
-    ok &= eng_shader_load_vfs(&r->sh_gbuffer, r->vfs, "shaders/gbuffer.vert", "shaders/gbuffer.frag");
-    ok &= eng_shader_load_vfs(&r->sh_def_light, r->vfs, "shaders/post.vert", "shaders/deferred_light.frag");
+    (void)eng_shader_load_vfs(&r->sh_gbuffer, r->vfs, "shaders/gbuffer.vert", "shaders/gbuffer.frag");
+    (void)eng_shader_load_vfs(&r->sh_def_light, r->vfs, "shaders/post.vert", "shaders/deferred_light.frag");
     ok &= eng_shader_load_vfs(&r->sh_shadow, r->vfs, "shaders/shadow.vert", "shaders/shadow.frag");
     ok &= eng_shader_load_vfs(&r->sh_skybox, r->vfs, "shaders/skybox.vert", "shaders/skybox.frag");
     ok &= eng_shader_load_vfs(&r->sh_post, r->vfs, "shaders/post.vert", "shaders/post.frag");
@@ -532,7 +533,7 @@ static void draw_pocket_meshes(eng_renderer_t *r, uint16_t pocket_id, const eng_
         eng_shader_set_v3(sh, "u_mat_mr", eng_v3(first->metallic, first->roughness, 0.0f));
 
         if (first->skin_bones && first->skin_bone_count > 0) {
-            uint32_t bc = first->skin_bone_count > 64u ? 64u : first->skin_bone_count;
+            uint32_t bc = first->skin_bone_count > 48u ? 48u : first->skin_bone_count;
             eng_shader_set_int(sh, "u_skinned", 1);
             GLint bloc = gl->GetUniformLocation(sh->program, "u_bones");
             if (bloc >= 0) gl->UniformMatrix4fv(bloc, (GLsizei)bc, ENG_GL_FALSE, first->skin_bones[0].m);
@@ -678,7 +679,7 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
     gl->Enable(ENG_GL_CULL_FACE);
     gl->CullFace(ENG_GL_BACK);
 
-    if (r->pipeline == ENG_PIPELINE_DEFERRED) {
+    if (r->pipeline == ENG_PIPELINE_DEFERRED && r->sh_gbuffer.valid && r->sh_def_light.valid) {
         gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->gbuf_fbo);
         gl->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         gl->Clear(ENG_GL_COLOR_BUFFER_BIT);
@@ -830,6 +831,7 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
                                const eng_camera_t *cam, const eng_xr_t *xr) {
     if (!r || !cam) return;
     const eng_gl_api_t *gl = eng_gl();
+    gl->Disable(ENG_GL_BLEND);
 
     /* Build dynamic sprite batch without leaking mesh cache slots */
     uint32_t saved_mesh_check = r->portal_quad_mesh;
@@ -880,7 +882,13 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
             eng_vec3_t up = eng_quat_rotate_v3(cam->rot, eng_v3(0.0f, 1.0f, 0.0f));
             view = eng_mat4_look_at(cam->pos, eng_v3_add(cam->pos, fwd), up);
             float aspect = (float)r->width / (float)(r->height > 0 ? r->height : 1);
-            proj = eng_mat4_perspective(cam->fov_y_deg * ENG_DEG2RAD, aspect, cam->z_near, cam->z_far);
+            float fov_y = cam->fov_y_deg * ENG_DEG2RAD;
+            if (aspect < 1.0f) {
+                /* Keep horizontal FOV comfortable on narrow portrait screens */
+                fov_y = 2.0f * atanf(tanf(fov_y * 0.5f) / fmaxf(aspect, 0.55f));
+                if (fov_y > 105.0f * ENG_DEG2RAD) fov_y = 105.0f * ENG_DEG2RAD;
+            }
+            proj = eng_mat4_perspective(fov_y, aspect, cam->z_near, cam->z_far);
         }
 
         render_pocket_recursive(r, scene, portals, cam->pocket_id, &view, &proj,

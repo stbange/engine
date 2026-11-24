@@ -32,7 +32,7 @@ void main() {
     }
 
     vec3 hdr = texture(u_hdr_tex, v_uv).rgb + texture(u_bloom_tex, v_uv).rgb * u_bloom_amt;
-    vec3 ldr = pow(aces_tonemap(hdr), vec3(1.0 / 2.2));
+    vec3 ldr = pow(max(aces_tonemap(hdr), vec3(0.0001)), vec3(1.0 / 2.2));
 
     if (u_color_levels > 1.0) {
         float d = (u_dither_bayer != 0) ? (eng_bayer4(gl_FragCoord.xy) - 0.5) / u_color_levels : 0.0;

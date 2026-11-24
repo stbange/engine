@@ -29,7 +29,7 @@ vec3 eng_pbr_eval(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float rou
     float G = Gv * Gl;
 
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    vec3 F = F0 + (1.0 - F0) * pow(1.0 - HdotV, 5.0);
+    vec3 F = F0 + (1.0 - F0) * pow(max(1.0 - HdotV, 0.0001), 5.0);
 
     vec3 spec = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
