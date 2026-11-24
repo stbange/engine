@@ -14,6 +14,11 @@ Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the 
   - Default 3-player local split-keyboard action bindings (`p1_*` `WASD+E`, `p2_*` `IJKL+U`, `p3_*` `Arrows+Return`, `switch_crew` `Tab`, `toggle_cam` `C`).
   - **Game `101` (`games/101_giant_cleaner_mech`)**: *Titan Janitor: 3-Crew Cleaning Mech* — three players simultaneously steering, walking, operating Vacuum/Scrubber/Recycler stations, and performing Galilean EVA ramp exits & moving-ramp re-boarding inside a giant 14m bipedal cleaning robot.
   - **Toggleable On-Screen Game Help (`eng_ui_draw_help`, `H` hotkey / Web `Help (H)` button)**: Automatic per-game bottom-left goal description (from `game.json`) and live control hints (from `locales` `"controls"` or runtime-observed input actions) across all 101 games on Desktop and Web.
+  - **Materials & Atmospheric FX (`openspec/specs/03-renderer-retro-voxel/spec.md`, `shaders/`, `eng_render`, `eng_particles`, `eng_lua`, `lua/eng/fx.lua`)**:
+    - Analytic sky-gradient IBL reflections (`eng_env_ibl`) in Forward and Deferred shaders for gleaming gold, chrome, copper, and wet/metallic materials.
+    - Linear HDR `emissive` support (`eng_draw_item_t.emissive`, `set_mesh` `emissive` RGB or scalar) and a back-to-front sorted translucent Fresnel composite pass (`tint.a < 0.99`) working identically in both Forward and Deferred pipelines for glowing crystals, gems, ice, and glass.
+    - Built-in 32×32 radial Gaussian soft puff texture (`__soft_puff`), additive blend mode (`additive = true`), full Lua particle controls (`color_start/end`, `size_start/end`, `gravity`, `drag`, `cap`, `eng.particles.set_pos`, `eng.particles.set_rate`), and `lua/eng/fx.lua` (`eng.fx.material` + `eng.fx.spawn` presets for `fire`, `smoke`, `sparks`, `dust`).
+    - Updatable dynamic lights (`eng.render.add_light` returning 1-based handle + `eng.render.set_light`) and height-layered colored fog + bloom controls (`fog_color`, `fog_height`, `bloom` in `eng.render.set_retro` and `game.json` `"retro"`), showcased in `099_shader_museum_xr`, `001_catacomb_blitz`, and `049_cursed_lantern`.
 
 ### Fixed
 - **Emscripten WebAssembly & Chrome Player (`CMakeLists.txt`, `src/eng_platform.c`, `src/eng_cli.c`, `web/shell_play.html`)**:

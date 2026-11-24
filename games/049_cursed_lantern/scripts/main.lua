@@ -17,10 +17,11 @@ end
 
 function init()
     eng.xr.set_mode("diorama")
-    eng.render.set_retro({ vertex_snap = 240, dither = true, color_bits = 5, fog_density = 0.028 })
+    eng.render.set_retro({ vertex_snap = 240, dither = true, color_bits = 5, fog_density = 0.036, fog_color = {0.05, 0.08, 0.14}, fog_height = 2.8, bloom = 0.50 })
     eng.render.set_sky(0.02, 0.03, 0.08, 0.06, 0.08, 0.16)
     eng.render.add_light({ type = "dir", dir = {-0.25, -1.0, -0.35}, color = {0.75, 0.85, 1.25}, shadow = true })
-    eng.render.add_light({ type = "point", pos = {0.0, 3.0, 0.0}, color = {2.4, 1.7, 0.8}, range = 16.0 })
+    S.lantern_light = eng.render.add_light({ type = "point", pos = {0.0, 1.5, 0.0}, color = {2.8, 1.85, 0.78}, range = 14.0 })
+    S.lantern_fx = eng.fx.spawn(eng, "sparks", 0.35, 1.1, -0.25, 0, { rate = 12, size_start = 0.11 })
 
     local seed = math.floor(eng.math.range(100, 700000))
     local moss_tex = eng.procgen.texture("grass", seed, 64)
@@ -56,7 +57,7 @@ function init()
         end
     end
 
-    -- 4 Unlit Stone Beacons + 4 Oil Flasks + 4 Shadow Wraiths
+    -- 4 Unlit Stone Beacons + 4 Gold Oil Flasks + 4 Shadow Wraiths
     local bcoords = { {-7.5, -7.5}, {7.5, -7.5}, {7.5, 7.5}, {-7.5, 7.5} }
     S.beacons = {}
     S.oils = {}
@@ -73,14 +74,14 @@ function init()
 
         local flame = eng.scene.spawn("beacon_gem_" .. i)
         eng.scene.set_pos(flame, bx, 1.85, bz)
-        eng.scene.set_mesh(flame, S.crystal_mesh, { color = {0.28, 0.32, 0.42, 1.0} })
+        eng.scene.set_mesh(flame, S.crystal_mesh, eng.fx.material("ice"))
         S.beacons[i] = { x = bx, z = bz, gem = flame, lit = false }
 
         local ox, oz = bx * 0.52, bz * 0.52
         local oe = eng.scene.spawn("lantern_oil_" .. i)
         eng.scene.set_pos(oe, ox, 0.2, oz)
         eng.scene.set_scale(oe, 0.6, 0.6, 0.6)
-        eng.scene.set_mesh(oe, S.lantern_mesh, { color = {1.0, 0.82, 0.28, 1.0} })
+        eng.scene.set_mesh(oe, S.lantern_mesh, eng.fx.material("gold", { emissive = {0.25, 0.18, 0.04} }))
         S.oils[i] = { ent = oe, x = ox, z = oz, taken = false }
 
         local wx, wz = bx * 0.82, bz * 0.82
@@ -91,7 +92,7 @@ function init()
         S.wraiths[i] = { ent = we, x = wx, z = wz, repel_cd = 0.0 }
     end
 
-    -- Keeper + Held Voxel Lantern + Visible Light Radius Ring
+    -- Keeper + Held Voxel Lantern + Translucent Light Radius Ring
     S.px, S.pz = 0.0, 0.0
     S.hero_ent = eng.scene.spawn("lantern_bearer")
     eng.scene.set_pos(S.hero_ent, S.px, 0.0, S.pz)
@@ -100,12 +101,12 @@ function init()
     S.lantern_ent = eng.scene.spawn("voxel_lantern")
     eng.scene.set_parent(S.lantern_ent, S.hero_ent)
     eng.scene.set_pos(S.lantern_ent, 0.45, 0.95, -0.35)
-    eng.scene.set_mesh(S.lantern_ent, S.lantern_mesh, { color = {1.0, 0.88, 0.35, 1.0} })
+    eng.scene.set_mesh(S.lantern_ent, S.lantern_mesh, { color = {1.0, 0.88, 0.35, 1.0}, emissive = {1.6, 1.1, 0.35} })
 
     S.aura_ent = eng.scene.spawn("lantern_radius_ring")
     eng.scene.set_pos(S.aura_ent, S.px, 0.04, S.pz)
     eng.scene.set_scale(S.aura_ent, 8.0, 0.4, 8.0)
-    eng.scene.set_mesh(S.aura_ent, S.cyl_mesh, { color = {0.95, 0.72, 0.25, 1.0} })
+    eng.scene.set_mesh(S.aura_ent, S.cyl_mesh, { color = {0.95, 0.72, 0.25, 0.28}, emissive = {0.35, 0.24, 0.06}, cast_shadow = false })
 
     S.hp = 100
     S.fuel = 72.0
@@ -113,6 +114,7 @@ function init()
     S.fuel_collected = 0
     S.wraiths_repelled = 0
     S.beacons_lit = 0
+    S.fx_t = 0.0
     S.won = false
 
     eng.camera.look_at(S.px, 9.5, S.pz + 9.5, S.px, 0.6, S.pz - 1.5, 0)
@@ -122,6 +124,7 @@ end
 function update(dt)
     if S.won then return end
 
+    S.fx_t = (S.fx_t or 0.0) + dt
     S.fuel = math.max(0.0, S.fuel - 4.8 * dt)
     S.lantern_radius = 2.2 + (S.fuel / 100.0) * 6.2
 
@@ -132,6 +135,14 @@ function update(dt)
         S.pz = eng.math.clamp(nz, -14.0, 14.0)
         eng.scene.set_pos(S.hero_ent, S.px, 0.0, S.pz)
     end
+
+    local flk = 0.88 + 0.14 * math.sin(S.fx_t * 14.0)
+    eng.render.set_light(S.lantern_light, {
+        pos = {S.px + 0.35, 1.45, S.pz - 0.25},
+        color = {2.8 * flk, 1.85 * flk, 0.78 * flk},
+        range = S.lantern_radius * 2.1
+    })
+    eng.particles.set_pos(S.lantern_fx, S.px + 0.35, 1.1, S.pz - 0.25, 0)
 
     eng.scene.set_pos(S.aura_ent, S.px, 0.04, S.pz)
     local diam = S.lantern_radius * 2.0
@@ -173,14 +184,15 @@ function update(dt)
         end
     end
 
-    -- Ignite the 4 Ancient Forest Beacons (spawns dynamic point light per beacon!)
+    -- Ignite the 4 Ancient Forest Beacons (spawns dynamic point light + fire plume per beacon!)
     for i = 1, #S.beacons do
         local b = S.beacons[i]
         if not b.lit and S.fuel >= 15.0 and eng.math.dist3(S.px, 0, S.pz, b.x, 0, b.z) < 2.4 then
             b.lit = true
             S.fuel = math.max(10.0, S.fuel - 10.0)
             S.beacons_lit = S.beacons_lit + 1
-            eng.scene.set_mesh(b.gem, S.crystal_mesh, { color = {1.0, 0.86, 0.25, 1.0} })
+            eng.scene.set_mesh(b.gem, S.crystal_mesh, eng.fx.material("lava"))
+            eng.fx.spawn(eng, "fire", b.x, 2.0, b.z, 0, { rate = 22 })
             eng.render.add_light({ type = "point", pos = {b.x, 2.6, b.z}, color = {2.8, 1.9, 0.75}, range = 16.0 })
             eng.audio.play(S.sfx_beacon, b.x, 2.0, b.z, 0)
         end

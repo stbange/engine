@@ -4,6 +4,7 @@ local S = game.state
 function init()
     eng.render.set_pipeline("deferred")
     eng.xr.set_mode("first_person")
+    eng.render.set_retro({ bloom = 0.45, fog_density = 0.008, fog_color = {0.16, 0.22, 0.34}, fog_height = 4.0 })
     eng.render.set_sky(0.10, 0.16, 0.28, 0.42, 0.50, 0.62)
     eng.render.add_light({ type = "dir", dir = {-0.3, -1.0, -0.45}, color = {2.0, 1.95, 1.85}, shadow = true })
 
@@ -19,11 +20,25 @@ function init()
     local marble_tex = eng.procgen.texture("marble", seed, 64)
     local caustic_tex = eng.procgen.texture("water_caustics", seed + 17, 64)
 
-    -- Exterior Courtyard Plaza (pocket 0)
+    -- Exterior Courtyard Plaza (pocket 0) with live Gold, Chrome, Crystal & Fire showcase
     local plaza = eng.scene.spawn("courtyard_plaza")
     eng.scene.set_pos(plaza, 0.0, -0.25, -2.0)
     eng.scene.set_scale(plaza, 16.0, 0.5, 14.0)
     eng.scene.set_mesh(plaza, S.box_mesh, { tex = marble_tex, roughness = 0.3 })
+
+    local c_gold = eng.scene.spawn("courtyard_gold")
+    eng.scene.set_pos(c_gold, -3.2, 0.55, -2.2)
+    eng.scene.set_mesh(c_gold, S.sphere_mesh, eng.fx.material("gold", { cast_shadow = true }))
+    local c_chrome = eng.scene.spawn("courtyard_chrome")
+    eng.scene.set_pos(c_chrome, 3.2, 0.55, -2.2)
+    eng.scene.set_mesh(c_chrome, S.sphere_mesh, eng.fx.material("chrome", { cast_shadow = true }))
+    local c_crys = eng.scene.spawn("courtyard_crystal")
+    eng.scene.set_pos(c_crys, -3.2, 1.35, -2.2)
+    eng.scene.set_scale(c_crys, 0.65, 0.65, 0.65)
+    eng.scene.set_mesh(c_crys, S.crystal_mesh, eng.fx.material("crystal"))
+    eng.fx.spawn(eng, "fire", 3.2, 1.05, -2.2, 0, { rate = 24, size_start = 0.35 })
+    eng.fx.spawn(eng, "smoke", 3.2, 1.45, -2.2, 0, { rate = 10, size_start = 0.28 })
+    S.courtyard_fire_light = eng.render.add_light({ type = "point", pocket = 0, pos = {3.2, 1.8, -2.2}, color = {2.4, 1.25, 0.45}, range = 10.0 })
 
     -- Compact 3.8m Exterior Pavilion -> Grand 26m x 9m x 28m Bigger-on-the-Inside Museum Hall!
     local museum = eng.space.create_pocket_building(eng, {
@@ -41,9 +56,9 @@ function init()
     -- Deferred multi-light illumination inside Museum Hall
     eng.render.add_light({ type = "point", pocket = "museum_hall", pos = {-5.0, 5.5, 8.0}, color = {2.6, 2.2, 1.7}, range = 22.0 })
     eng.render.add_light({ type = "point", pocket = "museum_hall", pos = { 5.0, 5.5, 8.0}, color = {1.5, 2.2, 2.8}, range = 22.0 })
-    eng.render.add_light({ type = "point", pocket = "museum_hall", pos = { 0.0, 5.5, -2.0}, color = {2.4, 1.5, 2.6}, range = 24.0 })
+    S.brazier_light = eng.render.add_light({ type = "point", pocket = "museum_hall", pos = { 4.6, 2.4, 2.5}, color = {2.8, 1.5, 0.55}, range = 16.0 })
 
-    -- Helper to spawn marble exhibit plinth + status crystal inside museum_hall
+    -- Helper to spawn marble exhibit plinth + translucent status crystal inside museum_hall
     local function add_plinth(idx, name, x, z)
         local pe = eng.scene.spawn("plinth_" .. tostring(idx))
         eng.scene.set_pocket(pe, S.hall_id)
@@ -55,30 +70,27 @@ function init()
         eng.scene.set_pocket(ce, S.hall_id)
         eng.scene.set_pos(ce, x, 2.35, z)
         eng.scene.set_scale(ce, 0.4, 0.4, 0.4)
-        eng.scene.set_mesh(ce, S.crystal_mesh, { color = {0.45, 0.50, 0.60, 1.0} })
+        eng.scene.set_mesh(ce, S.crystal_mesh, eng.fx.material("glass"))
         return { idx = idx, name = name, x = x, z = z, beacon = ce, inspected = false }
     end
 
     S.exhibits = {
-        add_plinth(1, "PBR SPHERES",   -4.6,  8.5),
+        add_plinth(1, "GOLD & CHROME", -4.6,  8.5),
         add_plinth(2, "PS1 DITHER",     4.6,  8.5),
         add_plinth(3, "AO VOXELS",     -4.6,  2.5),
-        add_plinth(4, "SPRITE FOUNT",   4.6,  2.5),
+        add_plinth(4, "FIRE & SMOKE",   4.6,  2.5),
         add_plinth(5, "PORTAL VAULT",   0.0, -3.5)
     }
 
-    -- Exhibit 1: Metallic/Roughness PBR Sphere Array
-    local pbr_cols = { {1.0, 0.84, 0.25, 1.0}, {0.92, 0.94, 0.98, 1.0}, {0.95, 0.48, 0.28, 1.0} }
+    -- Exhibit 1: Gold, Chrome & Translucent Fresnel Crystal Material Array
+    local mat_names = { "gold", "chrome", "crystal" }
     for s = 1, 3 do
         local sp = eng.scene.spawn("pbr_sphere_" .. tostring(s))
         eng.scene.set_pocket(sp, S.hall_id)
         eng.scene.set_pos(sp, -4.6 + (s - 2) * 0.95, 1.38, 8.5)
-        eng.scene.set_mesh(sp, S.sphere_mesh, {
-            color = pbr_cols[s],
-            metallic = (s == 3) and 0.1 or 0.95,
-            roughness = 0.08 + (s - 1) * 0.35,
-            cast_shadow = true
-        })
+        local opts = eng.fx.material(mat_names[s])
+        if s < 3 then opts.cast_shadow = true end
+        eng.scene.set_mesh(sp, (s == 3) and S.crystal_mesh or S.sphere_mesh, opts)
     end
 
     -- Exhibit 2: Retro PS1 Vertex-Snap & Bayer Dither Starfighter Plinth
@@ -100,12 +112,14 @@ function init()
     eng.scene.set_pos(ve, -5.3, 0.9, 1.8)
     eng.scene.set_mesh(ve, vox_mesh, { color = {0.35, 0.92, 0.72, 1.0}, cast_shadow = true })
 
-    -- Exhibit 4: Caustic Pedestal for Billboard Sprite Constellation
+    -- Exhibit 4: Caustic Pedestal + Live Fire & Smoke Brazier
     local fp = eng.scene.spawn("caustic_basin")
     eng.scene.set_pocket(fp, S.hall_id)
     eng.scene.set_pos(fp, 4.6, 0.96, 2.5)
     eng.scene.set_scale(fp, 2.0, 0.12, 1.3)
     eng.scene.set_mesh(fp, S.box_mesh, { tex = caustic_tex, roughness = 0.12 })
+    eng.fx.spawn(eng, "fire", 4.6, 1.08, 2.5, S.hall_id)
+    eng.fx.spawn(eng, "smoke", 4.6, 1.55, 2.5, S.hall_id)
 
     -- Exhibit 5: Secondary Pocket Portal Alcove peering into an Infinity Light Vault
     local vault_id = eng.scene.register_pocket("infinity_vault")
@@ -118,12 +132,12 @@ function init()
     local vc = eng.scene.spawn("vault_relic")
     eng.scene.set_pocket(vc, vault_id)
     eng.scene.set_pos(vc, 0.0, 1.0, -1.5)
-    eng.scene.set_mesh(vc, S.crystal_mesh, { color = {1.0, 0.9, 0.3, 1.0} })
+    eng.scene.set_mesh(vc, S.crystal_mesh, eng.fx.material("ruby"))
 
     local pa = eng.scene.spawn("alcove_arch")
     eng.scene.set_pocket(pa, S.hall_id)
     eng.scene.set_pos(pa, 0.0, 0.9, -3.5)
-    eng.scene.set_mesh(pa, S.arch_mesh, { color = {0.9, 0.85, 0.95, 1.0} })
+    eng.scene.set_mesh(pa, S.arch_mesh, eng.fx.material("copper"))
 
     local p_src = eng.scene.spawn("vault_portal_src")
     eng.scene.set_pocket(p_src, S.hall_id)
@@ -141,6 +155,7 @@ function init()
     S.px, S.py, S.pz = 0.0, 1.35, 1.8
     S.yaw, S.pitch = 0.0, 0.0
     S.spin = 0.0
+    S.fx_t = 0.0
     S.retro_timer = 0.0
     S.entered_gallery = false
     S.inspected_count = 0
@@ -154,12 +169,16 @@ end
 function update(dt)
     if S.won then return end
     S.spin = (S.spin + 55.0 * dt) % 360.0
+    S.fx_t = (S.fx_t or 0.0) + dt
     eng.scene.set_rot_deg(S.retro_ent, 0.0, S.spin, 0.0)
+    local flk = 0.88 + 0.16 * math.sin(S.fx_t * 11.0) + 0.08 * math.sin(S.fx_t * 23.0)
+    eng.render.set_light(S.brazier_light, { color = {2.8 * flk, 1.5 * flk, 0.55 * flk} })
+    eng.render.set_light(S.courtyard_fire_light, { color = {2.4 * flk, 1.25 * flk, 0.45 * flk} })
 
     if S.retro_timer > 0.0 then
         S.retro_timer = S.retro_timer - dt
         if S.retro_timer <= 0.0 then
-            eng.render.set_retro(false)
+            eng.render.set_retro({ vertex_snap = 0, dither = false, color_bits = 8, bloom = 0.45 })
         end
     end
 
@@ -184,7 +203,7 @@ function update(dt)
             if not ex.inspected and eng.math.dist3(S.px, 0.0, S.pz, ex.x, 0.0, ex.z) < 2.7 then
                 ex.inspected = true
                 S.inspected_count = S.inspected_count + 1
-                eng.scene.set_mesh(ex.beacon, S.crystal_mesh, { color = {0.25, 1.0, 0.55, 1.0}, roughness = 0.1 })
+                eng.scene.set_mesh(ex.beacon, S.crystal_mesh, eng.fx.material("emerald"))
                 eng.audio.play(S.sfx_inspect, ex.x, 1.5, ex.z, S.hall_id)
                 if ex.idx == 2 then
                     eng.render.set_retro({ vertex_snap = 200, dither = true, color_bits = 5 })

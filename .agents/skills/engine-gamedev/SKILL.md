@@ -49,6 +49,11 @@ Always pass explicit integer seeds derived from run/level seeds (never use `math
 - **Animals & People**: `eng.procgen.animal({ seed=..., archetype="quadruped" })` (auto-rigged with procedural IK gait!) and `eng.procgen.person({ seed=..., role="villager" })`.
 - **Flora & Scatter**: `eng.procgen.tree(...)` and `eng.procgen.scatter_poisson(...)`.
 
+## 4b. Special Materials, Crystals, Particles, Lights & Fog (`eng.fx.*`, `eng.render.*`, `eng.particles.*`)
+- **Metals, Crystals & Emissive Glow**: Analytic sky-gradient IBL makes high-metallic low-roughness surfaces gleam automatically (`gold`, `chrome`, `copper`, `obsidian`), while `color[4] < 0.99` routes meshes through the back-to-front translucent Fresnel pass and `emissive = {r, g, b}` (or scalar multiplier) drives HDR bloom in both Forward and Deferred pipelines. Use `eng.fx.material("gold"|"chrome"|"copper"|"obsidian"|"crystal"|"ruby"|"emerald"|"ice"|"glass"|"lava", overrides?)` directly with `eng.scene.set_mesh`.
+- **Fire, Smoke, Sparks & Dust**: Omit `tex` on `eng.particles.create` to use the built-in soft radial puff texture, and pass `additive = true`, `color_start/end`, `size_start/end`, `gravity`, `drag`, or use 1-call `eng.fx.spawn(eng, "fire"|"smoke"|"sparks"|"dust", x, y, z, pocket?, opts?)`. Reposition live emitters with `eng.particles.set_pos(id, x, y, z, pocket?)` and `eng.particles.set_rate(id, rate)`.
+- **Movable Lights & Height Fog**: Capture the 1-based handle returned by `local lid = eng.render.add_light({...})` and animate it each frame with `eng.render.set_light(lid, { pos=..., color=..., range=... })`. Tune colored distance + ground-mist fog and bloom via `eng.render.set_retro({ fog_density=0.03, fog_color={r,g,b}, fog_height=2.8, bloom=0.5 })`.
+
 ## 5. Closed-Loop Agent Workflow
 1. **Scaffold**: `./build/engine --new games/<slug> --template <fps|voxel|pocket_house|procgen_roguelike|planet_explorer|xr>`
 2. **Spatial & Multi-Seed Lint**: `./build/engine --headless --doctor --fuzz-seeds 10 --game games/<slug>`

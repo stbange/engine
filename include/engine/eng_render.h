@@ -49,6 +49,7 @@ typedef struct {
     eng_vec3_t fog_color;
     float crt_scanlines;   /* 0.0 .. 1.0 */
     float bloom_intensity; /* 0.0 .. 2.0 */
+    float fog_height;      /* 0 = pure distance fog; >0 = exponential ground-mist height falloff (meters) */
 } eng_retro_cfg_t;
 
 typedef struct {
@@ -72,6 +73,7 @@ typedef struct {
     bool occluder;
     const eng_mat4_t *skin_bones; /* optional array of joint matrices */
     uint32_t skin_bone_count;
+    eng_vec3_t emissive;   /* linear HDR emissive RGB feeding bloom */
 } eng_draw_item_t;
 
 typedef struct {

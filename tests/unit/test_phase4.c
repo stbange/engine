@@ -136,8 +136,11 @@ static void test_terrain_and_particles(void) {
     ecfg.life_min = 0.2f;
     ecfg.life_max = 0.3f;
     ecfg.spawn_rate = 60.0f;
+    ecfg.additive = true;
     eng_emitter_t *em = eng_emitter_create(128, 99u, &ecfg);
     assert(em != NULL);
+    eng_emitter_set_pos(em, eng_v3(1.0f, 2.0f, -3.0f), -1);
+    eng_emitter_set_rate(em, 60.0f);
     assert(eng_emitter_burst(em, 20) == 20);
     assert(eng_emitter_alive_count(em) == 20);
 
@@ -147,7 +150,13 @@ static void test_terrain_and_particles(void) {
     eng_sprite_item_t sp_out[64];
     size_t sp_n = eng_emitter_collect_sprites(em, sp_out, 64);
     assert(sp_n == eng_emitter_alive_count(em));
-    assert(sp_out[0].pocket_id == 2 && sp_out[0].mode == ENG_SPRITE_BILLBOARD_SPHERICAL);
+    assert(sp_out[0].pocket_id == 2 && sp_out[0].mode == ENG_SPRITE_BILLBOARD_SPHERICAL && sp_out[0].additive);
+
+    eng_emitter_set_pos(em, eng_v3(2.0f, 1.0f, 0.0f), 3);
+    eng_emitter_set_rate(em, 0.0f);
+    eng_emitter_burst(em, 2);
+    sp_n = eng_emitter_collect_sprites(em, sp_out, 64);
+    assert(sp_n > 0 && sp_out[sp_n - 1].pocket_id == 3);
 
     ecfg.active = false;
     eng_emitter_set_cfg(em, &ecfg);

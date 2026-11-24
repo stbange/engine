@@ -14,14 +14,18 @@ import re
 import sys
 
 DEFAULT_OPT_KEYS = {
-    "eng.render.set_retro": {"vertex_snap", "dither", "color_bits", "fog_density", "crt"},
-    "eng.scene.set_mesh": {"color", "tex", "metallic", "roughness", "cast_shadow", "occluder"},
+    "eng.render.set_retro": {"vertex_snap", "dither", "color_bits", "fog_density", "fog_color", "fog_height", "bloom", "crt"},
+    "eng.scene.set_mesh": {"color", "emissive", "tex", "metallic", "roughness", "cast_shadow", "occluder"},
     "eng.render.add_light": {"type", "pocket", "pos", "dir", "color", "range", "shadow"},
+    "eng.render.set_light": {"pos", "dir", "color", "range", "pocket"},
     "eng.physics.add_body": {
         "shape", "motion", "pocket", "radius", "half_height",
         "half_extents", "vel", "restitution", "trigger", "voxel_id",
     },
-    "eng.particles.create": {"pos", "dir", "rate", "pocket", "tex", "seed", "spread", "speed", "life"},
+    "eng.particles.create": {
+        "pos", "dir", "rate", "pocket", "tex", "seed", "spread", "speed", "life",
+        "color_start", "color_end", "size_start", "size_end", "gravity", "drag", "additive", "cap",
+    },
 }
 DEFAULT_TEX_RECIPES = {
     "stone_brick", "wood_planks", "wood_grain", "grass", "rust_metal",
@@ -42,7 +46,7 @@ VALID_XR = {"diorama", "cockpit", "first_person", "6dof"}
 VALID_PIPELINES = {"forward", "deferred"}
 VALID_GAME_RETRO_KEYS = {
     "vertex_snap", "nearest_textures", "dither_bayer",
-    "color_bits", "crt_scanlines", "fog_density",
+    "color_bits", "crt_scanlines", "fog_density", "fog_color", "fog_height", "bloom",
 }
 # Games whose fixed-target look_at is an intentional diorama/cube/alley focus camera
 INTENTIONAL_FOCUS_LOOKAT = {
@@ -88,6 +92,7 @@ def load_engine_contract(root):
             "l_render_retro": "eng.render.set_retro",
             "l_scene_set_mesh": "eng.scene.set_mesh",
             "l_render_add_light": "eng.render.add_light",
+            "l_render_set_light": "eng.render.set_light",
             "l_phys_add_body": "eng.physics.add_body",
             "l_part_create": "eng.particles.create",
         }

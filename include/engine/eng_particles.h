@@ -27,6 +27,7 @@ typedef struct {
     uint32_t tex_id;
     uint16_t pocket_id;
     bool active;
+    bool additive;
 } eng_emitter_cfg_t;
 
 typedef struct eng_emitter_s eng_emitter_t;
@@ -36,6 +37,8 @@ eng_emitter_t *eng_emitter_create(size_t capacity, uint64_t seed, const eng_emit
 void eng_emitter_destroy(eng_emitter_t *em);
 
 void eng_emitter_set_cfg(eng_emitter_t *em, const eng_emitter_cfg_t *cfg);
+void eng_emitter_set_pos(eng_emitter_t *em, eng_vec3_t origin, int pocket_id);
+void eng_emitter_set_rate(eng_emitter_t *em, float spawn_rate);
 size_t eng_emitter_burst(eng_emitter_t *em, size_t count);
 void eng_emitter_step(eng_emitter_t *em, float dt);
 

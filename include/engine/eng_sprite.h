@@ -27,6 +27,7 @@ typedef struct {
     uint32_t tex_id;
     uint16_t pocket_id;
     eng_sprite_mode_t mode;
+    bool additive;
 } eng_sprite_item_t;
 
 /* Return [0..7] Doom-style 8-way viewing angle index (0 = front, 4 = back). */

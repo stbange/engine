@@ -28,6 +28,7 @@ typedef struct {
     uint32_t mesh_id;
     uint32_t tex_id;
     eng_vec4_t color;
+    eng_vec3_t emissive;
     float metallic;
     float roughness;
     bool cast_shadow;
@@ -459,6 +460,10 @@ static int l_scene_set_mesh(lua_State *L) {
     v->mesh_id = mid;
     if (lua_istable(L, 3)) {
         lua_getfield(L, 3, "color"); v->color = opt_tbl_v4(L, lua_gettop(L), v->color); lua_pop(L, 1);
+        lua_getfield(L, 3, "emissive");
+        if (lua_istable(L, -1)) v->emissive = opt_tbl_v3(L, lua_gettop(L), v->emissive);
+        else if (lua_isnumber(L, -1)) { float s = (float)lua_tonumber(L, -1); v->emissive = eng_v3(v->color.x * s, v->color.y * s, v->color.z * s); }
+        lua_pop(L, 1);
         lua_getfield(L, 3, "tex"); if (lua_isnumber(L, -1)) v->tex_id = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 3, "metallic"); if (lua_isnumber(L, -1)) v->metallic = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 3, "roughness"); if (lua_isnumber(L, -1)) v->roughness = (float)lua_tonumber(L, -1); lua_pop(L, 1);
@@ -545,6 +550,9 @@ static int l_render_retro(lua_State *L) {
         lua_getfield(L, 1, "dither"); if (!lua_isnil(L, -1)) cfg.dither_bayer = lua_toboolean(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "color_bits"); if (lua_isnumber(L, -1)) cfg.color_bits = (int)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "fog_density"); if (lua_isnumber(L, -1)) cfg.fog_density = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "fog_color"); cfg.fog_color = opt_tbl_v3(L, lua_gettop(L), cfg.fog_color); lua_pop(L, 1);
+        lua_getfield(L, 1, "fog_height"); if (lua_isnumber(L, -1)) cfg.fog_height = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "bloom"); if (lua_isnumber(L, -1)) cfg.bloom_intensity = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "crt"); if (lua_isnumber(L, -1)) cfg.crt_scanlines = (float)lua_tonumber(L, -1); lua_pop(L, 1);
     }
     eng_renderer_set_retro(rt->renderer, &cfg);
@@ -559,7 +567,7 @@ static int l_render_sky(lua_State *L) {
 }
 static int l_render_add_light(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
-    if (!lua_istable(L, 1) || rt->persist_light_count >= ENG_MAX_PERSIST_LIGHTS) return 0;
+    if (!lua_istable(L, 1) || rt->persist_light_count >= ENG_MAX_PERSIST_LIGHTS) { lua_pushinteger(L, 0); return 1; }
     eng_light_t l;
     memset(&l, 0, sizeof(l));
     lua_getfield(L, 1, "type");
@@ -577,6 +585,22 @@ static int l_render_add_light(lua_State *L) {
     lua_getfield(L, 1, "shadow"); l.cast_shadow = lua_isnil(L, -1) ? (l.type == ENG_LIGHT_DIR) : lua_toboolean(L, -1); lua_pop(L, 1);
     l.spot_cos_inner = 0.85f;
     rt->persist_lights[rt->persist_light_count++] = l;
+    lua_pushinteger(L, (lua_Integer)rt->persist_light_count);
+    return 1;
+}
+static int l_render_set_light(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int id = (int)luaL_checkinteger(L, 1) - 1;
+    if (id < 0 || (size_t)id >= rt->persist_light_count || !lua_istable(L, 2)) return 0;
+    eng_light_t *l = &rt->persist_lights[id];
+    lua_getfield(L, 2, "pos"); l->pos = opt_tbl_v3(L, lua_gettop(L), l->pos); lua_pop(L, 1);
+    lua_getfield(L, 2, "dir"); l->dir = opt_tbl_v3(L, lua_gettop(L), l->dir); lua_pop(L, 1);
+    lua_getfield(L, 2, "color"); l->color = opt_tbl_v3(L, lua_gettop(L), l->color); lua_pop(L, 1);
+    lua_getfield(L, 2, "range"); if (lua_isnumber(L, -1)) l->range = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "pocket");
+    if (lua_isstring(L, -1)) l->pocket_id = eng_scene_register_pocket(rt->scene, lua_tostring(L, -1));
+    else if (lua_isnumber(L, -1)) l->pocket_id = (uint16_t)lua_tointeger(L, -1);
+    lua_pop(L, 1);
     return 0;
 }
 static int l_render_draw_sprite(lua_State *L) {
@@ -588,7 +612,8 @@ static int l_render_draw_sprite(lua_State *L) {
         {opt_f(L, 7, 1.0f), opt_f(L, 8, 1.0f), opt_f(L, 9, 1.0f), 1.0f},
         (uint32_t)luaL_optinteger(L, 6, 0),
         (uint16_t)luaL_optinteger(L, 10, rt->cam.pocket_id),
-        ENG_SPRITE_BILLBOARD_Y
+        ENG_SPRITE_BILLBOARD_Y,
+        lua_toboolean(L, 11) != 0
     };
     eng_renderer_submit_sprites(rt->renderer, &sp, 1);
     return 0;
@@ -1278,6 +1303,14 @@ static int l_part_create(lua_State *L) {
         lua_getfield(L, 1, "spread"); if (lua_isnumber(L, -1)) cfg.spread_rad = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "speed"); if (lua_isnumber(L, -1)) { float sp = (float)lua_tonumber(L, -1); cfg.speed_min = sp * 0.7f; cfg.speed_max = sp * 1.3f; } lua_pop(L, 1);
         lua_getfield(L, 1, "life"); if (lua_isnumber(L, -1)) { float lf = (float)lua_tonumber(L, -1); cfg.life_min = lf * 0.75f; cfg.life_max = lf * 1.25f; } lua_pop(L, 1);
+        lua_getfield(L, 1, "color_start"); cfg.color_start = opt_tbl_v4(L, lua_gettop(L), cfg.color_start); lua_pop(L, 1);
+        lua_getfield(L, 1, "color_end"); cfg.color_end = opt_tbl_v4(L, lua_gettop(L), cfg.color_end); lua_pop(L, 1);
+        lua_getfield(L, 1, "size_start"); if (lua_isnumber(L, -1)) cfg.size_start = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "size_end"); if (lua_isnumber(L, -1)) cfg.size_end = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "gravity"); cfg.gravity = opt_tbl_v3(L, lua_gettop(L), cfg.gravity); lua_pop(L, 1);
+        lua_getfield(L, 1, "drag"); if (lua_isnumber(L, -1)) cfg.drag = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "additive"); if (!lua_isnil(L, -1)) cfg.additive = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+        lua_getfield(L, 1, "cap"); if (lua_isnumber(L, -1)) { int c = (int)lua_tointeger(L, -1); cap = (size_t)(c < 1 ? 1 : (c > 256 ? 256 : c)); } lua_pop(L, 1);
     }
     eng_emitter_t *em = eng_emitter_create(cap, seed, &cfg);
     if (!em) return 0;
@@ -1298,6 +1331,21 @@ static int l_part_alive(lua_State *L) {
     if (id < 0 || (size_t)id >= rt->emitter_count) { lua_pushinteger(L, 0); return 1; }
     lua_pushinteger(L, (lua_Integer)eng_emitter_alive_count(rt->emitters[id]));
     return 1;
+}
+static int l_part_set_pos(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int id = (int)luaL_checkinteger(L, 1) - 1;
+    if (id < 0 || (size_t)id >= rt->emitter_count) return 0;
+    int pocket = lua_isnoneornil(L, 5) ? -1 : (int)luaL_checkinteger(L, 5);
+    eng_emitter_set_pos(rt->emitters[id], eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4)), pocket);
+    return 0;
+}
+static int l_part_set_rate(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int id = (int)luaL_checkinteger(L, 1) - 1;
+    if (id < 0 || (size_t)id >= rt->emitter_count) return 0;
+    eng_emitter_set_rate(rt->emitters[id], chk_f(L, 2));
+    return 0;
 }
 
 static int l_anim_set_gait_speed(lua_State *L) {
@@ -1425,9 +1473,10 @@ static const lua_fn_desc_t k_api_table[] = {
     {"camera",    "get",              l_cam_get,               "(): number, number, number, integer", "Return camera x, y, z, pocket_id"},
     {"camera",    "fps_steer",        l_cam_fps_steer,         "(yaw: number, pitch: number, speed: number, dt: number, sens?: number): number, number, number, number, number, number", "Mouse-locked yaw/pitch look + camera-relative WASD forward/strafe step"},
     {"render",    "set_pipeline",     l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
-    {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog & CRT"},
+    {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT"},
     {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number)", "Set procedural skybox gradient"},
-    {"render",    "add_light",        l_render_add_light,      "(desc: table)", "Add directional, point, or spot light to pocket"},
+    {"render",    "add_light",        l_render_add_light,      "(desc: table): integer", "Add directional, point, or spot light to pocket (returns 1-based handle)"},
+    {"render",    "set_light",        l_render_set_light,      "(light_id: integer, desc: table)", "Update dynamic light position, direction, color, range, or pocket"},
     {"render",    "draw_sprite",      l_render_draw_sprite,    "(x: number, y: number, z: number, w?: number, h?: number, tex?: integer)", "Submit billboard sprite"},
     {"render",    "draw_text",        l_render_draw_text,      "(text: string, x: number, y: number, scale?: number, r?: number, g?: number, b?: number, a?: number)", "Draw UTF-8 SDF text"},
     {"asset",     "box",              l_asset_box,             "(w?: number, h?: number, d?: number): integer", "Create procedural box GPU mesh"},
@@ -1468,6 +1517,8 @@ static const lua_fn_desc_t k_api_table[] = {
     {"particles", "create",           l_part_create,           "(opts?: table): integer", "Create instanced 3D particle emitter"},
     {"particles", "burst",            l_part_burst,            "(emitter_id: integer, count?: integer): integer", "Emit instant burst of particles"},
     {"particles", "alive",            l_part_alive,            "(emitter_id: integer): integer", "Return active particle count"},
+    {"particles", "set_pos",          l_part_set_pos,          "(emitter_id: integer, x: number, y: number, z: number, pocket?: integer)", "Move particle emitter origin and optional pocket"},
+    {"particles", "set_rate",         l_part_set_rate,         "(emitter_id: integer, rate: number)", "Set continuous particle emission rate"},
     {"anim",      "set_gait_speed",   l_anim_set_gait_speed,   "(ent: number, speed: number)", "Set procedural IK gait playback speed"},
     {"anim",      "ik_two_bone",      l_anim_ik_two_bone,      "(ent: number, hip: integer, knee: integer, ankle: integer, tx: number, ty: number, tz: number): boolean", "Solve analytical 2-bone limb IK"},
     {"anim",      "ik_fabrik",        l_anim_ik_fabrik,        "(ent: number, chain_bones: table, tx: number, ty: number, tz: number, iters?: integer): boolean", "Solve multi-joint FABRIK chain IK"},
@@ -1523,7 +1574,7 @@ static int strict_root_index(lua_State *L) {
         "log", "math", "input", "xr", "scene", "camera", "render", "asset",
         "portal", "physics", "procgen", "terrain", "particles", "anim",
         "audio", "ai", "net", "save", "i18n", "mod",
-        "async", "bt", "space", "procgen_ext", "ui", "fun", "test"
+        "async", "bt", "space", "procgen_ext", "ui", "fx", "fun", "test"
     };
     const char *sug = eng_str_suggest(key, mods, sizeof(mods) / sizeof(mods[0]), 4);
     luaL_where(L, 1);
@@ -1766,6 +1817,7 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     load_eng_lua_module(rt, "lua/eng/space.lua", "space");
     load_eng_lua_module(rt, "lua/eng/procgen.lua", "procgen_ext");
     load_eng_lua_module(rt, "lua/eng/ui.lua", "ui");
+    load_eng_lua_module(rt, "lua/eng/fx.lua", "fx");
     load_eng_lua_module(rt, "lua/eng/fun.lua", "fun");
     load_eng_lua_module(rt, "lua/eng/test.lua", "test");
 
@@ -1950,6 +2002,9 @@ bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
                     rc.color_bits = (int)eng_json_get_num(retro_obj, "color_bits", (double)rc.color_bits);
                     rc.crt_scanlines = eng_json_get_bool(retro_obj, "crt_scanlines", false) ? 0.18f : 0.0f;
                     rc.fog_density = eng_json_get_num(retro_obj, "fog_density", rc.fog_density);
+                    rc.fog_color = eng_json_get_v3(retro_obj, "fog_color", rc.fog_color);
+                    rc.fog_height = eng_json_get_num(retro_obj, "fog_height", rc.fog_height);
+                    rc.bloom_intensity = eng_json_get_num(retro_obj, "bloom", rc.bloom_intensity);
                     eng_renderer_set_retro(rt->renderer, &rc);
                 } else if (eng_json_get_bool(root, "retro_ps1", false)) {
                     eng_retro_cfg_t ps1 = eng_retro_ps1_preset();
@@ -2063,6 +2118,7 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
             .albedo_tex = v->tex_id,
             .world = *wm,
             .tint = v->color,
+            .emissive = v->emissive,
             .metallic = v->metallic,
             .roughness = v->roughness,
             .pocket_id = eng_scene_get_pocket(rt->scene, v->ent),
@@ -2074,9 +2130,9 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
         eng_renderer_submit_mesh(rt->renderer, &di);
     }
 
-    eng_sprite_item_t p_sprites[128];
+    eng_sprite_item_t p_sprites[256];
     for (size_t i = 0; i < rt->emitter_count; i++) {
-        size_t ns = eng_emitter_collect_sprites(rt->emitters[i], p_sprites, 128);
+        size_t ns = eng_emitter_collect_sprites(rt->emitters[i], p_sprites, 256);
         if (ns > 0) eng_renderer_submit_sprites(rt->renderer, p_sprites, ns);
     }
 

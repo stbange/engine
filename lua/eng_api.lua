@@ -130,14 +130,17 @@ eng.render = {}
 --- Switch forward or deferred pipeline
 function eng.render.set_pipeline(mode: string) end
 
---- Configure PS1 vertex snap, Bayer dither, fog & CRT
+--- Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT
 function eng.render.set_retro(ps1_or_table: boolean|table) end
 
 --- Set procedural skybox gradient
 function eng.render.set_sky(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number) end
 
---- Add directional, point, or spot light to pocket
-function eng.render.add_light(desc: table) end
+--- Add directional, point, or spot light to pocket (returns 1-based handle)
+function eng.render.add_light(desc: table): integer end
+
+--- Update dynamic light position, direction, color, range, or pocket
+function eng.render.set_light(light_id: integer, desc: table) end
 
 --- Submit billboard sprite
 function eng.render.draw_sprite(x: number, y: number, z: number, w?: number, h?: number, tex?: integer) end
@@ -276,6 +279,12 @@ function eng.particles.burst(emitter_id: integer, count?: integer): integer end
 
 --- Return active particle count
 function eng.particles.alive(emitter_id: integer): integer end
+
+--- Move particle emitter origin and optional pocket
+function eng.particles.set_pos(emitter_id: integer, x: number, y: number, z: number, pocket?: integer) end
+
+--- Set continuous particle emission rate
+function eng.particles.set_rate(emitter_id: integer, rate: number) end
 
 ---@class eng.anim
 eng.anim = {}

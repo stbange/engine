@@ -13,14 +13,18 @@ The engine SHALL compile single-source shaders across Desktop OpenGL 3.3+ (inclu
 - **THEN** `eng_shader` injects the platform preamble, links the program, and swaps the live GPU program on modification without crashing if a syntax error occurs
 
 ### Requirement: Selectable Forward and Deferred PBR/Retro Pipelines
-The engine SHALL support both a Forward PBR/Retro pipeline (default) and a G-Buffer Deferred pipeline with dynamic directional/point/spot lights, shadow-map cascades/atlas, HDR FBO, Dual-Kawase bloom, tone mapping, and cubemap/procedural skyboxes.
+The engine SHALL support both Forward PBR/Retro (default) and G-Buffer Deferred pipelines with runtime-updatable directional/point/spot lights, shadows, analytic sky-gradient IBL for metals, HDR emissive glow feeding Dual-Kawase bloom, back-to-front Fresnel translucency composited in forward pass across both pipelines, tone mapping, and procedural skyboxes.
 
 #### Scenario: Switching Forward and Deferred modes
 - **WHEN** a scene configures `"pipeline": "deferred"` or toggles pipeline mode at runtime
-- **THEN** opaque meshes render through the MRT G-Buffer + shadow-lit deferred pass while sprites, particles, skybox, and UI composite cleanly in the forward pass
+- **THEN** opaque meshes render through the MRT G-Buffer + shadow-lit deferred pass while emissive/translucent meshes, sprites, particles, skybox, and UI composite cleanly in the forward pass with shared depth
+
+#### Scenario: Metallic sky reflections and translucent emissive crystals
+- **WHEN** a scene submits metallic materials (gold/chrome) alongside an emissive translucent mesh (`alpha < 0.99`)
+- **THEN** `eng_render` reflects the pocket sky gradient along `reflect(-V, N)` weighted by roughness/Fresnel and renders the translucent mesh back-to-front with Fresnel edge highlights and bloom-feeding emission
 
 ### Requirement: Retro 3D Rendering Controls
-The engine SHALL provide per-game/per-camera retro 3D controls including clip-space vertex snapping, nearest-neighbor texel filtering, ordered 4×4 Bayer dithering with color quantization, distance/height fog, and CRT scanline post-processing.
+The engine SHALL provide per-game/per-camera retro 3D controls including clip-space vertex snapping, nearest-neighbor texel filtering, ordered 4×4 Bayer dithering with color quantization, configurable distance and height fog (`fog_density`, `fog_color`, `fog_height`), bloom intensity, and CRT scanline post-processing.
 
 #### Scenario: PS1-style retro preset activation
 - **WHEN** a game enables vertex snapping, nearest filtering, and 16-bit Bayer dithering
@@ -34,7 +38,7 @@ The engine SHALL frustum-cull entity AABBs, select distance-based mesh LODs (`LO
 - **THEN** `eng_render` culls the 600 off-screen instances and submits the remaining 400 in instanced draw batches per active LOD
 
 ### Requirement: First-Class 3D Objects, 8-Way Sprites, Greedy-Meshed Voxels, Terrain, Particles & SDF Text
-The engine SHALL natively render glTF/OBJ/compound-CSG 3D meshes, depth-writing billboard and 8-directional sprites, greedy-meshed palette voxel chunks (`.vox` and `from_ascii` with 4-level vertex AO), splatted heightmap terrain, instanced particles, and UTF-8 `stb_truetype` SDF text.
+The engine SHALL natively render glTF/OBJ/compound-CSG 3D meshes, depth-writing billboard and 8-directional sprites, greedy-meshed palette voxel chunks (`.vox` and `from_ascii` with 4-level vertex AO), splatted heightmap terrain, instanced alpha/additive particles (supporting fire, smoke, sparks, runtime emitter movement, and a built-in soft radial puff texture), and UTF-8 `stb_truetype` SDF text.
 
 #### Scenario: Greedy voxel remeshing on block edit
 - **WHEN** Lua or C modifies a voxel inside a `16x16x16` chunk

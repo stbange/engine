@@ -305,12 +305,33 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
     eng_mat4_t bone = eng_mat4_identity();
     eng_draw_item_t skinned = {
         box_id, 0, eng_mat4_trs(eng_v3(-1.2f, 1.0f, -3.5f), eng_quat_identity(), eng_v3(0.5f, 0.5f, 0.5f)),
-        {0.4f, 0.7f, 1.0f, 1.0f}, 0.0f, 0.7f, p_world, false, false, &bone, 1
+        {0.4f, 0.7f, 1.0f, 1.0f}, 0.0f, 0.7f, p_world, false, false, &bone, 1, {0, 0, 0}
     };
     eng_renderer_submit_mesh(ren, &skinned);
 
-    eng_sprite_item_t sp = {eng_v3(-0.8f, 0.5f, -2.5f), {0.6f, 1.2f}, 0.0f, {0, 0, 1, 1}, {1, 1, 1, 1}, 0, p_world, ENG_SPRITE_BILLBOARD_Y};
-    eng_renderer_submit_sprites(ren, &sp, 1);
+    /* Opaque HDR emissive + 2 translucent Fresnel crystals (exercises back-to-front cmp_vis_trans) */
+    eng_draw_item_t lava_cube = {
+        box_id, 0, eng_mat4_trs(eng_v3(-0.6f, 1.1f, -3.0f), eng_quat_identity(), eng_v3(0.4f, 0.4f, 0.4f)),
+        {1.0f, 0.3f, 0.05f, 1.0f}, 0.0f, 0.6f, p_world, false, false, NULL, 0, {2.2f, 0.6f, 0.1f}
+    };
+    eng_draw_item_t crystal_far = {
+        box_id, 0, eng_mat4_trs(eng_v3(0.4f, 1.2f, -5.0f), eng_quat_identity(), eng_v3(0.5f, 0.9f, 0.5f)),
+        {0.4f, 0.9f, 1.0f, 0.5f}, 0.05f, 0.06f, p_world, false, false, NULL, 0, {0.2f, 0.5f, 0.8f}
+    };
+    eng_draw_item_t crystal_near = {
+        box_id, 0, eng_mat4_trs(eng_v3(0.4f, 1.2f, -3.2f), eng_quat_identity(), eng_v3(0.45f, 0.8f, 0.45f)),
+        {0.95f, 0.2f, 0.3f, 0.55f}, 0.05f, 0.07f, p_world, false, false, NULL, 0, {0.6f, 0.1f, 0.15f}
+    };
+    eng_renderer_submit_mesh(ren, &lava_cube);
+    eng_renderer_submit_mesh(ren, &crystal_far);
+    eng_renderer_submit_mesh(ren, &crystal_near);
+
+    eng_sprite_item_t sps_fx[3] = {
+        {eng_v3(-0.8f, 0.5f, -2.5f), {0.6f, 1.2f}, 0.0f, {0, 0, 1, 1}, {1, 1, 1, 1}, 0, p_world, ENG_SPRITE_BILLBOARD_Y, false},
+        {eng_v3(0.0f, 0.9f, -2.8f), {0.4f, 0.4f}, 0.0f, {0, 0, 1, 1}, {1, 0.7f, 0.2f, 0.9f}, 0, p_world, ENG_SPRITE_BILLBOARD_SPHERICAL, true},
+        {eng_v3(0.0f, 1.3f, -2.8f), {0.5f, 0.5f}, 0.0f, {0, 0, 1, 1}, {0.3f, 0.3f, 0.35f, 0.45f}, 0, p_world, ENG_SPRITE_BILLBOARD_SPHERICAL, false}
+    };
+    eng_renderer_submit_sprites(ren, sps_fx, 3);
 
     eng_renderer_render_frame(ren, sc, portals, &cam, NULL);
     eng_render_stats_t st = eng_renderer_stats(ren);
@@ -321,10 +342,12 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
     assert(st.portal_views >= 1);
     assert(st.lod_counts[0] > 0 && st.lod_counts[1] > 0 && st.lod_counts[2] > 0 && st.lod_counts[3] > 0);
 
-    /* Test 2: Deferred G-Buffer pipeline + Stereo WebXR rendering + Resize + Hot Reload */
+    /* Test 2: Deferred G-Buffer pipeline + Emissive/Crystal Composite + Stereo WebXR + Resize + Hot Reload */
     assert(eng_renderer_resize(ren, 256, 192));
     assert(eng_renderer_reload_shaders(ren));
     eng_renderer_set_pipeline(ren, ENG_PIPELINE_DEFERRED);
+    ps1.fog_height = 2.8f;
+    eng_renderer_set_retro(ren, &ps1);
 
     eng_xr_t *xr = eng_xr_create();
     eng_xr_request_session(xr);
@@ -342,6 +365,10 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
     eng_renderer_add_light(ren, &sun);
     eng_renderer_submit_mesh(ren, &occ_wall);
     eng_renderer_submit_mesh(ren, &inside_pillar);
+    eng_renderer_submit_mesh(ren, &lava_cube);
+    eng_renderer_submit_mesh(ren, &crystal_far);
+    eng_renderer_submit_mesh(ren, &crystal_near);
+    eng_renderer_submit_sprites(ren, sps_fx, 3);
     eng_renderer_render_frame(ren, sc, portals, &cam, xr);
     assert(eng_renderer_stats(ren).portal_views >= 2); /* Both left & right XR eyes rendered portal */
 

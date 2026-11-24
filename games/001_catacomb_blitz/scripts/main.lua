@@ -52,18 +52,22 @@ local function build_stage(stage_idx)
     S.yaw = math.deg(math.atan2(S.px - S.ex, S.pz - S.ez))
     S.pitch = 0.0
 
-    -- Exit Shrine Crystal + Relic Key on guaranteed walkable cells
+    -- Exit Shrine Crystal + Gold Relic Key on guaranteed walkable cells
     local exit_e = eng.scene.spawn("exit_portal_pillar")
     eng.scene.set_pos(exit_e, S.ex, 0.0, S.ez)
-    eng.scene.set_mesh(exit_e, S.arch_mesh, { color = {0.35, 0.9, 1.0, 1.0} })
+    eng.scene.set_mesh(exit_e, S.arch_mesh, eng.fx.material("crystal"))
     S.ents[#S.ents + 1] = exit_e
 
     S.kx, S.kz = d.key_x, d.key_z
     S.has_key = false
     S.key_ent = eng.scene.spawn("relic_key")
     eng.scene.set_pos(S.key_ent, S.kx, 0.8, S.kz)
-    eng.scene.set_mesh(S.key_ent, S.crystal_mesh, { color = {1.0, 0.85, 0.2, 1.0} })
+    eng.scene.set_mesh(S.key_ent, S.crystal_mesh, eng.fx.material("gold", { emissive = {0.42, 0.30, 0.05} }))
     S.ents[#S.ents + 1] = S.key_ent
+
+    if S.fire_fx then eng.particles.set_pos(S.fire_fx, S.ex, 0.9, S.ez, 0) end
+    if S.smoke_fx then eng.particles.set_pos(S.smoke_fx, S.ex, 1.4, S.ez, 0) end
+    if S.exit_light then eng.render.set_light(S.exit_light, { pos = {S.ex, 2.2, S.ez} }) end
 
     -- Spawn 3 catacomb guardians on walkable cells with raycast hitboxes
     for i = 1, 3 do
@@ -84,10 +88,13 @@ end
 function init()
     eng.xr.set_mode("first_person")
     eng.input.set_mouse_lock(true)
-    eng.render.set_retro({ vertex_snap = 240, dither = true, color_bits = 5, fog_density = 0.022 })
+    eng.render.set_retro({ vertex_snap = 240, dither = true, color_bits = 5, fog_density = 0.024, fog_color = {0.09, 0.05, 0.11}, fog_height = 3.2, bloom = 0.45 })
     eng.render.set_sky(0.06, 0.04, 0.10, 0.20, 0.10, 0.14)
     eng.render.add_light({ type = "dir", dir = {-0.3, -1.0, -0.4}, color = {1.8, 1.65, 1.45}, shadow = true })
     eng.render.add_light({ type = "point", pos = {18.0, 5.0, 18.0}, color = {2.4, 1.4, 0.7}, range = 38.0 })
+    S.exit_light = eng.render.add_light({ type = "point", pos = {18.0, 2.2, 18.0}, color = {2.6, 1.5, 0.65}, range = 14.0 })
+    S.fire_fx = eng.fx.spawn(eng, "fire", 18.0, 0.9, 18.0, 0, { rate = 24 })
+    S.smoke_fx = eng.fx.spawn(eng, "smoke", 18.0, 1.4, 18.0, 0, { rate = 10 })
 
     S.box_mesh = eng.asset.box(1, 1, 1)
     S.crate_mesh = eng.asset.load_mesh("assets/shared/meshes/crate.obj")
@@ -102,6 +109,7 @@ function init()
     S.kills = 0
     S.won = false
     S.cooldown = 0.0
+    S.fx_t = 0.0
     build_stage(1)
     eng.mod.emit("post_init")
 end
@@ -147,6 +155,9 @@ end
 function update(dt)
     if S.won then return end
     S.cooldown = math.max(0.0, S.cooldown - dt)
+    S.fx_t = (S.fx_t or 0.0) + dt
+    local flk = 0.88 + 0.16 * math.sin(S.fx_t * 13.0)
+    eng.render.set_light(S.exit_light, { color = {2.6 * flk, 1.5 * flk, 0.65 * flk} })
 
     local mdx, mdy = eng.input.mouse_delta()
     if math.abs(mdx) > 0.01 or math.abs(mdy) > 0.01 then S.manual_aimed = true end

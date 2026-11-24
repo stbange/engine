@@ -9,7 +9,11 @@ uniform sampler2D u_shadow_tex;
 uniform mat4 u_light_vp;
 uniform vec3 u_cam_pos;
 uniform vec3 u_ambient;
+uniform vec3 u_sky_zenith;
+uniform vec3 u_sky_horizon;
+uniform vec3 u_sky_ground;
 uniform vec4 u_fog;
+uniform float u_fog_height;
 uniform int u_light_count;
 uniform vec4 u_light_pos_type[8];
 uniform vec4 u_light_dir_range[8];
@@ -40,7 +44,7 @@ void main() {
         }
     }
 
-    vec3 Lo = u_ambient * albedo;
+    vec3 Lo = eng_env_ibl(N, V, albedo, metallic, roughness, u_sky_zenith, u_sky_horizon, u_sky_ground, u_ambient);
     for (int i = 0; i < 8; i++) {
         if (i >= u_light_count) break;
         float ltype = u_light_pos_type[i].w;
@@ -59,6 +63,6 @@ void main() {
         Lo += eng_pbr_eval(N, V, L, albedo, metallic, roughness, u_light_color_cone[i].rgb * atten);
     }
 
-    float fog_f = 1.0 - exp(-u_fog.w * length(u_cam_pos - world_pos));
-    o_color = vec4(mix(Lo, u_fog.rgb, clamp(fog_f, 0.0, 1.0)), 1.0);
+    float fog_f = eng_fog_factor(u_cam_pos, world_pos, u_fog.w, u_fog_height);
+    o_color = vec4(mix(Lo, u_fog.rgb, fog_f), 1.0);
 }

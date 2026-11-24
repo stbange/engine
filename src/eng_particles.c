@@ -67,6 +67,16 @@ void eng_emitter_set_cfg(eng_emitter_t *em, const eng_emitter_cfg_t *cfg) {
     if (em && cfg) em->cfg = *cfg;
 }
 
+void eng_emitter_set_pos(eng_emitter_t *em, eng_vec3_t origin, int pocket_id) {
+    if (!em) return;
+    em->cfg.origin = origin;
+    if (pocket_id >= 0) em->cfg.pocket_id = (uint16_t)pocket_id;
+}
+
+void eng_emitter_set_rate(eng_emitter_t *em, float spawn_rate) {
+    if (em) em->cfg.spawn_rate = spawn_rate > 0.0f ? spawn_rate : 0.0f;
+}
+
 static bool spawn_one(eng_emitter_t *em) {
     if (em->count >= em->cap) return false;
     eng_vec3_t base_dir = eng_v3_norm(em->cfg.dir);
@@ -149,6 +159,7 @@ size_t eng_emitter_collect_sprites(const eng_emitter_t *em, eng_sprite_item_t *o
         sp->tex_id = em->cfg.tex_id;
         sp->pocket_id = em->cfg.pocket_id;
         sp->mode = ENG_SPRITE_BILLBOARD_SPHERICAL;
+        sp->additive = em->cfg.additive;
     }
     return n;
 }

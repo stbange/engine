@@ -14,6 +14,7 @@ typedef struct {
     uint32_t mesh_id;
     uint32_t tex_id;
     uint8_t lod;
+    float cam_dist;
 } vis_draw_t;
 
 struct eng_renderer_s {
@@ -45,6 +46,7 @@ struct eng_renderer_s {
     GLuint sp_inst_vbo;
     uint32_t portal_cap_mesh;
     uint32_t portal_quad_mesh;
+    uint32_t soft_particle_tex;
 
     GLuint hdr_fbo;
     GLuint hdr_color_tex;
@@ -83,6 +85,7 @@ eng_retro_cfg_t eng_retro_default(void) {
         .color_bits = 8,
         .fog_density = 0.004f,
         .fog_color = {0.55f, 0.65f, 0.78f},
+        .fog_height = 0.0f,
         .crt_scanlines = 0.0f,
         .bloom_intensity = 0.25f
     };
@@ -96,6 +99,7 @@ eng_retro_cfg_t eng_retro_ps1_preset(void) {
         .color_bits = 5,
         .fog_density = 0.018f,
         .fog_color = {0.14f, 0.12f, 0.18f},
+        .fog_height = 0.0f,
         .crt_scanlines = 0.18f,
         .bloom_intensity = 0.10f
     };
@@ -283,6 +287,21 @@ eng_renderer_t *eng_renderer_create(eng_vfs_t *vfs, eng_asset_cache_t *assets, i
     r->portal_quad_mesh = eng_asset_upload_mesh(assets, "__portal_quad", &quad_md);
     eng_mesh_data_free(&quad_md);
 
+    /* Built-in 32x32 soft radial Gaussian puff texture for fire, smoke, sparks & glow */
+    uint8_t puff[32 * 32 * 4];
+    for (int y = 0; y < 32; y++) {
+        for (int x = 0; x < 32; x++) {
+            float dx = ((float)x + 0.5f) / 16.0f - 1.0f;
+            float dy = ((float)y + 0.5f) / 16.0f - 1.0f;
+            float r2 = dx * dx + dy * dy;
+            float a = (r2 < 1.0f) ? expf(-3.2f * r2) * (1.0f - r2) : 0.0f;
+            int idx = (y * 32 + x) * 4;
+            puff[idx + 0] = puff[idx + 1] = puff[idx + 2] = 255u;
+            puff[idx + 3] = (uint8_t)(eng_clampf(a, 0.0f, 1.0f) * 255.0f);
+        }
+    }
+    r->soft_particle_tex = eng_asset_create_texture_rgba(assets, "__soft_puff", 32, 32, puff, false);
+
     return r;
 }
 
@@ -400,6 +419,12 @@ static int cmp_vis_draw(const void *a, const void *b) {
     return (int)da->lod - (int)db->lod;
 }
 
+static int cmp_vis_trans(const void *a, const void *b) {
+    const vis_draw_t *da = (const vis_draw_t *)a;
+    const vis_draw_t *db = (const vis_draw_t *)b;
+    return (da->cam_dist < db->cam_dist) ? 1 : (da->cam_dist > db->cam_dist ? -1 : 0);
+}
+
 static void upload_lights_and_env(const eng_shader_t *sh, const eng_renderer_t *r, uint16_t pocket_id,
                                   eng_vec3_t cam_pos, const eng_mat4_t *light_vp, bool has_shadow) {
     const eng_gl_api_t *gl = eng_gl();
@@ -417,7 +442,11 @@ static void upload_lights_and_env(const eng_shader_t *sh, const eng_renderer_t *
     }
     eng_shader_set_v3(sh, "u_cam_pos", cam_pos);
     eng_shader_set_v3(sh, "u_ambient", r->ambient);
+    eng_shader_set_v3(sh, "u_sky_zenith", r->sky_zenith);
+    eng_shader_set_v3(sh, "u_sky_horizon", r->sky_horizon);
+    eng_shader_set_v3(sh, "u_sky_ground", r->sky_ground);
     eng_shader_set_v4(sh, "u_fog", (eng_vec4_t){r->retro.fog_color.x, r->retro.fog_color.y, r->retro.fog_color.z, r->retro.fog_density});
+    eng_shader_set_float(sh, "u_fog_height", r->retro.fog_height);
     eng_shader_set_mat4(sh, "u_light_vp", light_vp);
     eng_shader_set_int(sh, "u_has_shadow", has_shadow ? 1 : 0);
     eng_shader_set_int(sh, "u_light_count", n);
@@ -441,10 +470,12 @@ static void draw_single_mesh_xform(eng_renderer_t *r, uint32_t mesh_id, const en
     gl->DrawElementsInstanced(ENG_GL_TRIANGLES, (GLsizei)gm->lod_index_counts[0], ENG_GL_UNSIGNED_INT, NULL, 1);
 }
 
+/* pass_mode: 0 = opaque (skips emissive in deferred gbuffer), 1 = translucent Fresnel, 2 = deferred opaque emissive */
 static void draw_pocket_meshes(eng_renderer_t *r, uint16_t pocket_id, const eng_mat4_t *vp,
-                               eng_vec3_t cam_pos, const eng_shader_t *sh, bool count_cull_stats) {
+                               eng_vec3_t cam_pos, const eng_shader_t *sh, bool count_cull_stats, int pass_mode) {
     const eng_gl_api_t *gl = eng_gl();
     eng_frustum_t frust = eng_frustum_from_mat4(vp);
+    bool is_gbuf = (sh == &r->sh_gbuffer);
 
     eng_aabb_t occluders[32];
     size_t occ_count = 0;
@@ -465,6 +496,12 @@ static void draw_pocket_meshes(eng_renderer_t *r, uint16_t pocket_id, const eng_
             if (count_cull_stats) r->stats.culled_pocket++;
             continue;
         }
+        bool is_trans = (it->tint.w < 0.99f);
+        bool has_em = (it->emissive.x > 0.001f || it->emissive.y > 0.001f || it->emissive.z > 0.001f);
+        if (pass_mode == 0 && (is_trans || (is_gbuf && has_em))) continue;
+        if (pass_mode == 1 && !is_trans) continue;
+        if (pass_mode == 2 && (is_trans || !has_em)) continue;
+
         const eng_gpu_mesh_t *gm = eng_asset_get_mesh(r->assets, it->mesh_id);
         if (!gm || !gm->valid) continue;
 
@@ -482,15 +519,15 @@ static void draw_pocket_meshes(eng_renderer_t *r, uint16_t pocket_id, const eng_
         float dist = eng_v3_len(eng_v3_sub(center, cam_pos));
         uint8_t lod = (dist < 15.0f) ? 0u : (dist < 35.0f ? 1u : (dist < 75.0f ? 2u : 3u));
         if (count_cull_stats) r->stats.lod_counts[lod]++;
-        vis[vis_count++] = (vis_draw_t){(uint32_t)i, it->mesh_id, it->albedo_tex, lod};
+        vis[vis_count++] = (vis_draw_t){(uint32_t)i, it->mesh_id, it->albedo_tex, lod, dist};
     }
 
-    if (vis_count > 1) qsort(vis, vis_count, sizeof(vis_draw_t), cmp_vis_draw);
+    if (vis_count > 1) qsort(vis, vis_count, sizeof(vis_draw_t), pass_mode == 1 ? cmp_vis_trans : cmp_vis_draw);
 
     for (size_t b = 0; b < vis_count;) {
         const eng_draw_item_t *first = &r->items[vis[b].item_idx];
         size_t batch_len = 1;
-        if (!first->skin_bones) {
+        if (!first->skin_bones && pass_mode != 1) {
             while (b + batch_len < vis_count) {
                 const eng_draw_item_t *nxt = &r->items[vis[b + batch_len].item_idx];
                 if (nxt->skin_bones ||
@@ -500,8 +537,12 @@ static void draw_pocket_meshes(eng_renderer_t *r, uint16_t pocket_id, const eng_
                     fabsf(nxt->tint.x - first->tint.x) > 1e-3f ||
                     fabsf(nxt->tint.y - first->tint.y) > 1e-3f ||
                     fabsf(nxt->tint.z - first->tint.z) > 1e-3f ||
+                    fabsf(nxt->tint.w - first->tint.w) > 1e-3f ||
                     fabsf(nxt->metallic - first->metallic) > 1e-3f ||
-                    fabsf(nxt->roughness - first->roughness) > 1e-3f) {
+                    fabsf(nxt->roughness - first->roughness) > 1e-3f ||
+                    fabsf(nxt->emissive.x - first->emissive.x) > 1e-3f ||
+                    fabsf(nxt->emissive.y - first->emissive.y) > 1e-3f ||
+                    fabsf(nxt->emissive.z - first->emissive.z) > 1e-3f) {
                     break;
                 }
                 batch_len++;
@@ -530,7 +571,8 @@ static void draw_pocket_meshes(eng_renderer_t *r, uint16_t pocket_id, const eng_
 
         eng_shader_set_int(sh, "u_albedo_tex", 0);
         eng_shader_set_v4(sh, "u_tint", first->tint);
-        eng_shader_set_v3(sh, "u_mat_mr", eng_v3(first->metallic, first->roughness, 0.0f));
+        eng_shader_set_v3(sh, "u_mat_mr", eng_v3(first->metallic, first->roughness, pass_mode == 1 ? 1.0f : 0.0f));
+        eng_shader_set_v3(sh, "u_emissive", first->emissive);
 
         if (first->skin_bones && first->skin_bone_count > 0) {
             uint32_t bc = first->skin_bone_count > 48u ? 48u : first->skin_bone_count;
@@ -593,7 +635,7 @@ static bool render_shadow_map(eng_renderer_t *r, uint16_t pocket_id, eng_vec3_t 
     eng_shader_bind(&r->sh_shadow);
     eng_shader_set_mat4(&r->sh_shadow, "u_vp", out_light_vp);
     for (size_t i = 0; i < r->item_count; i++) {
-        if (r->items[i].pocket_id == pocket_id && r->items[i].cast_shadow) {
+        if (r->items[i].pocket_id == pocket_id && r->items[i].cast_shadow && r->items[i].tint.w >= 0.99f) {
             draw_single_mesh_xform(r, r->items[i].mesh_id, &r->items[i].world);
         }
     }
@@ -612,21 +654,25 @@ static void draw_pocket_sprites(eng_renderer_t *r, uint16_t pocket_id, const eng
     eng_shader_set_float(&r->sh_forward, "u_vertex_snap", 0.0f);
     eng_shader_set_int(&r->sh_forward, "u_skinned", 0);
     eng_shader_set_v4(&r->sh_forward, "u_tint", (eng_vec4_t){1, 1, 1, 1});
-    eng_shader_set_v3(&r->sh_forward, "u_mat_mr", eng_v3(0.0f, 0.9f, 0.0f));
     upload_lights_and_env(&r->sh_forward, r, pocket_id, cam_pos, light_vp, has_shadow);
     gl->ActiveTexture(ENG_GL_TEXTURE0 + 1u);
     gl->BindTexture(ENG_GL_TEXTURE_2D, r->shadow_tex);
     eng_shader_set_int(&r->sh_forward, "u_shadow_tex", 1);
     gl->Enable(ENG_GL_BLEND);
-    gl->BlendFunc(ENG_GL_SRC_ALPHA, ENG_GL_ONE_MINUS_SRC_ALPHA);
 
-    /* Batch per unique texture ID in pocket */
+    /* Batch per unique (tex_id, additive, spherical) group in pocket */
     for (size_t i = 0; i < r->sprite_count; i++) {
         if (r->sprites[i].pocket_id != pocket_id) continue;
         uint32_t tid = r->sprites[i].tex_id;
+        bool add_b = r->sprites[i].additive;
+        bool is_sph = (r->sprites[i].mode == ENG_SPRITE_BILLBOARD_SPHERICAL);
         bool seen = false;
         for (size_t k = 0; k < i; k++) {
-            if (r->sprites[k].pocket_id == pocket_id && r->sprites[k].tex_id == tid) { seen = true; break; }
+            if (r->sprites[k].pocket_id == pocket_id && r->sprites[k].tex_id == tid &&
+                r->sprites[k].additive == add_b && (r->sprites[k].mode == ENG_SPRITE_BILLBOARD_SPHERICAL) == is_sph) {
+                seen = true;
+                break;
+            }
         }
         if (seen) continue;
 
@@ -634,14 +680,22 @@ static void draw_pocket_sprites(eng_renderer_t *r, uint16_t pocket_id, const eng
         if (!sub) break;
         size_t sub_n = 0;
         for (size_t k = i; k < r->sprite_count; k++) {
-            if (r->sprites[k].pocket_id == pocket_id && r->sprites[k].tex_id == tid) sub[sub_n++] = r->sprites[k];
+            if (r->sprites[k].pocket_id == pocket_id && r->sprites[k].tex_id == tid &&
+                r->sprites[k].additive == add_b && (r->sprites[k].mode == ENG_SPRITE_BILLBOARD_SPHERICAL) == is_sph) {
+                sub[sub_n++] = r->sprites[k];
+            }
         }
         eng_mesh_data_t smd;
         if (eng_sprite_build_batch(sub, sub_n, pocket_id, cam_pos, cam_right, cam_up, &smd) > 0) {
-            const eng_gpu_tex_t *gt = eng_asset_get_texture(r->assets, tid);
+            uint32_t eff_tid = (tid == 0 && is_sph) ? r->soft_particle_tex : tid;
+            const eng_gpu_tex_t *gt = eng_asset_get_texture(r->assets, eff_tid);
             gl->ActiveTexture(ENG_GL_TEXTURE0);
             gl->BindTexture(ENG_GL_TEXTURE_2D, gt ? gt->tex_id : 0);
             eng_shader_set_int(&r->sh_forward, "u_albedo_tex", 0);
+            gl->BlendFunc(ENG_GL_SRC_ALPHA, add_b ? ENG_GL_ONE : ENG_GL_ONE_MINUS_SRC_ALPHA);
+            gl->DepthMask(is_sph ? ENG_GL_FALSE : ENG_GL_TRUE);
+            eng_shader_set_v3(&r->sh_forward, "u_mat_mr", eng_v3(0.0f, 0.92f, add_b ? -1.0f : (is_sph ? 0.25f : 0.0f)));
+            eng_shader_set_v3(&r->sh_forward, "u_emissive", add_b ? eng_v3(0.55f, 0.55f, 0.55f) : eng_v3(0.0f, 0.0f, 0.0f));
 
             gl->BindVertexArray(r->sp_vao);
             gl->BindBuffer(ENG_GL_ARRAY_BUFFER, r->sp_vbo);
@@ -654,6 +708,8 @@ static void draw_pocket_sprites(eng_renderer_t *r, uint16_t pocket_id, const eng
         eng_mesh_data_free(&smd);
         free(sub);
     }
+    gl->DepthMask(ENG_GL_TRUE);
+    gl->BlendFunc(ENG_GL_SRC_ALPHA, ENG_GL_ONE_MINUS_SRC_ALPHA);
     gl->Disable(ENG_GL_BLEND);
 }
 
@@ -682,14 +738,15 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
     gl->Enable(ENG_GL_CULL_FACE);
     gl->CullFace(ENG_GL_BACK);
 
-    if (r->pipeline == ENG_PIPELINE_DEFERRED && r->sh_gbuffer.valid && r->sh_def_light.valid) {
+    bool use_deferred = (r->pipeline == ENG_PIPELINE_DEFERRED && r->sh_gbuffer.valid && r->sh_def_light.valid);
+    if (use_deferred) {
         gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->gbuf_fbo);
         gl->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         gl->Clear(ENG_GL_COLOR_BUFFER_BIT);
         eng_shader_bind(&r->sh_gbuffer);
         eng_shader_set_mat4(&r->sh_gbuffer, "u_vp", &vp);
         eng_shader_set_float(&r->sh_gbuffer, "u_vertex_snap", r->retro.vertex_snap_res);
-        draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_gbuffer, depth == 0);
+        draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_gbuffer, depth == 0, 0);
 
         gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
         gl->Disable(ENG_GL_DEPTH_TEST);
@@ -717,7 +774,7 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
         gl->BindTexture(ENG_GL_TEXTURE_2D, r->shadow_tex);
         eng_shader_set_int(&r->sh_forward, "u_shadow_tex", 1);
         upload_lights_and_env(&r->sh_forward, r, pocket_id, cam_pos, root_light_vp, has_sh);
-        draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_forward, depth == 0);
+        draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_forward, depth == 0, 0);
     }
 
     /* Skybox at far plane where depth == 1.0 and stencil == depth */
@@ -737,7 +794,25 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
         gl->DepthFunc(ENG_GL_LESS);
     }
 
-    /* Sprites in this pocket */
+    /* Forward composite pass for deferred opaque emissives and translucent Fresnel meshes (crystals/glass/water) */
+    eng_shader_bind(&r->sh_forward);
+    eng_shader_set_mat4(&r->sh_forward, "u_vp", &vp);
+    eng_shader_set_float(&r->sh_forward, "u_vertex_snap", r->retro.vertex_snap_res);
+    gl->ActiveTexture(ENG_GL_TEXTURE0 + 1u);
+    gl->BindTexture(ENG_GL_TEXTURE_2D, r->shadow_tex);
+    eng_shader_set_int(&r->sh_forward, "u_shadow_tex", 1);
+    upload_lights_and_env(&r->sh_forward, r, pocket_id, cam_pos, root_light_vp, has_sh);
+    if (use_deferred) {
+        draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_forward, depth == 0, 2);
+    }
+    gl->Enable(ENG_GL_BLEND);
+    gl->BlendFunc(ENG_GL_SRC_ALPHA, ENG_GL_ONE_MINUS_SRC_ALPHA);
+    gl->DepthMask(ENG_GL_FALSE);
+    draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_forward, depth == 0, 1);
+    gl->DepthMask(ENG_GL_TRUE);
+    gl->Disable(ENG_GL_BLEND);
+
+    /* Sprites & Particles in this pocket */
     gl->Disable(ENG_GL_CULL_FACE);
     draw_pocket_sprites(r, pocket_id, view, &vp, cam_pos, root_light_vp, has_sh);
     gl->Enable(ENG_GL_CULL_FACE);
