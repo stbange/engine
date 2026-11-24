@@ -18,12 +18,17 @@ Use this skill whenever creating, editing, or debugging a game powered by `stban
 
 ## 2. Unbaked External Folder Contract
 Never recompile C to build a standard game. Every game lives in its own external directory (e.g. `games/<slug>/`):
-- `game.json` — metadata, `engine_version`, `pipeline` (`"forward"` or `"deferred"`), `retro` flags, `touch_preset`, `xr_mode` (`"diorama"`, `"cockpit"`, `"first_person"`, `"6dof"`).
+- `game.json` — metadata (`"description"` powers the built-in `H` help overlay), `engine_version`, `pipeline` (`"forward"` or `"deferred"`), `retro` flags, `touch_preset`, `xr_mode` (`"diorama"`, `"cockpit"`, `"first_person"`, `"6dof"`).
 - `scripts/main.lua` — implements `init()`, `update(dt)`, `draw()`, and optional `on_reload(state)`.
 - `scenes/*.json` — plain-text entity/component definitions (`"pocket"`, `"portal"`, `"procgen"` supported natively).
 - `assets/` — game-specific overrides; shared assets live in `assets/shared/` (check `assets/shared/catalog.json` for exact `[w, h, d]` metric sizes, pivots, forward axes, and clip names).
-- `locales/*.json` — UTF-8 localization tables (`en.json`, `de.json`).
+- `locales/*.json` — UTF-8 localization tables (`en.json`, `de.json`; optional `"controls"` key overrides the auto-detected help-bar control hints).
 - `tests/playtest.lua` — deterministic headless playtest.
+
+## 2b. Camera, Pointer Lock & Movement
+- **First-person, free-roam & walkable interiors**: Never aim a moving player with `eng.camera.look_at(px, py, pz, FIXED_X, FIXED_Y, FIXED_Z)` (it makes movement orbit that fixed point). Call `eng.input.set_mouse_lock(true)` in `init()`, update with `yaw, pitch, dx, dz = eng.camera.fps_steer(yaw, pitch, speed, dt)` for mouse look + camera-relative WASD forward/back/left-strafe/right-strafe, and apply `eng.camera.set(px, py, pz, pitch, yaw, 0, pocket)`.
+- **Aim / turret / flight views**: Use `eng.input.set_mouse_lock(true)` + `mdx, mdy = eng.input.mouse_delta()` (on Web, canvas click locks and `ESC` unlocks automatically; mobile right-half touch drag feeds `mouse_delta`).
+- **Top-down / third-person follow cameras**: Translate both camera position and `look_at` target with the player/vehicle so the view never pivots around world origin.
 
 ## 3. "Bigger on the Inside" Pocket Spaces (`eng.space.*` & `eng.portal.*`)
 - **Never** fake oversized interiors by placing rooms at `[10000, -5000, 0]`. Instead, assign interior entities to a named **pocket space** (`pocket = "cabin_inside"`) centered cleanly around local `(0, 0, 0)`.
