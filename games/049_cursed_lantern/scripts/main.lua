@@ -50,6 +50,9 @@ function init()
             local te = eng.scene.spawn("cursed_tree_" .. i)
             eng.scene.set_pos(te, tx, 0.0, tz)
             eng.scene.set_mesh(te, (i % 2 == 0) and tree_a or tree_b, { color = {0.20, 0.36, 0.28, 1.0}, cast_shadow = true })
+            local tc = eng.scene.spawn("cursed_tree_col_" .. i)
+            eng.scene.set_pos(tc, tx, 1.2, tz)
+            eng.physics.add_body(tc, { shape = "aabb", motion = "static", half_extents = {0.32, 1.2, 0.32} })
         end
     end
 
@@ -64,6 +67,9 @@ function init()
         eng.scene.set_pos(base, bx, 0.0, bz)
         eng.scene.set_scale(base, 0.85, 0.65, 0.85)
         eng.scene.set_mesh(base, S.pillar_mesh, { color = {0.48, 0.50, 0.56, 1.0} })
+        local bc = eng.scene.spawn("beacon_pillar_col_" .. i)
+        eng.scene.set_pos(bc, bx, 0.9, bz)
+        eng.physics.add_body(bc, { shape = "aabb", motion = "static", half_extents = {0.42, 0.9, 0.42} })
 
         local flame = eng.scene.spawn("beacon_gem_" .. i)
         eng.scene.set_pos(flame, bx, 1.85, bz)
@@ -121,8 +127,9 @@ function update(dt)
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + mx * 8.4 * dt, -14.0, 14.0)
-        S.pz = eng.math.clamp(S.pz - my * 8.4 * dt, -14.0, 14.0)
+        local nx, nz = eng.physics.slide_move(0, S.px, 0.8, S.pz, mx * 8.4 * dt, -my * 8.4 * dt, 0.38)
+        S.px = eng.math.clamp(nx, -14.0, 14.0)
+        S.pz = eng.math.clamp(nz, -14.0, 14.0)
         eng.scene.set_pos(S.hero_ent, S.px, 0.0, S.pz)
     end
 

@@ -55,6 +55,9 @@ function init()
         eng.scene.set_pos(pe, math.cos(ang) * 14.5, 0.0, math.sin(ang) * 14.5)
         eng.scene.set_scale(pe, 1.4, 1.8, 1.4)
         eng.scene.set_mesh(pe, S.pillar_mesh, { tex = stone_tex, color = {0.64, 0.60, 0.54, 1.0}, cast_shadow = true })
+        local pcol = eng.scene.spawn("arena_monolith_col_" .. tostring(i))
+        eng.scene.set_pos(pcol, math.cos(ang) * 14.5, 2.2, math.sin(ang) * 14.5)
+        eng.physics.add_body(pcol, { shape = "aabb", motion = "static", half_extents = {0.75, 2.2, 0.75} })
     end
 
     -- Towering Quadruped Colossus (eng.procgen.animal + 4.2x scale!)
@@ -190,8 +193,9 @@ function update(dt)
     local spd = (S.dodge_iframes > 0.0) and 15.0 or 9.5
     local dx, dz, fx, fz
     S.yaw, S.pitch, dx, dz, fx, fz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or -12.0, spd, dt)
-    S.px = eng.math.clamp(S.px + dx, -12.0, 12.0)
-    S.pz = eng.math.clamp(S.pz + dz, -12.0, 12.0)
+    local nx, nz = eng.physics.slide_move(0, S.px, 1.0, S.pz, dx, dz, 0.45)
+    S.px = eng.math.clamp(nx, -12.0, 12.0)
+    S.pz = eng.math.clamp(nz, -12.0, 12.0)
     eng.scene.set_pos(S.hunter_ent, S.px, 0.0, S.pz)
     eng.scene.set_rot_deg(S.hunter_ent, 0.0, S.yaw, 0.0)
 

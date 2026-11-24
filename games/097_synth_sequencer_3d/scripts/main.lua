@@ -87,6 +87,9 @@ function init()
         eng.scene.set_scale(be, 0.75, 4.0, 0.75)
         eng.scene.set_mesh(be, S.box_mesh, { color = {0.30, 0.65, 1.0, 1.0}, roughness = 0.25 })
         S.eq_bars[step] = be
+        local ec = eng.scene.spawn("tower_eq_col_" .. tostring(step))
+        eng.scene.set_pos(ec, x, 2.0, -10.2)
+        eng.physics.add_body(ec, { shape = "aabb", motion = "static", half_extents = {0.42, 2.0, 0.42} })
     end
 
     S.lock_crystals = {}
@@ -131,8 +134,9 @@ function update(dt)
 
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 11.5, dt)
-    S.px = eng.math.clamp(S.px + dx, -6.0, 6.0)
-    S.pz = eng.math.clamp(S.pz + dz, -8.2, 2.0)
+    local nx, nz = eng.physics.slide_move(0, S.px, 1.0, S.pz, dx, dz, 0.40)
+    S.px = eng.math.clamp(nx, -6.0, 6.0)
+    S.pz = eng.math.clamp(nz, -8.2, 2.0)
 
     -- Toggle nearest pad when pressing fire/interact
     if (eng.input.pressed("fire") or eng.input.down("fire") or eng.input.pressed("interact")) and S.toggle_cd <= 0.0 then

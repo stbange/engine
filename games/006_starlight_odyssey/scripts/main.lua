@@ -149,8 +149,7 @@ function update(dt)
     if S.pocket == 0 then
         -- Walk along spherical mini-planetoid surface (or near North Pole Toyhouse plaza)
         if S.north_plaza_mode then
-            S.px = S.px + mx * 7.5 * dt
-            S.pz = S.pz - my * 7.5 * dt
+            S.px, S.pz = eng.physics.slide_move(0, S.px, PLANET_R + 1.5, S.pz, mx * 7.5 * dt, -my * 7.5 * dt, 0.38)
             S.py = PLANET_R + 1.5 + S.jump_alt
         else
             S.lon = S.lon + mx * 2.2 * dt
@@ -159,8 +158,9 @@ function update(dt)
         end
     else
         -- Inside the flat Euclidean Bigger-on-the-Inside Toyhouse Bonus Room!
-        S.px = eng.math.clamp(S.px + mx * 8.5 * dt, -8.5, 8.5)
-        S.pz = eng.math.clamp(S.pz - my * 8.5 * dt, -9.5, 11.6)
+        local nx, nz = eng.physics.slide_move(S.pocket, S.px, 1.1, S.pz, mx * 8.5 * dt, -my * 8.5 * dt, 0.42)
+        S.px = eng.math.clamp(nx, -8.5, 8.5)
+        S.pz = eng.math.clamp(nz, -9.5, 11.6)
         S.py = 1.1 + S.jump_alt
     end
 

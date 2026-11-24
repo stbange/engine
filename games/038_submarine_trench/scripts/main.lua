@@ -121,6 +121,7 @@ function init()
         eng.scene.set_pos(bw, side * 7.7, 2.5, 0.0)
         eng.scene.set_scale(bw, 0.5, 5.0, 21.4)
         eng.scene.set_mesh(bw, S.box_mesh, { tex = hull_tex, color = {0.26, 0.34, 0.44, 1.0} })
+        eng.physics.add_body(bw, { shape = "aabb", motion = "static", pocket = S.bridge_pocket, half_extents = {0.25, 2.5, 10.7} })
 
         local rib = eng.scene.spawn("bridge_rib_" .. tostring(side))
         eng.scene.set_pocket(rib, S.bridge_pocket)
@@ -134,6 +135,7 @@ function init()
     eng.scene.set_pos(holo, -2.8, 0.55, 2.5)
     eng.scene.set_scale(holo, 2.2, 1.1, 2.2)
     eng.scene.set_mesh(holo, S.box_mesh, { color = {0.18, 0.55, 0.72, 1.0} })
+    eng.physics.add_body(holo, { shape = "aabb", motion = "static", pocket = S.bridge_pocket, half_extents = {1.1, 0.55, 1.1} })
 
     S.console_x, S.console_z = 0.0, -3.5
     S.uplink_ent = eng.scene.spawn("telemetry_uplink_console")
@@ -258,8 +260,9 @@ function update(dt)
         local prev_z = S.cz
         local dx, dz
         S.br_yaw, S.br_pitch, dx, dz = eng.camera.fps_steer(S.br_yaw or 0.0, S.br_pitch or 0.0, 11.5, dt)
-        S.cx = eng.math.clamp(S.cx + dx, -6.5, 6.5)
-        S.cz = eng.math.clamp(S.cz + dz, -9.5, 11.4)
+        local nx, nz = eng.physics.slide_move(S.bridge_pocket, S.cx, 0.8, S.cz, dx, dz, 0.42)
+        S.cx = eng.math.clamp(nx, -6.5, 6.5)
+        S.cz = eng.math.clamp(nz, -9.5, 11.4)
         eng.scene.set_pos(S.crew_ent, S.cx, 0.0, S.cz)
         if math.abs(ix) > 0.01 or math.abs(iy) > 0.01 then
             eng.scene.set_rot_deg(S.crew_ent, 0.0, math.deg(math.atan2(-ix, iy)), 0.0)

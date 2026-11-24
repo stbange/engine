@@ -230,8 +230,9 @@ function update(dt)
         local prev_z = S.mz
         local dx, dz
         S.cab_yaw, S.cab_pitch, dx, dz = eng.camera.fps_steer(S.cab_yaw or 0.0, S.cab_pitch or 0.0, 9.5, dt)
-        S.mx = eng.math.clamp(S.mx + dx, -5.8, 5.8)
-        S.mz = eng.math.clamp(S.mz + dz, -8.5, 10.4)
+        local nx, nz = eng.physics.slide_move(S.cabin.pocket_id, S.mx, 1.1, S.mz, dx, dz, 0.42)
+        S.mx = eng.math.clamp(nx, -5.8, 5.8)
+        S.mz = eng.math.clamp(nz, -8.5, 10.4)
 
         -- Also support walking naturally back out the rear portal threshold
         if prev_z < 9.8 and S.mz >= 9.8 then

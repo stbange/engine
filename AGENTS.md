@@ -40,4 +40,4 @@ Never cut: validation at trust boundaries, error handling that prevents data los
 5. **Breaking Changes**: Any breaking change to `include/engine/*.h`, `eng.*` Lua APIs, or `game.json` / `scenes/*.json` MUST bump `ENG_VERSION`, record an entry in `CHANGELOG.md`, and add an exact migration recipe in `UPGRADING.md`.
 6. **Quality Gate**: First-party C (`src/`) and Lua runtime (`lua/eng/`) must each maintain **>= 95.0% line coverage** (`python3 tests/check_coverage.py`), and every game in `games/` must pass `--doctor` and `--headless --test tests/playtest.lua`.
 7. **License Purity**: Repository is MIT-licensed. Only MIT, zlib, or CC0 dependencies, fonts, and assets may be added, with notices recorded in `THIRD_PARTY_NOTICES.md`.
-8. **Skills**: See `.agents/skills/engine-gamedev/SKILL.md` for creating/debugging games and `.agents/skills/engine-upgrade/SKILL.md` for upgrading downstream clones.
+8. **Skills**: See `.agents/skills/engine-gamedev/SKILL.md` for creating/debugging games, `.agents/skills/engine-conformity-check/SKILL.md` for auditing/fixing engine misuse, and `.agents/skills/engine-upgrade/SKILL.md` for upgrading downstream clones.

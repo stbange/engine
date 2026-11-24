@@ -106,6 +106,7 @@ function init()
     eng.scene.set_pos(bar, 0.0, 0.55, -3.8)
     eng.scene.set_scale(bar, 8.0, 1.1, 0.9)
     eng.scene.set_mesh(bar, S.box_mesh, { tex = wood_tex, color = {0.46, 0.28, 0.16, 1.0} })
+    eng.physics.add_body(bar, { shape = "aabb", motion = "static", half_extents = {4.0, 0.55, 0.38} })
 
     S.kegs = { { x = -2.6, z = -5.2 }, { x = 2.6, z = -5.2 } }
     for i = 1, #S.kegs do
@@ -123,6 +124,7 @@ function init()
         eng.scene.set_pos(te, S.tables[i].x, 0.45, S.tables[i].z)
         eng.scene.set_scale(te, 1.6, 0.9, 1.6)
         eng.scene.set_mesh(te, S.cyl_mesh, { tex = wood_tex, color = {0.62, 0.42, 0.25, 1.0} })
+        eng.physics.add_body(te, { shape = "aabb", motion = "static", half_extents = {0.65, 0.45, 0.65} })
     end
 
     S.px, S.pz = 0.0, -2.4
@@ -152,15 +154,16 @@ function update(dt)
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + mx * 7.8 * dt, -7.5, 7.5)
-        S.pz = eng.math.clamp(S.pz - my * 7.8 * dt, -6.5, 6.5)
+        local nx, nz = eng.physics.slide_move(0, S.px, 0.5, S.pz, mx * 7.8 * dt, -my * 7.8 * dt, 0.38)
+        S.px = eng.math.clamp(nx, -7.5, 7.5)
+        S.pz = eng.math.clamp(nz, -6.5, 6.5)
         eng.scene.set_pos(S.keeper_ent, S.px, 0.0, S.pz)
     end
 
-    -- Pour foamy mugs when near either Ale Keg
+    -- Pour foamy mugs when near either Ale Keg (or across the bar counter)
     if S.mugs < 2 then
         for i = 1, #S.kegs do
-            if eng.math.dist3(S.px, 0, S.pz, S.kegs[i].x, 0, S.kegs[i].z) < 2.2 then
+            if eng.math.dist3(S.px, 0, S.pz, S.kegs[i].x, 0, S.kegs[i].z) < 2.5 then
                 S.mugs = 2
                 eng.audio.play(S.sfx_pour, S.kegs[i].x, 1.0, S.kegs[i].z, 0)
             end

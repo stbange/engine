@@ -29,6 +29,9 @@ function init()
         local p = eng.scene.spawn("wall_pillar_" .. tostring(i))
         eng.scene.set_pos(p, i * 5.5, 0.0, -15.0)
         eng.scene.set_mesh(p, S.pillar_mesh, { color = {0.5, 0.46, 0.58, 1.0} })
+        local pc = eng.scene.spawn("wall_pillar_col_" .. i)
+        eng.scene.set_pos(pc, i * 5.5, 1.5, -15.0)
+        eng.physics.add_body(pc, { shape = "aabb", motion = "static", half_extents = {0.55, 1.5, 0.55} })
     end
 
     S.px, S.pz = 0.0, 5.0
@@ -122,8 +125,9 @@ function update(dt)
 
     local ix, iy = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(ix) > 0.01 or math.abs(iy) > 0.01 then
-        S.px = eng.math.clamp(S.px + ix * 6.5 * dt, -11.5, 11.5)
-        S.pz = eng.math.clamp(S.pz - iy * 6.5 * dt, -12.5, 9.5)
+        local nx, nz = eng.physics.slide_move(0, S.px, 0.9, S.pz, ix * 6.5 * dt, -iy * 6.5 * dt, 0.40)
+        S.px = eng.math.clamp(nx, -11.5, 11.5)
+        S.pz = eng.math.clamp(nz, -12.5, 9.5)
         eng.scene.set_pos(S.necro_ent, S.px, 0.0, S.pz)
     end
 

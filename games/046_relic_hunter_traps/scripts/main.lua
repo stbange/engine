@@ -38,6 +38,9 @@ function init()
             eng.scene.set_pos(pe, side * 3.6, 0.0, z)
             eng.scene.set_scale(pe, 0.9, 1.25, 0.9)
             eng.scene.set_mesh(pe, S.pillar_mesh, { tex = stone_tex, color = {0.74, 0.65, 0.50, 1.0} })
+            local pc = eng.scene.spawn("temple_col_body_" .. z .. "_" .. side)
+            eng.scene.set_pos(pc, side * 3.6, 1.6, z)
+            eng.physics.add_body(pc, { shape = "aabb", motion = "static", half_extents = {0.48, 1.6, 0.48} })
         end
     end
 
@@ -132,8 +135,9 @@ function update(dt)
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + mx * 8.5 * dt, -2.9, 2.9)
-        S.pz = eng.math.clamp(S.pz - my * 11.8 * dt, -12.0, 11.5)
+        local nx, nz = eng.physics.slide_move(0, S.px, 0.9, S.pz, mx * 8.5 * dt, -my * 11.8 * dt, 0.38)
+        S.px = eng.math.clamp(nx, -2.9, 2.9)
+        S.pz = eng.math.clamp(nz, -12.0, 11.5)
         eng.scene.set_rot_deg(S.hero_ent, 0.0, math.deg(math.atan2(-mx, my)), 0.0)
     end
 

@@ -106,6 +106,10 @@ function init()
             eng.scene.set_pos(rib, side * 6.5, 0.0, z)
             eng.scene.set_scale(rib, 0.9, 1.8, 0.9)
             eng.scene.set_mesh(rib, S.pillar_mesh, { tex = wood_tex, color = {0.52, 0.34, 0.20, 1.0} })
+            local rcol = eng.scene.spawn("hold_rib_col_" .. z .. "_" .. side)
+            eng.scene.set_pocket(rcol, S.hold_pocket)
+            eng.scene.set_pos(rcol, side * 6.5, 1.8, z)
+            eng.physics.add_body(rcol, { shape = "aabb", motion = "static", pocket = S.hold_pocket, half_extents = {0.5, 1.8, 0.5} })
         end
     end
 
@@ -184,7 +188,7 @@ function update(dt)
                 S.portal_crossings = S.portal_crossings + 1
                 eng.audio.play(S.sfx_portal, wx, S.py, wz, dst_pk)
             else
-                S.px, S.pz = nx, nz
+                S.px, S.pz = eng.physics.slide_move(S.pocket, ox, oy, oz, dx, dz, 0.40)
                 if S.pocket == 0 then
                     S.deck_x = S.px - S.ship_x
                     S.deck_z = S.pz - S.ship_z

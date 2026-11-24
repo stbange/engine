@@ -53,6 +53,9 @@ function init()
         eng.scene.set_pos(col, cx, 0.0, cz)
         eng.scene.set_scale(col, 1.1, 1.35, 1.1)
         eng.scene.set_mesh(col, S.pillar_mesh, { tex = stone_tex, color = {0.84, 0.78, 0.68, 1.0} })
+        local pcol = eng.scene.spawn("colosseum_pillar_col_" .. i)
+        eng.scene.set_pos(pcol, cx, 1.8, cz)
+        eng.physics.add_body(pcol, { shape = "aabb", motion = "static", half_extents = {0.6, 1.8, 0.6} })
     end
 
     local gate = eng.scene.spawn("champion_gate")
@@ -95,8 +98,9 @@ function update(dt)
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + mx * 6.5 * dt, -7.5, 7.5)
-        S.pz = eng.math.clamp(S.pz - my * 6.5 * dt, -7.5, 7.5)
+        local nx, nz = eng.physics.slide_move(0, S.px, 0.9, S.pz, mx * 6.5 * dt, -my * 6.5 * dt, 0.42)
+        S.px = eng.math.clamp(nx, -7.5, 7.5)
+        S.pz = eng.math.clamp(nz, -7.5, 7.5)
         eng.scene.set_pos(S.hero_ent, S.px, 0.0, S.pz)
     end
 

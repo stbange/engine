@@ -176,12 +176,13 @@ function update(dt)
             end
             eng.audio.play(S.sfx_portal, wx, 1.0, wz, dst_pk)
         else
+            local sx, sz = eng.physics.slide_move(S.pocket, ox, 1.0, oz, nx - ox, nz - oz, 0.50)
             if S.pocket == 0 then
-                S.fx = eng.math.clamp(nx, -12.0, 12.0)
-                S.fz = eng.math.clamp(nz, -4.2, 10.0)
+                S.fx = eng.math.clamp(sx, -12.0, 12.0)
+                S.fz = eng.math.clamp(sz, -4.2, 10.0)
             else
-                S.fx = eng.math.clamp(nx, -8.5, 8.5)
-                S.fz = eng.math.clamp(nz, -10.5, 12.4)
+                S.fx = eng.math.clamp(sx, -8.5, 8.5)
+                S.fz = eng.math.clamp(sz, -10.5, 12.4)
             end
         end
     end

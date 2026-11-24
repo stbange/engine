@@ -20,6 +20,18 @@ function init()
     eng.scene.set_pos(floor_e, 0.0, -0.25, 0.0)
     eng.scene.set_scale(floor_e, 22.0, 0.5, 22.0)
     eng.scene.set_mesh(floor_e, S.box_mesh, { tex = floor_tex, color = {0.26, 0.34, 0.46, 1.0}, roughness = 0.45 })
+    eng.physics.add_body(floor_e, { shape = "aabb", motion = "static", pocket = 0, half_extents = {11.0, 0.25, 11.0} })
+
+    local function add_wall(pk, nm, x, z, hx, hz)
+        local w = eng.scene.spawn(nm)
+        eng.scene.set_pocket(w, pk)
+        eng.scene.set_pos(w, x, 1.8, z)
+        eng.physics.add_body(w, { shape = "aabb", motion = "static", pocket = pk, half_extents = {hx, 1.8, hz} })
+    end
+    add_wall(0, "arena_wall_w", -11.0, 0.0, 0.25, 11.0)
+    add_wall(0, "arena_wall_e",  11.0, 0.0, 0.25, 11.0)
+    add_wall(0, "arena_wall_n", 0.0, -11.0, 11.0, 0.25)
+    add_wall(0, "arena_wall_s", 0.0,  11.0, 11.0, 0.25)
 
     for side = -1, 1, 2 do
         local pad = eng.scene.spawn("jet_pad_" .. tostring(side))
@@ -37,6 +49,9 @@ function init()
     eng.scene.set_pos(w_floor, 0.0, -0.25, 0.0)
     eng.scene.set_scale(w_floor, 6.0, 0.5, 10.0)
     eng.scene.set_mesh(w_floor, S.box_mesh, { tex = floor_tex, color = {0.42, 0.18, 0.55, 1.0}, roughness = 0.3 })
+    eng.physics.add_body(w_floor, { shape = "aabb", motion = "static", pocket = S.warp_id, half_extents = {3.0, 0.25, 5.0} })
+    add_wall(S.warp_id, "warp_wall_w", -3.0, 0.0, 0.2, 5.0)
+    add_wall(S.warp_id, "warp_wall_e",  3.0, 0.0, 0.2, 5.0)
 
     local arch_n = eng.scene.spawn("warp_arch_north")
     eng.scene.set_pos(arch_n, 0.0, 0.0, -7.5)

@@ -32,6 +32,7 @@ function init()
     local ped = eng.scene.spawn("planet_pedestal")
     eng.scene.set_pos(ped, 0.0, 0.6, -13.5)
     eng.scene.set_mesh(ped, S.cyl_mesh, { tex = marble_tex, roughness = 0.25 })
+    eng.physics.add_body(ped, { shape = "aabb", motion = "static", half_extents = {1.5, 0.9, 1.5} })
 
     S.planet_mesh = eng.procgen.planet(seed + 77, 2.4, 16, 0.0)
     S.planet_ent = eng.scene.spawn("holo_planet_globe")
@@ -42,9 +43,13 @@ function init()
     local tree_mesh = eng.procgen.tree(seed + 31, 2, 2.5, 0.18)
     local pts = eng.procgen.scatter_poisson(seed + 5, 20.0, 6.0, 4.2, 8)
     for i = 1, #pts do
+        local tx, tz = pts[i][1] - 10.0, -16.0 - pts[i][2] * 0.4
         local te = eng.scene.spawn("safari_tree_" .. tostring(i))
-        eng.scene.set_pos(te, pts[i][1] - 10.0, 0.0, -16.0 - pts[i][2] * 0.4)
+        eng.scene.set_pos(te, tx, 0.0, tz)
         eng.scene.set_mesh(te, tree_mesh, { cast_shadow = true })
+        local tc = eng.scene.spawn("safari_tree_col_" .. tostring(i))
+        eng.scene.set_pos(tc, tx, 1.2, tz)
+        eng.physics.add_body(tc, { shape = "aabb", motion = "static", half_extents = {0.35, 1.2, 0.35} })
     end
 
     -- Spawn ALL 6 DNA Animal Archetypes walking patrol loops with procedural IK gaits!
@@ -112,8 +117,9 @@ function update(dt)
 
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 11.5, dt)
-    S.px = eng.math.clamp(S.px + dx, -9.0, 9.0)
-    S.pz = eng.math.clamp(S.pz + dz, -13.0, 2.5)
+    local nx, nz = eng.physics.slide_move(0, S.px, 0.8, S.pz, dx, dz, 0.42)
+    S.px = eng.math.clamp(nx, -9.0, 9.0)
+    S.pz = eng.math.clamp(nz, -13.0, 2.5)
 
     if (eng.input.pressed("fire") or eng.input.down("fire") or eng.input.pressed("interact")) and S.scan_cd <= 0.0 then
         for i = 1, #S.creatures do

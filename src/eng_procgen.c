@@ -211,9 +211,9 @@ bool eng_procgen_texture(const char *recipe, uint64_t seed, int size,
                 h = mortar ? 0.15f : (0.65f + 0.25f * n);
                 col = mortar ? eng_v3(0.28f, 0.27f, 0.25f) : eng_v3_scale(eng_v3(0.55f, 0.53f, 0.50f), 0.85f + 0.3f * h);
                 rough = mortar ? 0.95f : 0.78f;
-            } else if (strcmp(recipe, "wood_planks") == 0) {
+            } else if (strcmp(recipe, "wood_planks") == 0 || strcmp(recipe, "wood_grain") == 0) {
                 float grain = sinf((v * 6.0f + n * 0.35f) * 24.0f) * 0.5f + 0.5f;
-                bool seam = fmodf(u * 4.0f, 1.0f) < 0.04f;
+                bool seam = (strcmp(recipe, "wood_planks") == 0) && fmodf(u * 4.0f, 1.0f) < 0.04f;
                 h = seam ? 0.1f : (0.5f + 0.3f * grain);
                 col = seam ? eng_v3(0.18f, 0.11f, 0.06f) : eng_v3_lerp(eng_v3(0.42f, 0.25f, 0.12f), eng_v3(0.62f, 0.40f, 0.20f), grain);
                 rough = 0.65f;
@@ -227,6 +227,14 @@ bool eng_procgen_texture(const char *recipe, uint64_t seed, int size,
                 h = 0.6f - 0.3f * rust;
                 col = eng_v3_lerp(eng_v3(0.56f, 0.58f, 0.62f), eng_v3(0.58f, 0.26f, 0.12f), rust);
                 rough = eng_lerpf(0.28f, 0.92f, rust);
+            } else if (strcmp(recipe, "metal_rivets") == 0) {
+                float gx = fmodf(u * 2.0f, 1.0f), gy = fmodf(v * 2.0f, 1.0f);
+                bool seam = (gx < 0.04f || gy < 0.04f);
+                float rx = fabsf(gx - 0.5f) - 0.36f, ry = fabsf(gy - 0.5f) - 0.36f;
+                bool rivet = (rx * rx + ry * ry) < 0.0028f;
+                h = seam ? 0.15f : (rivet ? 0.95f : (0.62f + 0.08f * n));
+                col = seam ? eng_v3(0.22f, 0.25f, 0.29f) : (rivet ? eng_v3(0.76f, 0.80f, 0.85f) : eng_v3_scale(eng_v3(0.52f, 0.56f, 0.62f), 0.92f + 0.12f * n));
+                rough = rivet ? 0.22f : 0.38f;
             } else if (strcmp(recipe, "sci_fi_panel") == 0) {
                 float gx = fmodf(u * 2.0f, 1.0f), gy = fmodf(v * 2.0f, 1.0f);
                 bool groove = (gx < 0.06f || gy < 0.06f || (fabsf(gx - 0.5f) < 0.02f && gy > 0.2f && gy < 0.8f));
@@ -244,6 +252,12 @@ bool eng_procgen_texture(const char *recipe, uint64_t seed, int size,
                 h = 0.7f + 0.2f * vein;
                 col = eng_v3_lerp(eng_v3(0.28f, 0.30f, 0.34f), eng_v3(0.93f, 0.92f, 0.90f), powf(vein, 0.4f));
                 rough = 0.22f;
+            } else if (strcmp(recipe, "lava_cracks") == 0) {
+                float d = eng_noise_voronoi2d(u * 5.0f, v * 5.0f, seed, NULL);
+                float glow = eng_clampf((d - 0.52f) * 3.2f, 0.0f, 1.0f);
+                h = 1.0f - glow * 0.8f;
+                col = eng_v3_lerp(eng_v3(0.14f, 0.11f, 0.11f), eng_v3(1.0f, 0.36f + 0.45f * glow, 0.06f), glow);
+                rough = eng_lerpf(0.92f, 0.25f, glow);
             } else { /* "cobble" & generic fallback */
                 float d = eng_noise_voronoi2d(u * 6.0f, v * 6.0f, seed, NULL);
                 h = eng_clampf(1.0f - d * 1.2f, 0.0f, 1.0f);

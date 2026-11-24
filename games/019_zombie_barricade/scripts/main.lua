@@ -69,11 +69,13 @@ function init()
         eng.scene.set_pos(ce, col_xs[i], 1.35, -4.0)
         eng.scene.set_scale(ce, 0.85, 2.7, 0.35)
         eng.scene.set_mesh(ce, S.box_mesh, { tex = stone_tex, color = {0.46, 0.42, 0.38, 1.0}, cast_shadow = true })
+        eng.physics.add_body(ce, { shape = "aabb", motion = "static", half_extents = {0.42, 1.35, 0.18} })
     end
     local sill = eng.scene.spawn("cabin_sill")
     eng.scene.set_pos(sill, 0.0, 0.35, -4.0)
     eng.scene.set_scale(sill, 9.2, 0.70, 0.35)
     eng.scene.set_mesh(sill, S.box_mesh, { tex = wood_tex, color = {0.48, 0.34, 0.22, 1.0} })
+    eng.physics.add_body(sill, { shape = "aabb", motion = "static", half_extents = {4.6, 0.35, 0.18} })
 
     local lintel = eng.scene.spawn("cabin_lintel")
     eng.scene.set_pos(lintel, 0.0, 2.45, -4.0)
@@ -192,8 +194,9 @@ function update(dt)
 
     local dx, dz
     S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 9.5, dt)
-    S.px = eng.math.clamp(S.px + dx, -3.6, 3.6)
-    S.pz = eng.math.clamp(S.pz + dz, -3.1, 2.5)
+    local nx, nz = eng.physics.slide_move(0, S.px, 0.5, S.pz, dx, dz, 0.42)
+    S.px = eng.math.clamp(nx, -3.6, 3.6)
+    S.pz = eng.math.clamp(nz, -3.4, 2.5)
 
     -- Repair nearest damaged window barricade with interact
     if (eng.input.pressed("interact") or eng.input.down("interact")) and S.repair_cd <= 0.0 then

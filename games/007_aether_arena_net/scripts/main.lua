@@ -93,13 +93,17 @@ function init()
     eng.scene.set_pos(floor_e, 0.0, -0.25, 0.0)
     eng.scene.set_scale(floor_e, 34.0, 0.5, 34.0)
     eng.scene.set_mesh(floor_e, S.box_mesh, { tex = floor_tex, metallic = 0.35, roughness = 0.55 })
+    eng.physics.add_body(floor_e, { shape = "aabb", motion = "static", pocket = 0, half_extents = {17.0, 0.25, 17.0} })
 
-    -- Side pillars framing the arena
+    -- Side pillars framing the arena (with solid static colliders)
     for sx = -1, 1, 2 do
         for sz = -1, 1, 2 do
             local pil = eng.scene.spawn("arena_pillar_" .. tostring(sx) .. "_" .. tostring(sz))
             eng.scene.set_pos(pil, sx * 11.0, 0.0, sz * 9.0)
             eng.scene.set_mesh(pil, S.pillar_mesh, { tex = floor_tex, color = {0.55, 0.75, 1.0, 1.0} })
+            local pcol = eng.scene.spawn("arena_pillar_col_" .. tostring(sx) .. "_" .. tostring(sz))
+            eng.scene.set_pos(pcol, sx * 11.0, 1.6, sz * 9.0)
+            eng.physics.add_body(pcol, { shape = "aabb", motion = "static", pocket = 0, half_extents = {0.55, 1.6, 0.55} })
         end
     end
 

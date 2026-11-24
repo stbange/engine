@@ -439,6 +439,11 @@ static int l_scene_set_pocket(lua_State *L) {
                        ? eng_scene_register_pocket(rt->scene, lua_tostring(L, 2))
                        : (uint16_t)luaL_checkinteger(L, 2);
     eng_scene_set_pocket(rt->scene, e, pid);
+    uint32_t bid = find_ent_body(rt, e);
+    if (bid) {
+        eng_body_desc_t *bd = eng_physics_get_body(rt->physics, bid);
+        if (bd) bd->pocket_id = pid;
+    }
     return 0;
 }
 static int l_scene_get_pocket(lua_State *L) {
@@ -1270,6 +1275,9 @@ static int l_part_create(lua_State *L) {
         lua_getfield(L, 1, "pocket"); if (lua_isnumber(L, -1)) cfg.pocket_id = (uint16_t)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "tex"); if (lua_isnumber(L, -1)) cfg.tex_id = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "seed"); if (lua_isnumber(L, -1)) seed = (uint64_t)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "spread"); if (lua_isnumber(L, -1)) cfg.spread_rad = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "speed"); if (lua_isnumber(L, -1)) { float sp = (float)lua_tonumber(L, -1); cfg.speed_min = sp * 0.7f; cfg.speed_max = sp * 1.3f; } lua_pop(L, 1);
+        lua_getfield(L, 1, "life"); if (lua_isnumber(L, -1)) { float lf = (float)lua_tonumber(L, -1); cfg.life_min = lf * 0.75f; cfg.life_max = lf * 1.25f; } lua_pop(L, 1);
     }
     eng_emitter_t *em = eng_emitter_create(cap, seed, &cfg);
     if (!em) return 0;

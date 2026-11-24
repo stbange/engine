@@ -84,7 +84,7 @@ end
 function init()
     eng.xr.set_mode("first_person")
     eng.input.set_mouse_lock(true)
-    eng.render.set_retro({ ps1_snap = true, snap_res = 240, dither = true, color_bits = 5, fog_density = 0.022 })
+    eng.render.set_retro({ vertex_snap = 240, dither = true, color_bits = 5, fog_density = 0.022 })
     eng.render.set_sky(0.06, 0.04, 0.10, 0.20, 0.10, 0.14)
     eng.render.add_light({ type = "dir", dir = {-0.3, -1.0, -0.4}, color = {1.8, 1.65, 1.45}, shadow = true })
     eng.render.add_light({ type = "point", pos = {18.0, 5.0, 18.0}, color = {2.4, 1.4, 0.7}, range = 38.0 })

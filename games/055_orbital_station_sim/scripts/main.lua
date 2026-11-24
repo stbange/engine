@@ -137,7 +137,9 @@ function update(dt)
             eng.scene.set_pocket(S.cmd_ent, S.pocket)
             eng.audio.play(S.sfx_portal, S.px, 1.2, S.pz, S.pocket)
         else
-            S.px, S.pz = nx, nz
+            local sx, sz = eng.physics.slide_move(S.pocket, S.px, 1.1, S.pz, nx - S.px, nz - S.pz, 0.38)
+            S.px = eng.math.clamp(sx, -9.5, 9.5)
+            S.pz = eng.math.clamp(sz, -9.5, 11.2)
         end
         eng.scene.set_pos(S.cmd_ent, S.px, 0.0, S.pz)
         eng.scene.set_rot_deg(S.cmd_ent, 0.0, math.deg(math.atan2(-mx, my)), 0.0)
