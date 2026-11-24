@@ -97,7 +97,8 @@ function init()
         S.lock_crystals[i] = ce
     end
 
-    S.px, S.py, S.pz = -5.0, 2.2, 1.2
+    S.px, S.py, S.pz = -5.0, 2.3, 1.2
+    S.yaw, S.pitch = 0.0, -16.0
     S.play_step = 1
     S.step_timer = 0.0
     S.toggle_cd = 0.0
@@ -107,7 +108,8 @@ function init()
     S.unlocked_count = 0
     S.won = false
 
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.2, -6.5, 0)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
     eng.mod.emit("post_init")
 end
 
@@ -127,9 +129,10 @@ function update(dt)
     if S.won then return end
     S.toggle_cd = math.max(0.0, S.toggle_cd - dt)
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    S.px = eng.math.clamp(S.px + mx * 11.5 * dt, -6.0, 6.0)
-    S.pz = eng.math.clamp(S.pz - my * 11.5 * dt, -8.2, 2.0)
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 11.5, dt)
+    S.px = eng.math.clamp(S.px + dx, -6.0, 6.0)
+    S.pz = eng.math.clamp(S.pz + dz, -8.2, 2.0)
 
     -- Toggle nearest pad when pressing fire/interact
     if (eng.input.pressed("fire") or eng.input.down("fire") or eng.input.pressed("interact")) and S.toggle_cd <= 0.0 then
@@ -187,7 +190,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px * 0.5, 3.2, S.pz + 3.2, 0.0, 1.0, -6.5, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 end
 
 function draw()

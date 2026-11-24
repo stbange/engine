@@ -13,11 +13,15 @@ The engine SHALL manage OpenGL 3.3 Core (Desktop) and WebGL2 / GLES 3.0 (Web) co
 - **THEN** `eng_platform` initializes `SDL_VIDEODRIVER=dummy` and `SDL_AUDIODRIVER=dummy` with a software/offscreen GL target and runs deterministically
 
 ### Requirement: Rebindable Logical Action and Axis Mapping
-The engine SHALL map keyboard, mouse, SDL3 gamepad, touch, and WebXR controller inputs onto named actions and axes persisted in JSON, including configurable input buffering and coyote-time helpers.
+The engine SHALL map keyboard, mouse, SDL3 gamepad, touch, and WebXR controller inputs onto named actions and axes persisted in JSON, including configurable input buffering, coyote-time helpers, and relative mouse/pointer lock (`eng_platform_set_mouse_lock`, `eng_platform_is_mouse_lock`, `eng.input.set_mouse_lock`, `eng.input.mouse_delta`, `eng.camera.fps_steer`).
 
 #### Scenario: Runtime action rebinding
 - **WHEN** a player or Lua script rebinds action `"jump"` from `Space` to `GamepadSouth` and saves bindings
 - **THEN** `eng_input_pressed("jump")` triggers on `GamepadSouth` and persists cleanly to JSON
+
+#### Scenario: Pointer-locked mouse look and camera-relative WASD strafing
+- **WHEN** a first-person or free-roam game requests mouse lock (`eng.input.set_mouse_lock(true)` or `eng.camera.fps_steer`) and the player clicks the canvas on Web or Desktop
+- **THEN** pointer lock engages (`ESC` releases), mouse movement rotates camera yaw/pitch freely, and `W`/`S`/`A`/`D` steer forward/backward and strafe left/right relative to camera yaw without orbiting a fixed point
 
 ### Requirement: Automatic Mobile Web Touch Controls
 The engine SHALL detect touch-primary mobile browsers on Web builds and automatically activate a skinnable virtual thumbstick/button overlay matching the game's `touch_preset`.

@@ -116,8 +116,9 @@ function init()
     S.time = 0.0
     S.won = false
 
+    eng.input.set_mouse_lock(true)
     spawn_mission(1)
-    eng.camera.look_at(S.sx, S.sy + 0.4, S.sz - 1.5, 0.0, 1.3, 8.0, S.pocket)
+    eng.camera.look_at(S.sx, S.sy + 0.4, S.sz - 1.5, S.sx, S.sy, S.sz + 8.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
@@ -125,16 +126,22 @@ local function fire_plasma()
     eng.audio.play(S.sfx_laser, S.sx, S.sy, S.sz, S.pocket)
     if S.pocket ~= 0 then return end
 
-    -- Lock onto nearest orbital drone in forward hemisphere, else fire straight ahead
-    local dx, dy, dz = 0.0, 0.0, -1.0
+    -- Aim along fighter heading (cone snap once mouse-aimed, smart lock-on for keyboard-only/playtest)
+    local ry, rp = math.rad(S.yaw or 0.0), math.rad(S.pitch or 0.0)
+    local cp = math.cos(rp)
+    local dx, dy, dz = -math.sin(ry) * cp, math.sin(rp), -math.cos(ry) * cp
     local best_d = 90.0
+    local manual = (S.manual_aimed == true)
     for i = 1, #S.drones do
         local d = S.drones[i]
         if d.alive then
             local dist = eng.math.dist3(S.sx, S.sy, S.sz, d.x, d.y, d.z)
-            if dist < best_d then
-                best_d = dist
-                dx, dy, dz = (d.x - S.sx) / dist, (d.y - S.sy) / dist, (d.z - S.sz) / dist
+            if dist > 0.01 and dist < best_d then
+                local vx, vy, vz = (d.x - S.sx) / dist, (d.y - S.sy) / dist, (d.z - S.sz) / dist
+                if (not manual) or (vx * dx + vy * dy + vz * dz) > 0.92 then
+                    best_d = dist
+                    dx, dy, dz = vx, vy, vz
+                end
             end
         end
     end
@@ -177,6 +184,8 @@ function update(dt)
     end
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
+    local mdx, mdy = eng.input.mouse_delta()
+    if math.abs(mdx) > 0.01 or math.abs(mdy) > 0.01 then S.manual_aimed = true end
     local boost = eng.input.down("jump") and 2.0 or 1.0
     if eng.input.pressed("jump") then eng.audio.play(S.sfx_boost, S.sx, S.sy, S.sz, S.pocket) end
     if eng.input.pressed("interact") then S.shields = math.min(100.0, S.shields + 15.0) end
@@ -188,13 +197,18 @@ function update(dt)
         S.sx = eng.math.clamp(S.sx + mx * 8.0 * dt, -4.0, 4.0)
         S.sz = S.sz + thrust * 16.0 * boost * dt
     else
-        -- 6DoF spaceflight in orbital sector (pocket 0)
-        S.yaw = S.yaw - mx * 75.0 * dt
-        S.pitch = eng.math.clamp(S.pitch + my * 45.0 * dt, -45.0, 45.0)
-        S.roll = eng.math.clamp(-mx * 28.0, -30.0, 30.0)
-        local rad_y = math.rad(S.yaw)
-        S.sx = eng.math.clamp(S.sx - math.sin(rad_y) * 14.0 * boost * dt * math.max(0.2, my), -28.0, 28.0)
-        S.sz = eng.math.clamp(S.sz - math.cos(rad_y) * 14.0 * boost * dt * math.max(0.2, my), -42.0, 2.9)
+        -- 6DoF spaceflight: mouse steers yaw/pitch, W/S thrusts forward/back, A/D strafes
+        S.yaw = S.yaw - mdx * 0.22
+        S.pitch = eng.math.clamp(S.pitch - mdy * 0.22, -55.0, 55.0)
+        S.roll = eng.math.clamp(-mx * 24.0, -30.0, 30.0)
+        local ry, rp = math.rad(S.yaw), math.rad(S.pitch)
+        local cp = math.cos(rp)
+        local fx, fy, fz = -math.sin(ry) * cp, math.sin(rp), -math.cos(ry) * cp
+        local rx, rz = math.cos(ry), -math.sin(ry)
+        local thr = (math.abs(my) > 0.05) and my or 0.15
+        S.sx = eng.math.clamp(S.sx + (fx * thr + rx * mx) * 14.0 * boost * dt, -28.0, 28.0)
+        S.sy = eng.math.clamp(S.sy + (fy * thr) * 12.0 * boost * dt, -4.0, 12.0)
+        S.sz = eng.math.clamp(S.sz + (fz * thr + rz * mx) * 14.0 * boost * dt, -42.0, 2.9)
     end
 
     -- Check hangar portal threshold launch!
@@ -206,6 +220,7 @@ function update(dt)
         if S.pocket == 0 then
             S.launched = true
             S.yaw = 0.0
+            S.pitch = 0.0
         end
     end
 
@@ -231,9 +246,12 @@ function update(dt)
         eng.scene.set_rot_deg(S.ship_ent, 0.0, 180.0, S.roll)
         eng.camera.look_at(S.sx, S.sy + 0.4, S.sz - 1.5, S.sx, S.sy, S.sz + 8.0, S.pocket)
     else
-        eng.scene.set_pos(S.ship_ent, S.sx, S.sy - 0.35, S.sz - 2.4)
+        local ry, rp = math.rad(S.yaw), math.rad(S.pitch)
+        local cp = math.cos(rp)
+        local fx, fy, fz = -math.sin(ry) * cp, math.sin(rp), -math.cos(ry) * cp
+        eng.scene.set_pos(S.ship_ent, S.sx + fx * 2.4, S.sy - 0.35 + fy * 2.4, S.sz + fz * 2.4)
         eng.scene.set_rot_deg(S.ship_ent, S.pitch, S.yaw, S.roll)
-        eng.camera.look_at(S.sx, S.sy + 0.6, S.sz + 2.0, 0.0, 0.0, -62.0, S.pocket)
+        eng.camera.set(S.sx - fx * 2.0, S.sy + 0.6 - fy * 1.2, S.sz - fz * 2.0, S.pitch, S.yaw, 0.0, S.pocket)
     end
 end
 

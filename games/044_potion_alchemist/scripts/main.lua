@@ -113,7 +113,7 @@ function init()
 
     S.pocket = 0
     S.px, S.py, S.pz = 0.0, 1.1, 4.2
-    S.yaw = 0.0
+    S.yaw, S.pitch = 0.0, 0.0
     S.herbs = 0
     S.herbs_foraged = 0
     S.potions = 0
@@ -123,18 +123,20 @@ function init()
     S.gold = 0
     S.won = false
 
-    eng.camera.look_at(S.px, 1.5, S.pz, 0.0, 1.2, -5.0, S.pocket)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, 1.5, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
 function update(dt)
     if S.won then return end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 7.2, dt)
+    if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
         local ox, oy, oz = S.px, S.py, S.pz
-        local nx = ox + mx * 7.2 * dt
-        local nz = oz - my * 7.2 * dt
+        local nx = ox + dx
+        local nz = oz + dz
         local dst_pk, wx, wy, wz = eng.portal.check_crossing(S.pocket, ox, oy, oz, nx, oy, nz)
         if dst_pk ~= nil then
             S.pocket = dst_pk
@@ -189,8 +191,7 @@ function update(dt)
         end
     end
 
-    local tx, tz = 0.0, (S.pocket == 0) and -5.0 or -4.5
-    eng.camera.look_at(S.px, 1.5, S.pz, tx, 1.2, tz, S.pocket)
+    eng.camera.set(S.px, 1.5, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
 end
 
 function draw()

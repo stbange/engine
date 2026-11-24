@@ -49,6 +49,15 @@ function eng.input.axis2d(neg_x: string, pos_x: string, neg_y: string, pos_y: st
 --- Inject deterministic virtual input for playtests
 function eng.input.inject(action: string, down: boolean) end
 
+--- Request or release relative mouse pointer lock (ESC unlocks)
+function eng.input.set_mouse_lock(locked: boolean): boolean end
+
+--- True while mouse pointer lock is active
+function eng.input.is_mouse_locked(): boolean end
+
+--- Relative mouse look delta (dx, dy) while locked/dragging/touch
+function eng.input.mouse_delta(): number, number end
+
 ---@class eng.xr
 eng.xr = {}
 
@@ -111,6 +120,9 @@ function eng.camera.look_at(ex: number, ey: number, ez: number, tx: number, ty: 
 
 --- Return camera x, y, z, pocket_id
 function eng.camera.get(): number, number, number, integer end
+
+--- Mouse-locked yaw/pitch look + camera-relative WASD forward/strafe step
+function eng.camera.fps_steer(yaw: number, pitch: number, speed: number, dt: number, sens?: number): number, number, number, number, number, number end
 
 ---@class eng.render
 eng.render = {}

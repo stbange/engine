@@ -130,10 +130,13 @@ function update(dt)
     S.sway_t = S.sway_t + dt
 
     local steady = eng.input.down("jump")
+    eng.input.set_mouse_lock(true)
+    local mdx, mdy = eng.input.mouse_delta()
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
     local pan_spd = steady and 18.0 or 44.0
-    S.yaw = eng.math.clamp(S.yaw - mx * pan_spd * dt, -42.0, 42.0)
-    S.pitch = eng.math.clamp(S.pitch + my * pan_spd * dt, -36.0, -3.0)
+    local msens = steady and 0.09 or 0.18
+    S.yaw = eng.math.clamp(S.yaw - mx * pan_spd * dt - mdx * msens, -42.0, 42.0)
+    S.pitch = eng.math.clamp(S.pitch + my * pan_spd * dt - mdy * msens, -36.0, -3.0)
 
     local sway_yaw = steady and 0.0 or (math.sin(S.sway_t * 2.6) * 0.65)
     local sway_pitch = steady and 0.0 or (math.cos(S.sway_t * 3.4) * 0.45)

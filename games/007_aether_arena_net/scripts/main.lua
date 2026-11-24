@@ -129,6 +129,7 @@ function init()
     S.bot_bt = build_bot_tree()
     S.px, S.py, S.pz = 0.0, 1.3, -3.5
     S.yaw = 0.0
+    S.pitch = 0.0
     S.hp = 100
     S.score = 0
     S.frags = 0
@@ -137,17 +138,19 @@ function init()
     S.cooldown = 0.0
     S.won = false
 
+    eng.input.set_mouse_lock(true)
     spawn_round(1)
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.3, -10.0, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
     eng.mod.emit("post_init")
 end
 
 local function fire_railgun()
-    local rad = math.rad(S.yaw)
-    local dx, dz = -math.sin(rad), -math.cos(rad)
+    local ry, rp = math.rad(S.yaw or 0.0), math.rad(S.pitch or 0.0)
+    local cp = math.cos(rp)
+    local dx, dy, dz = -math.sin(ry) * cp, math.sin(rp), -math.cos(ry) * cp
     eng.audio.play(S.sfx_rail, S.px, S.py, S.pz, 0)
 
-    local hit = eng.physics.raycast(0, S.px, 1.1, S.pz, dx, 0.0, dz, 45.0)
+    local hit = eng.physics.raycast(0, S.px, 1.1, S.pz, dx, dy, dz, 45.0)
     if hit then
         for i = 1, #S.bots do
             local b = S.bots[i]
@@ -175,12 +178,11 @@ function update(dt)
     if S.won then return end
     S.cooldown = math.max(0.0, S.cooldown - dt)
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    S.yaw = S.yaw - mx * 120.0 * dt
-    local rad = math.rad(S.yaw)
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 9.0, dt)
     local prev_x, prev_y, prev_z = S.px, S.py, S.pz
-    S.px = eng.math.clamp(S.px - math.sin(rad) * my * 9.0 * dt, -14.0, 14.0)
-    S.pz = eng.math.clamp(S.pz - math.cos(rad) * my * 9.0 * dt, -12.0, 12.0)
+    S.px = eng.math.clamp(S.px + dx, -14.0, 14.0)
+    S.pz = eng.math.clamp(S.pz + dz, -12.0, 12.0)
 
     if eng.input.pressed("jump") or eng.input.pressed("interact") then
         S.hp = math.min(100, S.hp + 10)
@@ -224,7 +226,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px, S.py, S.pz, S.px - math.sin(rad) * 6.0, 1.2, S.pz - math.cos(rad) * 6.0, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 end
 
 function draw()

@@ -99,6 +99,7 @@ function init()
     S.beam_timer = 0.0
 
     S.px, S.py, S.pz = 0.0, 1.2, 6.5
+    S.yaw, S.pitch = 0.0, -14.0
     S.boss_phase = 0.0
     S.stomp_timer = 1.6
     S.wave_r = 0.0
@@ -115,7 +116,8 @@ function init()
     S.won = false
     S.lost = false
 
-    eng.camera.look_at(S.px, 4.8, S.pz + 6.5, S.bx, 2.4, S.bz, 0)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, 4.4, S.pz + 6.5, S.pitch, S.yaw, 0.0, 0)
     eng.mod.emit("post_init")
 end
 
@@ -179,7 +181,6 @@ function update(dt)
     end
 
     -- Hunter movement + dodge roll (jump / interact)
-    local ix, iy = eng.input.axis2d("left", "right", "down", "up")
     if (eng.input.pressed("jump") or eng.input.pressed("interact")) and S.dodge_cd <= 0.0 then
         S.dodge_cd = 0.55
         S.dodge_iframes = 0.45
@@ -187,10 +188,12 @@ function update(dt)
         eng.audio.play(S.sfx_dash, S.px, 1.0, S.pz, 0)
     end
     local spd = (S.dodge_iframes > 0.0) and 15.0 or 9.5
-    S.px = eng.math.clamp(S.px + ix * spd * dt, -12.0, 12.0)
-    S.pz = eng.math.clamp(S.pz - iy * spd * dt, -12.0, 12.0)
+    local dx, dz, fx, fz
+    S.yaw, S.pitch, dx, dz, fx, fz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or -12.0, spd, dt)
+    S.px = eng.math.clamp(S.px + dx, -12.0, 12.0)
+    S.pz = eng.math.clamp(S.pz + dz, -12.0, 12.0)
     eng.scene.set_pos(S.hunter_ent, S.px, 0.0, S.pz)
-    eng.scene.set_rot_deg(S.hunter_ent, 0.0, math.deg(math.atan2(-(S.bx - S.px), -(S.bz - S.pz))), 0.0)
+    eng.scene.set_rot_deg(S.hunter_ent, 0.0, S.yaw, 0.0)
 
     if (eng.input.pressed("fire") or eng.input.down("fire")) and S.fire_cd <= 0.0 then
         S.fire_cd = 0.15
@@ -241,7 +244,7 @@ function update(dt)
         eng.save.write("boss_colossus", "clear")
     end
 
-    eng.camera.look_at(S.px, 4.8, S.pz + 6.5, S.bx, 2.4, S.bz, 0)
+    eng.camera.set(S.px - fx * 6.5, 4.4, S.pz - fz * 6.5, eng.math.clamp(S.pitch, -45.0, 25.0), S.yaw, 0.0, 0)
 end
 
 function draw()

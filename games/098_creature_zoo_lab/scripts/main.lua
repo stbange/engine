@@ -82,13 +82,15 @@ function init()
     S.sfx_grant = eng.audio.synth("sine", 660, 0.26, 1320)
 
     S.px, S.py, S.pz = 0.0, 1.8, 1.5
+    S.yaw, S.pitch = 0.0, 0.0
     S.globe_yaw = 0.0
     S.scan_cd = 0.0
     S.cataloged_count = 0
     S.last_scanned = "NONE"
     S.won = false
 
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.6, -9.0, 0)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
     eng.mod.emit("post_init")
 end
 
@@ -108,9 +110,10 @@ function update(dt)
         eng.scene.set_rot_deg(c.ent, 0.0, math.deg(c.phase) + 90.0, 0.0)
     end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    S.px = eng.math.clamp(S.px + mx * 11.5 * dt, -9.0, 9.0)
-    S.pz = eng.math.clamp(S.pz - my * 11.5 * dt, -13.0, 2.5)
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 11.5, dt)
+    S.px = eng.math.clamp(S.px + dx, -9.0, 9.0)
+    S.pz = eng.math.clamp(S.pz + dz, -13.0, 2.5)
 
     if (eng.input.pressed("fire") or eng.input.down("fire") or eng.input.pressed("interact")) and S.scan_cd <= 0.0 then
         for i = 1, #S.creatures do
@@ -131,7 +134,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.6, -10.5, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 end
 
 function draw()

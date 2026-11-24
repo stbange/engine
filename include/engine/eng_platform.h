@@ -36,6 +36,10 @@ float eng_platform_dpi_scale(const eng_platform_t *plat);
 bool eng_platform_set_size(eng_platform_t *plat, int w, int h);
 bool eng_platform_set_fullscreen(eng_platform_t *plat, bool fullscreen);
 bool eng_platform_set_vsync(eng_platform_t *plat, int vsync);
+bool eng_platform_set_mouse_lock(eng_platform_t *plat, bool locked);
+void eng_platform_sync_mouse_lock(eng_platform_t *plat, bool active);
+bool eng_platform_wants_mouse_lock(const eng_platform_t *plat);
+bool eng_platform_is_mouse_lock(const eng_platform_t *plat);
 int eng_platform_display_count(void);
 bool eng_platform_move_to_display(eng_platform_t *plat, int display_index);
 

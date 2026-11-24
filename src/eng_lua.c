@@ -327,6 +327,31 @@ static int l_input_inject(lua_State *L) {
     eng_input_inject_action(get_rt(L)->input, luaL_checkstring(L, 1), lua_toboolean(L, 2));
     return 0;
 }
+static eng_vec2_t get_look_delta(const eng_runtime_t *rt) {
+    if (!rt) return (eng_vec2_t){0.0f, 0.0f};
+    bool allow = eng_platform_is_mouse_lock(rt->plat) ||
+                 eng_platform_is_headless(rt->plat) ||
+                 eng_input_is_touch_active(rt->input) ||
+                 eng_input_down(rt->input, "fire");
+    return allow ? eng_input_mouse_delta(rt->input) : (eng_vec2_t){0.0f, 0.0f};
+}
+static int l_input_set_mouse_lock(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    bool locked = lua_toboolean(L, 1) != 0;
+    if (locked) rt->seen_inputs |= 32u;
+    lua_pushboolean(L, eng_platform_set_mouse_lock(rt->plat, locked));
+    return 1;
+}
+static int l_input_is_mouse_locked(lua_State *L) {
+    lua_pushboolean(L, eng_platform_is_mouse_lock(get_rt(L)->plat));
+    return 1;
+}
+static int l_input_mouse_delta(lua_State *L) {
+    eng_vec2_t d = get_look_delta(get_rt(L));
+    lua_pushnumber(L, d.x);
+    lua_pushnumber(L, d.y);
+    return 2;
+}
 
 static int l_xr_set_mode(lua_State *L) {
     const char *m = luaL_checkstring(L, 1);
@@ -462,6 +487,35 @@ static int l_cam_get(lua_State *L) {
     lua_pushnumber(L, rt->cam.pos.x); lua_pushnumber(L, rt->cam.pos.y); lua_pushnumber(L, rt->cam.pos.z);
     lua_pushinteger(L, rt->cam.pocket_id);
     return 4;
+}
+static int l_cam_fps_steer(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    float yaw = opt_f(L, 1, 0.0f);
+    float pitch = opt_f(L, 2, 0.0f);
+    float speed = chk_f(L, 3);
+    float dt = chk_f(L, 4);
+    float sens = opt_f(L, 5, 0.22f);
+    if (!eng_platform_wants_mouse_lock(rt->plat)) {
+        eng_platform_set_mouse_lock(rt->plat, true);
+    }
+    rt->seen_inputs |= (1u | 2u | 32u);
+    eng_vec2_t md = get_look_delta(rt);
+    yaw -= md.x * sens;
+    pitch = eng_clampf(pitch - md.y * sens, -80.0f, 80.0f);
+    float ix = (eng_input_down(rt->input, "right") ? 1.0f : 0.0f) - (eng_input_down(rt->input, "left") ? 1.0f : 0.0f);
+    float iy = (eng_input_down(rt->input, "up") ? 1.0f : 0.0f) - (eng_input_down(rt->input, "down") ? 1.0f : 0.0f);
+    float len = sqrtf(ix * ix + iy * iy);
+    if (len > 1.0f) { ix /= len; iy /= len; }
+    float rad = yaw * ENG_DEG2RAD;
+    float fx = -sinf(rad), fz = -cosf(rad);
+    float rx = cosf(rad), rz = -sinf(rad);
+    lua_pushnumber(L, yaw);
+    lua_pushnumber(L, pitch);
+    lua_pushnumber(L, (fx * iy + rx * ix) * speed * dt);
+    lua_pushnumber(L, (fz * iy + rz * ix) * speed * dt);
+    lua_pushnumber(L, fx);
+    lua_pushnumber(L, fz);
+    return 6;
 }
 
 static int l_render_pipeline(lua_State *L) {
@@ -1250,6 +1304,9 @@ static const lua_fn_desc_t k_api_table[] = {
     {"input",     "pressed",          l_input_pressed,         "(action: string): boolean", "True on rising edge of logical action"},
     {"input",     "axis2d",           l_input_axis,            "(neg_x: string, pos_x: string, neg_y: string, pos_y: string): number, number", "2D normalized input vector"},
     {"input",     "inject",           l_input_inject,          "(action: string, down: boolean)", "Inject deterministic virtual input for playtests"},
+    {"input",     "set_mouse_lock",   l_input_set_mouse_lock,  "(locked: boolean): boolean", "Request or release relative mouse pointer lock (ESC unlocks)"},
+    {"input",     "is_mouse_locked",  l_input_is_mouse_locked, "(): boolean", "True while mouse pointer lock is active"},
+    {"input",     "mouse_delta",      l_input_mouse_delta,     "(): number, number", "Relative mouse look delta (dx, dy) while locked/dragging/touch"},
     {"xr",        "set_mode",         l_xr_set_mode,           "(mode: string)", "Set WebXR mode: diorama|cockpit|first_person|6dof"},
     {"xr",        "is_active",        l_xr_active,             "(): boolean", "True while Stereo WebXR session is active"},
     {"scene",     "spawn",            l_scene_spawn,           "(name?: string): number", "Spawn entity (+X right, +Y up, -Z forward)"},
@@ -1268,6 +1325,7 @@ static const lua_fn_desc_t k_api_table[] = {
     {"camera",    "set",              l_cam_set,               "(x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer)", "Set active camera pose & pocket"},
     {"camera",    "look_at",          l_cam_look_at,           "(ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer)", "Aim camera at 3D target"},
     {"camera",    "get",              l_cam_get,               "(): number, number, number, integer", "Return camera x, y, z, pocket_id"},
+    {"camera",    "fps_steer",        l_cam_fps_steer,         "(yaw: number, pitch: number, speed: number, dt: number, sens?: number): number, number, number, number, number, number", "Mouse-locked yaw/pitch look + camera-relative WASD forward/strafe step"},
     {"render",    "set_pipeline",     l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
     {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog & CRT"},
     {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number)", "Set procedural skybox gradient"},
@@ -1969,6 +2027,7 @@ void eng_runtime_format_controls(const eng_runtime_t *rt, char *out_buf, size_t 
     if ((m & 3u) == 3u)      n += (size_t)snprintf(out_buf + n, cap - n, "[WASD/Arrows] Move  ");
     else if (m & 1u)         n += (size_t)snprintf(out_buf + n, cap - n, "[A/D or Left/Right] Move  ");
     else if (m & 2u)         n += (size_t)snprintf(out_buf + n, cap - n, "[W/S or Up/Down] Move  ");
+    if (m & 32u)             n += (size_t)snprintf(out_buf + n, cap - n, "[Mouse] Look (Click/ESC)  ");
     if (m & 4u)              n += (size_t)snprintf(out_buf + n, cap - n, "[Enter/Click] Action  ");
     if (m & 8u)              n += (size_t)snprintf(out_buf + n, cap - n, "[Space] Jump/Act  ");
     if (m & 16u)             n += (size_t)snprintf(out_buf + n, cap - n, "[E] Interact  ");

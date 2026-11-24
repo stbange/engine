@@ -37,6 +37,7 @@ local function build_stage(stage_idx)
     S.px, S.py, S.pz = d.start_x, 1.4, d.start_z
     S.ex, S.ez = d.exit_x, d.exit_z
     S.yaw = math.deg(math.atan2(S.px - S.ex, S.pz - S.ez))
+    S.pitch = 0.0
 
     -- Exit Shrine Crystal + Relic Key
     local exit_e = eng.scene.spawn("exit_portal_pillar")
@@ -65,11 +66,12 @@ local function build_stage(stage_idx)
         S.enemies[#S.enemies + 1] = { ent = ge, body = bid, x = gx, z = gz, hp = 2, alive = true }
     end
 
-    eng.camera.look_at(S.px, S.py, S.pz, S.ex, 1.2, S.ez, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 end
 
 function init()
     eng.xr.set_mode("first_person")
+    eng.input.set_mouse_lock(true)
     eng.render.set_retro({ ps1_snap = true, snap_res = 240, dither = true, color_bits = 5, fog_density = 0.022 })
     eng.render.set_sky(0.06, 0.04, 0.10, 0.20, 0.10, 0.14)
     eng.render.add_light({ type = "dir", dir = {-0.3, -1.0, -0.4}, color = {1.8, 1.65, 1.45}, shadow = true })
@@ -93,18 +95,24 @@ function init()
 end
 
 function fire_shotgun()
-    local dx, dz = S.ex - S.px, S.ez - S.pz
-    -- Aim toward nearest living enemy if within 22m, else along view yaw
+    local rad = math.rad(S.yaw or 0.0)
+    local dx, dz = -math.sin(rad), -math.cos(rad)
+    -- Aim along view ray (with generous cone snap when locked, or nearest target in headless playtest)
     local best_d = 22.0
+    local locked = eng.input.is_mouse_locked()
     for i = 1, #S.enemies do
         local en = S.enemies[i]
         if en.alive then
-            local d = eng.math.dist3(S.px, 0, S.pz, en.x, 0, en.z)
-            if d < best_d then best_d = d; dx = en.x - S.px; dz = en.z - S.pz end
+            local ex, ez = en.x - S.px, en.z - S.pz
+            local d = math.sqrt(ex * ex + ez * ez)
+            if d > 0.01 and d < best_d then
+                local dot = (ex / d) * dx + (ez / d) * dz
+                if (not locked) or dot > 0.94 then
+                    best_d = d; dx = ex / d; dz = ez / d
+                end
+            end
         end
     end
-    local len = math.sqrt(dx * dx + dz * dz)
-    if len < 0.001 then dx, dz = 0.0, -1.0 else dx, dz = dx / len, dz / len end
 
     eng.audio.play(S.sfx_shot, S.px, S.py, S.pz, 0)
     local hit = eng.physics.raycast(0, S.px, 0.9, S.pz, dx, 0.0, dz, 30.0)
@@ -128,14 +136,11 @@ function update(dt)
     if S.won then return end
     S.cooldown = math.max(0.0, S.cooldown - dt)
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    local rad = math.rad(S.yaw)
-    local fwd_x, fwd_z = -math.sin(rad), -math.cos(rad)
-    local rgt_x, rgt_z = math.cos(rad), -math.sin(rad)
-
-    if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        S.px = eng.math.clamp(S.px + (fwd_x * my + rgt_x * mx) * 7.5 * dt, 1.5, 34.5)
-        S.pz = eng.math.clamp(S.pz + (fwd_z * my + rgt_z * mx) * 7.5 * dt, 1.5, 34.5)
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 7.5, dt)
+    if math.abs(dx) > 1e-4 or math.abs(dz) > 1e-4 then
+        S.px = eng.math.clamp(S.px + dx, 1.5, 34.5)
+        S.pz = eng.math.clamp(S.pz + dz, 1.5, 34.5)
     end
 
     if (eng.input.pressed("fire") or eng.input.down("fire")) and S.cooldown <= 0.0 then
@@ -180,7 +185,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px, S.py, S.pz, S.ex, 1.1, S.ez, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 end
 
 function draw()

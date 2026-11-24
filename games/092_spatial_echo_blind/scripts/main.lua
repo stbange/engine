@@ -68,6 +68,7 @@ function init()
 
     S.pocket = 0
     S.px, S.py, S.pz = 0.0, 1.25, 2.5
+    S.yaw, S.pitch = 0.0, 0.0
     S.pulses = 0
     S.cross_pings = 0
     S.echo_hits = 0
@@ -76,7 +77,8 @@ function init()
     S.rings = {}
     S.won = false
 
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.2, -7.3, S.pocket)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
@@ -94,8 +96,9 @@ function emit_sonar()
     eng.scene.set_mesh(re, S.ring_mesh, { color = {0.25, 0.98, 1.0, 1.0}, roughness = 0.1 })
     S.rings[#S.rings + 1] = { ent = re, age = 0.0, x = S.px, z = S.pz }
 
-    -- Cross-portal echolocation raycast straight ahead (-Z)
-    local hit = eng.physics.raycast(S.pocket, S.px, 1.1, S.pz, 0.0, 0.0, -1.0, 26.0)
+    -- Cross-portal echolocation raycast along active look direction
+    local rad = math.rad(S.yaw or 0.0)
+    local hit = eng.physics.raycast(S.pocket, S.px, 1.1, S.pz, -math.sin(rad), 0.0, -math.cos(rad), 26.0)
     if hit then
         S.echo_hits = S.echo_hits + 1
     end
@@ -110,10 +113,11 @@ function update(dt)
         emit_sonar()
     end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        local nx = eng.math.clamp(S.px + mx * 7.5 * dt, -6.5, 6.5)
-        local nz = S.pz - my * 8.0 * dt
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 7.8, dt)
+    if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
+        local nx = eng.math.clamp(S.px + dx, -6.5, 6.5)
+        local nz = S.pz + dz
         local dst_p, wx, wy, wz = eng.portal.check_crossing(S.pocket, S.px, S.py, S.pz, nx, S.py, nz)
         if dst_p then
             S.pocket = dst_p
@@ -142,8 +146,7 @@ function update(dt)
         eng.save.write("echo_blind_clear", "sanctum_reached")
     end
 
-    local look_z = (S.pocket == S.sanctum_id) and S.chime_z or -7.3
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.2, look_z - 1.5, S.pocket)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
 end
 
 function draw()

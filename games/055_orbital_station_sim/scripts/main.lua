@@ -193,7 +193,7 @@ function update(dt)
     if S.pocket == 0 then
         eng.camera.look_at(0.0, 12.5, 13.0, 0.0, 1.2, -4.0, 0)
     else
-        eng.camera.look_at(S.px * 0.4, 5.8, S.pz + 7.5, 0.0, 1.2, -3.5, S.pocket)
+        eng.camera.look_at(S.px * 0.4, 5.8, S.pz + 7.5, S.px * 0.4, 1.2, S.pz - 3.5, S.pocket)
     end
 end
 

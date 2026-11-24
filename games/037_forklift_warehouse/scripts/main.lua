@@ -149,9 +149,9 @@ function sync_forklift_cam()
     eng.scene.set_pos(S.fork_ent, S.fx, 0.0, S.fz)
     eng.scene.set_rot_deg(S.fork_ent, 0.0, S.yaw, 0.0)
     if S.pocket == 0 then
-        eng.camera.look_at(S.fx * 0.45, 6.2, S.fz + 7.2, 0.0, 0.9, -4.0, 0)
+        eng.camera.look_at(S.fx, 6.2, S.fz + 7.2, S.fx, 0.9, S.fz - 3.0, 0)
     else
-        eng.camera.look_at(S.fx * 0.5, 5.6, math.min(11.4, S.fz + 6.2), 0.0, 0.9, 3.5, S.bay_pocket)
+        eng.camera.look_at(S.fx, 5.6, math.min(11.4, S.fz + 6.2), S.fx, 0.9, S.fz - 3.0, S.bay_pocket)
     end
 end
 

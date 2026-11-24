@@ -119,6 +119,7 @@ function init()
     S.piloting = true
     S.deck_x, S.deck_z = 0.0, 2.8 -- aft quarterdeck behind hatch at z=1.5
     S.px, S.py, S.pz = S.ship_x + S.deck_x, S.ship_y + 1.1, S.ship_z + S.deck_z
+    S.yaw, S.pitch = 0.0, 0.0
 
     S.gold = 100
     S.cargo = 0
@@ -152,9 +153,9 @@ function update(dt)
         S.piloting = not S.piloting
     end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-
     if S.pocket == 0 and S.piloting then
+        eng.input.set_mouse_lock(false)
+        local mx, my = eng.input.axis2d("left", "right", "down", "up")
         -- Fly airship across floating islands
         if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
             S.ship_x = eng.math.clamp(S.ship_x + mx * 16.0 * dt, -26.0, 26.0)
@@ -165,10 +166,12 @@ function update(dt)
         eng.camera.look_at(S.ship_x, S.ship_y + 3.2, S.ship_z + 7.5, S.ship_x, S.ship_y + 0.6, S.ship_z - 10.0, 0)
     else
         -- Walk on airship quarterdeck OR inside the bigger-on-the-inside cargo hold!
-        if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
+        local dx, dz
+        S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 8.0, dt)
+        if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
             local ox, oy, oz = S.px, S.py, S.pz
-            local nx = ox + mx * 8.0 * dt
-            local nz = oz - my * 8.0 * dt
+            local nx = ox + dx
+            local nz = oz + dz
             local dst_pk, wx, wy, wz = eng.portal.check_crossing(S.pocket, ox, oy, oz, nx, oy, nz)
             if dst_pk ~= nil then
                 S.pocket = dst_pk
@@ -213,10 +216,8 @@ function update(dt)
                 S.won = true
                 eng.save.write("skyship_trader", "guild_charter")
             end
-            eng.camera.look_at(S.px, 1.6, S.pz, 0.0, 1.1, 1.0, S.hold_pocket)
-        else
-            eng.camera.look_at(S.px, S.py + 0.5, S.pz + 1.5, S.ship_x, S.ship_y + 1.1, S.ship_z, 0)
         end
+        eng.camera.set(S.px, S.py + 0.5, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     end
 end
 

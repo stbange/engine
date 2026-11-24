@@ -125,6 +125,7 @@ function init()
 
     S.pocket = 0
     S.px, S.py, S.pz = 0.0, 1.2, 2.5
+    S.yaw, S.pitch = 0.0, 0.0
     S.vy = 0.0
     S.stamina = 100.0
     S.gear_tier = 0
@@ -133,8 +134,9 @@ function init()
     S.won = false
     S.time = 0.0
 
+    eng.input.set_mouse_lock(true)
     build_stage(1)
-    eng.camera.look_at(S.px, S.py + 0.3, S.pz, 0.0, 1.1, -5.2, S.pocket)
+    eng.camera.set(S.px, S.py + 0.4, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
@@ -173,11 +175,12 @@ function update(dt)
         eng.scene.set_rot_deg(w.ent, 0.0, math.deg(-ang), 0.0)
     end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
     local prev_x, prev_y, prev_z = S.px, S.py, S.pz
     local spd = 7.5 + S.gear_tier * 1.5
-    S.px = S.px + mx * spd * dt
-    S.pz = S.pz - my * spd * dt
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, spd, dt)
+    S.px = S.px + dx
+    S.pz = S.pz + dz
 
     if eng.input.pressed("jump") and S.py <= 1.25 then
         S.vy = 5.2
@@ -233,11 +236,7 @@ function update(dt)
         end
     end
 
-    if S.pocket == S.tent.pocket_id then
-        eng.camera.look_at(S.px, S.py + 0.4, S.pz, 0.0, 1.0, 2.0, S.pocket)
-    else
-        eng.camera.look_at(S.px, S.py + 0.4, S.pz, 0.0, 1.1, -5.2, S.pocket)
-    end
+    eng.camera.set(S.px, S.py + 0.4, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
 end
 
 function draw()

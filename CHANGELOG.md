@@ -21,6 +21,9 @@ Whenever a release introduces **BREAKING** changes to `include/engine/*.h`, the 
 - **Mobile Chrome WebGL2 & Portrait Responsive Layout (`shaders/forward.vert`, `src/eng_render.c`, `src/eng_ui.c`, `src/eng_cli.c`, `web/shell_play.html`)**:
   - Reduced `u_bones` from `64` (`266` vec4) to `48` (`202` vec4) to fit within the GLES 3.0 / WebGL2 `256`-vector vertex uniform minimum on Android mobile GPUs (fixing blank 3D scenes on phones), guarded `pow(0, y)` calls, reset `GL_BLEND` between 3D and UI passes, and added Hor+ portrait FOV compensation.
   - Separated logical CSS UI coordinates from physical HiDPI framebuffer dimensions (`eng_ui_set_fb_size`), fixed narrow portrait HUD & help positioning above bottom touch controls, removed duplicate Nuklear touch widgets on Web, added a `USE` (`interact`) touch button, and converted `web/shell_play.html` to a non-overlapping flex layout so topbar buttons never clip on phones.
+- **Relative Mouse Pointer Lock & Camera-Relative WASD Strafing (`eng_platform`, `eng_input`, `eng_lua`, `web/shell_play.html`, Games `001`–`100`)**:
+  - Added cross-platform pointer lock (`eng_platform_set_mouse_lock` / `SDL_SetWindowRelativeMouseMode` on Desktop, HTML5 `requestPointerLock()` + `#lock-hint` pill + `ESC` unlock on Web) and Lua helpers (`eng.input.set_mouse_lock`, `eng.input.is_mouse_locked`, `eng.input.mouse_delta`, `eng.camera.fps_steer`).
+  - Replaced fixed-target orbiting `look_at` cameras across all first-person, free-roam, walkable-interior, and fixed-center follow games with mouse-locked yaw/pitch look and camera-relative forward/backward/left-strafe/right-strafe movement, and updated the default `fps` scaffold template.
 
 ## [0.1.0] - 2026-11-23
 

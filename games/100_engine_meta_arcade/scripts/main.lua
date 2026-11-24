@@ -102,13 +102,15 @@ function init()
 
     S.pocket = 0
     S.px, S.py, S.pz = 0.0, 1.35, 2.2
+    S.yaw, S.pitch = 0.0, 0.0
     S.spin = 0.0
     S.tokens = 0
     S.cabinets_entered = 0
     S.trophy_unlocked = false
     S.won = false
 
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.4, -7.0, S.pocket)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
@@ -119,11 +121,12 @@ function update(dt)
         eng.scene.set_rot_deg(S.trophy_ent, 0.0, S.spin, 0.0)
     end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
     local spd = (eng.input.down("fire") or eng.input.down("jump")) and 15.5 or 10.0
-    if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        local nx = eng.math.clamp(S.px + mx * spd * dt, -9.5, 9.5)
-        local nz = S.pz - my * spd * dt
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, spd, dt)
+    if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
+        local nx = eng.math.clamp(S.px + dx, -9.5, 9.5)
+        local nz = S.pz + dz
         local dst_p, wx, wy, wz = eng.portal.check_crossing(S.pocket, S.px, S.py, S.pz, nx, S.py, nz)
         if dst_p then
             S.pocket = dst_p
@@ -166,8 +169,7 @@ function update(dt)
         end
     end
 
-    local tz = (S.pocket == 0) and -7.0 or 2.0
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.3, tz, S.pocket)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
 end
 
 function draw()

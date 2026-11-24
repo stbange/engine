@@ -139,13 +139,15 @@ function init()
 
     S.pocket = 0
     S.px, S.py, S.pz = 0.0, 1.35, 1.8
+    S.yaw, S.pitch = 0.0, 0.0
     S.spin = 0.0
     S.retro_timer = 0.0
     S.entered_gallery = false
     S.inspected_count = 0
     S.won = false
 
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.35, -4.0, S.pocket)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
@@ -161,10 +163,11 @@ function update(dt)
         end
     end
 
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    if math.abs(mx) > 0.01 or math.abs(my) > 0.01 then
-        local nx = eng.math.clamp(S.px + mx * 11.5 * dt, -10.0, 10.0)
-        local nz = S.pz - my * 12.0 * dt
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, 11.8, dt)
+    if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
+        local nx = eng.math.clamp(S.px + dx, -10.0, 10.0)
+        local nz = S.pz + dz
         local dst_p, wx, wy, wz = eng.portal.check_crossing(S.pocket, S.px, S.py, S.pz, nx, S.py, nz)
         if dst_p then
             S.pocket = dst_p
@@ -197,9 +200,7 @@ function update(dt)
         end
     end
 
-    local tx = (S.pocket == S.hall_id) and 0.0 or 0.0
-    local tz = (S.pocket == S.hall_id) and -3.5 or -4.0
-    eng.camera.look_at(S.px, S.py, S.pz, tx, 1.35, tz, S.pocket)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
 end
 
 function draw()

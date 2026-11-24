@@ -95,6 +95,7 @@ function init()
 
     launch_clay(true)
     launch_clay(false)
+    eng.input.set_mouse_lock(true)
     eng.camera.look_at(S.cam_x, S.cam_y, S.cam_z, S.aim_x, S.aim_y, S.aim_z, 0)
     eng.mod.emit("post_init")
 end
@@ -145,8 +146,9 @@ function update(dt)
     S.cooldown = math.max(0.0, S.cooldown - dt)
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
-    S.aim_x = eng.math.clamp(S.aim_x + mx * 16.0 * dt, -12.0, 12.0)
-    S.aim_y = eng.math.clamp(S.aim_y + my * 12.0 * dt, 0.8, 9.0)
+    local mdx, mdy = eng.input.mouse_delta()
+    S.aim_x = eng.math.clamp(S.aim_x + mx * 16.0 * dt + mdx * 0.045, -12.0, 12.0)
+    S.aim_y = eng.math.clamp(S.aim_y + my * 12.0 * dt - mdy * 0.035, 0.8, 9.0)
 
     if (eng.input.pressed("fire") or eng.input.down("fire")) and S.cooldown <= 0.0 then
         S.cooldown = 0.16

@@ -168,7 +168,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px * 0.5, 5.8, S.pz + 5.8, opp.x * 0.5, 1.1, opp.z, 0)
+    eng.camera.look_at(S.px * 0.5, 5.8, S.pz + 5.8, S.px * 0.5, 1.1, S.pz - 1.5, 0)
 end
 
 function draw()

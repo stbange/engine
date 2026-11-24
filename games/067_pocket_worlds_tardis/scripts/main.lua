@@ -111,6 +111,7 @@ function init()
 
     S.pocket = 0
     S.px, S.py, S.pz = 0.0, 0.85, 2.2
+    S.yaw, S.pitch = 0.0, 0.0
     S.player_scale = 1.0
     S.portal_hops = 0
     S.visited_hall = false
@@ -118,18 +119,20 @@ function init()
     S.has_chrono_key = false
     S.won = false
 
-    eng.camera.look_at(S.px, S.py + 0.45, S.pz, 0.0, 1.1, -5.0, S.pocket)
+    eng.input.set_mouse_lock(true)
+    eng.camera.set(S.px, S.py + 0.45, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
     eng.mod.emit("post_init")
 end
 
 function update(dt)
     if S.won then return end
 
-    local ix, iy = eng.input.axis2d("left", "right", "down", "up")
-    if math.abs(ix) > 0.01 or math.abs(iy) > 0.01 then
-        local speed = 9.5 * S.player_scale
-        local nx = S.px + ix * speed * dt
-        local nz = S.pz - iy * speed * dt
+    local speed = 9.5 * S.player_scale
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw, S.pitch, speed, dt)
+    if math.abs(dx) > 0.0001 or math.abs(dz) > 0.0001 then
+        local nx = S.px + dx
+        local nz = S.pz + dz
 
         local dst_pk, wx, wy, wz = eng.portal.check_crossing(S.pocket, S.px, S.py, S.pz, nx, S.py, nz)
         if dst_pk ~= nil then
@@ -167,9 +170,7 @@ function update(dt)
         end
     end
 
-    local look_x = (S.pocket == 0 and S.has_chrono_key) and S.obelisk_x or 0.0
-    local look_z = S.pz - 3.5 * S.player_scale
-    eng.camera.look_at(S.px, S.py + 0.4 * S.player_scale, S.pz, look_x, S.py + 0.2 * S.player_scale, look_z, S.pocket)
+    eng.camera.set(S.px, S.py + 0.4 * S.player_scale, S.pz, S.pitch, S.yaw, 0.0, S.pocket)
 end
 
 function draw()

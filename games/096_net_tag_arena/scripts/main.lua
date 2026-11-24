@@ -95,8 +95,10 @@ function init()
     S.tags_made = 0
     S.jetpack_used = false
     S.used_portal = false
+    S.yaw, S.pitch = 0.0, 0.0
     S.won = false
 
+    eng.input.set_mouse_lock(true)
     sync_crown_and_cam()
     eng.mod.emit("post_init")
 end
@@ -108,7 +110,7 @@ function sync_crown_and_cam()
     eng.scene.set_pos(S.crown_ent, holder.x, cy, holder.z)
 
     local p = S.runners[1]
-    eng.camera.look_at(p.x, p.y + 0.35, p.z, 0.0, 1.3, p.z - 6.0, p.pocket)
+    eng.camera.set(p.x, p.y + 0.35, p.z, S.pitch or 0.0, S.yaw or 0.0, 0.0, p.pocket)
 end
 
 function update(dt)
@@ -118,8 +120,9 @@ function update(dt)
 
     -- Step Player #1 movement + Jetpack + Portal Crossing
     local p = S.runners[1]
-    local mx, my = eng.input.axis2d("left", "right", "down", "up")
     local spd = (eng.input.down("fire") or eng.input.pressed("fire")) and 13.5 or 9.0
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, spd, dt)
 
     if eng.input.down("jump") or eng.input.pressed("jump") then
         p.vy = math.min(6.5, p.vy + 24.0 * dt)
@@ -130,8 +133,8 @@ function update(dt)
     local ny = eng.math.clamp(p.y + p.vy * dt, 1.25, 3.8)
     if ny <= 1.25 and p.vy < 0.0 then p.vy = 0.0 end
 
-    local nx = eng.math.clamp(p.x + mx * spd * dt, -9.0, 9.0)
-    local nz = eng.math.clamp(p.z - my * spd * dt, -9.2, 9.2)
+    local nx = eng.math.clamp(p.x + dx, -9.0, 9.0)
+    local nz = eng.math.clamp(p.z + dz, -9.2, 9.2)
     local dst_p, wx, wy, wz = eng.portal.check_crossing(p.pocket, p.x, p.y, p.z, nx, ny, nz)
     if dst_p then
         p.pocket = dst_p

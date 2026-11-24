@@ -221,7 +221,7 @@ local function build_chamber(idx)
     S.ents[#S.ents + 1] = S.cursor_ent
 
     trace_lasers()
-    eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.3, -4.2, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch or 0.0, S.yaw or 0.0, 0.0, 0)
 end
 
 function init()
@@ -284,25 +284,34 @@ function init()
     })
 
     S.px, S.py, S.pz = 0.0, 2.8, 6.8
+    S.yaw, S.pitch = 0.0, -8.0
     S.rotations = 0
     S.raycast_calls = 0
     S.portal_laser_hits = 0
     S.max_portal_hops = 0
     S.won = false
 
+    eng.input.set_mouse_lock(true)
     build_chamber(1)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
     eng.mod.emit("post_init")
 end
 
 function update(dt)
     if S.won then return end
 
-    -- Optional 6DoF / desktop forward-back inspection walk
+    local mdx, mdy = eng.input.mouse_delta()
+    S.yaw = (S.yaw or 0.0) - mdx * 0.22
+    S.pitch = eng.math.clamp((S.pitch or -8.0) - mdy * 0.22, -75.0, 75.0)
+
+    -- Forward-back inspection walk along camera heading (A/D cycle mirrors)
     local _, iy = eng.input.axis2d("left", "right", "down", "up")
     if math.abs(iy) > 0.01 then
-        S.pz = eng.math.clamp(S.pz - iy * 5.0 * dt, 3.8, 8.2)
-        eng.camera.look_at(S.px, S.py, S.pz, 0.0, 1.3, -4.2, 0)
+        local rad = math.rad(S.yaw)
+        S.px = eng.math.clamp(S.px - math.sin(rad) * iy * 5.0 * dt, -6.0, 6.0)
+        S.pz = eng.math.clamp(S.pz - math.cos(rad) * iy * 5.0 * dt, 2.5, 9.0)
     end
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 
     local changed = false
     if eng.input.pressed("left") then

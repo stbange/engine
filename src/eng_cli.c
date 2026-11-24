@@ -76,6 +76,16 @@ EMSCRIPTEN_KEEPALIVE void eng_web_toggle_help(void) {
     eng_ui_toggle_help(g_web.ui);
 }
 
+EMSCRIPTEN_KEEPALIVE int eng_web_wants_mouse_lock(void) {
+    if (!g_web.rt) return 0;
+    if (eng_editor_is_open(g_web.ed) || eng_ui_is_console_open(g_web.ui)) return 0;
+    return eng_platform_wants_mouse_lock(eng_runtime_platform(g_web.rt)) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void eng_web_set_mouse_lock_state(int locked) {
+    if (g_web.rt) eng_platform_sync_mouse_lock(eng_runtime_platform(g_web.rt), locked != 0);
+}
+
 EMSCRIPTEN_KEEPALIVE void eng_web_inject_action(const char *action, int down) {
     if (g_web.rt && action) eng_input_inject_action(eng_runtime_input(g_web.rt), action, down != 0);
 }
@@ -243,6 +253,7 @@ int eng_cli_run(int argc, char **argv) {
         eng_input_bind_key(inp, "_toggle_pie", SDL_SCANCODE_F5);
         eng_input_bind_key(inp, "_toggle_console", SDL_SCANCODE_GRAVE);
         eng_input_bind_key(inp, "_toggle_help", SDL_SCANCODE_H);
+        eng_input_bind_key(inp, "_unlock_mouse", SDL_SCANCODE_ESCAPE);
 
         eng_profiler_t *prof = eng_profiler_create();
         eng_ui_t *ui = eng_ui_create();
@@ -267,6 +278,11 @@ int eng_cli_run(int argc, char **argv) {
             if (eng_input_pressed(inp, "_toggle_pie")) eng_editor_toggle_pie(ed, eng_runtime_scene(rt), NULL, 0);
             if (eng_input_pressed(inp, "_toggle_console")) eng_ui_toggle_console(ui);
             if (eng_input_pressed(inp, "_toggle_help")) eng_ui_toggle_help(ui);
+            if (eng_input_pressed(inp, "_unlock_mouse") || eng_editor_is_open(ed) || eng_ui_is_console_open(ui)) {
+                if (eng_platform_is_mouse_lock(plat)) eng_platform_sync_mouse_lock(plat, false);
+            } else if (eng_platform_wants_mouse_lock(plat) && !eng_platform_is_mouse_lock(plat) && eng_input_pressed(inp, "fire")) {
+                eng_platform_sync_mouse_lock(plat, true);
+            }
 
             eng_profiler_begin_scope(prof, "step");
             bool step_ok = (!eng_editor_is_open(ed) || eng_editor_is_playing(ed))

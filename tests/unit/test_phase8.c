@@ -246,6 +246,37 @@ int main(void) {
         "eng.scene.despawn(rig_e)\n"
         "assert(#sp > 0 and tid >= 1 and tmesh >= 1 and burst_n == 8 and alive_n == 8 and ik2 ~= nil and ikf ~= nil)\n"
         "return tostring(math.floor((n3 + vd + r3 + w3 + th) * 100))", lrep, sizeof(lrep)));
+
+    /* Exercise relative mouse pointer lock & camera-relative FPS steering (yaw/pitch + WASD strafe) */
+    eng_platform_t *plat = eng_runtime_platform(rt);
+    eng_input_t *inp = eng_runtime_input(rt);
+    assert(!eng_platform_set_mouse_lock(NULL, true));
+    eng_platform_sync_mouse_lock(NULL, false);
+    assert(!eng_platform_wants_mouse_lock(NULL) && !eng_platform_is_mouse_lock(NULL));
+    eng_input_inject_mouse_delta(NULL, 1.0f, 1.0f);
+    assert(eng_platform_set_mouse_lock(plat, false));
+    assert(!eng_platform_wants_mouse_lock(plat) && !eng_platform_is_mouse_lock(plat));
+    eng_platform_sync_mouse_lock(plat, true);
+    assert(eng_platform_is_mouse_lock(plat));
+    eng_input_inject_mouse_delta(inp, 100.0f, -50.0f);
+    assert(eng_runtime_exec_lua(rt, "=fps_steer_test",
+        "assert(eng.input.set_mouse_lock(true))\n"
+        "assert(eng.input.is_mouse_locked())\n"
+        "local mdx, mdy = eng.input.mouse_delta()\n"
+        "assert(math.abs(mdx - 100.0) < 0.01 and math.abs(mdy + 50.0) < 0.01)\n"
+        "eng.input.inject('up', true)\n"
+        "local y1, p1, dx1, dz1, fx1, fz1 = eng.camera.fps_steer(90.0, 0.0, 10.0, 1.0, 0.0)\n"
+        "assert(math.abs(y1 - 90.0) < 0.01 and math.abs(dx1 + 10.0) < 0.05 and math.abs(dz1) < 0.05)\n"
+        "assert(math.abs(fx1 + 1.0) < 0.01 and math.abs(fz1) < 0.01)\n"
+        "eng.input.inject('right', true)\n"
+        "local y2, p2, dx2, dz2 = eng.camera.fps_steer(0.0, 0.0, 10.0, 1.0, 0.25)\n"
+        "assert(y2 < -20.0 and p2 > 10.0 and math.abs(dx2) + math.abs(dz2) > 5.0)\n"
+        "eng.input.inject('up', false); eng.input.inject('right', false)\n"
+        "return 'ok'", lrep, sizeof(lrep)));
+    assert(strcmp(lrep, "ok") == 0);
+    eng_runtime_format_controls(rt, hctrl, sizeof(hctrl));
+    assert(strstr(hctrl, "[Mouse] Look") != NULL);
+
     assert(eng_runtime_step(rt, 1.0f / 60.0f, err, sizeof(err)));
     assert(eng_runtime_render(rt, err, sizeof(err)));
     assert(eng_renderer_resize(eng_runtime_renderer(rt), 120, 240));

@@ -125,6 +125,8 @@ function init()
     end
 
     local fx, fz = fwd_from_yaw(0.0)
+    S.manual_turret_t = 0.0
+    eng.input.set_mouse_lock(true)
     eng.camera.look_at(S.px - fx * 3.8, 2.4, S.pz - fz * 3.8, S.px + fx * 16.0, 1.1, S.pz + fz * 16.0, 0)
     eng.mod.emit("post_init")
 end
@@ -192,20 +194,24 @@ function update(dt)
     if S.won or S.lost then return end
     S.fire_cd = math.max(0.0, S.fire_cd - dt)
     S.ping_cd = math.max(0.0, S.ping_cd - dt)
+    S.manual_turret_t = math.max(0.0, (S.manual_turret_t or 0.0) - dt)
 
     local steer, throttle = eng.input.axis2d("left", "right", "down", "up")
+    local mdx = eng.input.mouse_delta()
     local overdrive = eng.input.down("jump")
     S.hull_yaw = S.hull_yaw - steer * 92.0 * dt
 
-    -- Turret slews toward radar-locked enemy when jump (target-track) is held, else recenters smoothly
-    if S.locked_idx > 0 and S.enemies[S.locked_idx] and S.enemies[S.locked_idx].alive then
+    if math.abs(mdx) > 0.001 then
+        S.turret_rel_yaw = eng.math.clamp(S.turret_rel_yaw - mdx * 0.18, -75.0, 75.0)
+        S.manual_turret_t = 2.0
+    elseif S.locked_idx > 0 and S.enemies[S.locked_idx] and S.enemies[S.locked_idx].alive then
         local en = S.enemies[S.locked_idx]
         local desired_world = math.deg(math.atan2(-(en.x - S.px), -(en.z - S.pz)))
         local desired_rel = eng.math.clamp(wrap_deg(desired_world - S.hull_yaw), -75.0, 75.0)
         local slew = overdrive and 160.0 or 75.0
         local diff = wrap_deg(desired_rel - S.turret_rel_yaw)
         S.turret_rel_yaw = S.turret_rel_yaw + eng.math.clamp(diff, -slew * dt, slew * dt)
-    else
+    elseif S.manual_turret_t <= 0.0 then
         S.turret_rel_yaw = S.turret_rel_yaw * math.max(0.0, 1.0 - 3.0 * dt)
     end
 

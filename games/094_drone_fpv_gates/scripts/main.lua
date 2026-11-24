@@ -136,6 +136,7 @@ function init()
     S.lap_time = 0.0
     S.won = false
 
+    eng.input.set_mouse_lock(true)
     sync_drone_and_cam()
     eng.mod.emit("post_init")
 end
@@ -144,7 +145,7 @@ function sync_drone_and_cam()
     eng.scene.set_pocket(S.drone_ent, S.pocket)
     eng.scene.set_pos(S.drone_ent, S.px, S.py - 0.38, S.pz - 1.35)
     eng.scene.set_rot_deg(S.drone_ent, -4.0, 0.0, S.roll)
-    eng.camera.look_at(S.px, S.py, S.pz, S.px * 0.6, S.py - 0.15, S.pz - 12.0, S.pocket)
+    eng.camera.set(S.px, S.py, S.pz, -1.0, 0.0, S.roll * 0.25, S.pocket)
 end
 
 function update(dt)
@@ -152,11 +153,12 @@ function update(dt)
     S.lap_time = S.lap_time + dt
 
     local mx, my = eng.input.axis2d("left", "right", "down", "up")
+    local mdx, mdy = eng.input.mouse_delta()
     local boost = (eng.input.down("fire") or eng.input.down("jump")) and 34.0 or 22.0
-    S.roll = -mx * 24.0
+    S.roll = eng.math.clamp(-mx * 24.0 - mdx * 0.45, -32.0, 32.0)
 
-    local nx = eng.math.clamp(S.px + mx * 14.0 * dt, -5.0, 5.0)
-    local ny = eng.math.clamp(S.py + my * 10.0 * dt, 1.8, 8.5)
+    local nx = eng.math.clamp(S.px + mx * 14.0 * dt + mdx * 0.022, -5.0, 5.0)
+    local ny = eng.math.clamp(S.py + my * 10.0 * dt - mdy * 0.018, 1.8, 8.5)
     local nz = S.pz - boost * dt
 
     -- Check gate pass before/across portal warp

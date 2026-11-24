@@ -60,6 +60,7 @@ bool eng_input_update_coyote(float *coyote_timer, bool is_grounded, float dt, fl
 /* Synthetic test/XR injection */
 void eng_input_inject_action(eng_input_t *inp, const char *action, bool down);
 void eng_input_inject_axis(eng_input_t *inp, const char *axis_name, float value);
+void eng_input_inject_mouse_delta(eng_input_t *inp, float dx, float dy);
 
 /* JSON serialization for rebindable controls */
 size_t eng_input_save_bindings_json(const eng_input_t *inp, char *out_buf, size_t out_cap);

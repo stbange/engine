@@ -326,15 +326,25 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
         snprintf(script_buf, sizeof(script_buf),
                  "function init()\n"
                  "    game.state.ticks = 0\n"
+                 "    game.state.px, game.state.py, game.state.pz = 0, 2.5, 2.5\n"
+                 "    game.state.yaw, game.state.pitch = 0, -14\n"
                  "    eng.render.add_light({ type = 'dir', dir = {-0.3, -1.0, -0.4}, color = {2.2, 2.1, 1.9} })\n"
                  "    local vox = eng.asset.voxel_ascii({'1111\\n1111\\n1111\\n1111', '1..1\\n....\\n....\\n1..1'}, 4, 2, 4, 0.8)\n"
                  "    local arena = eng.scene.spawn('arena')\n"
                  "    eng.scene.set_pos(arena, -1.6, 0, -6.0)\n"
                  "    eng.scene.set_mesh(arena, vox, { cast_shadow = true })\n"
                  "    eng.procgen_ext.spawn_creature(eng, { name = 'pet', pos = {0, 0, -4}, seed = 7, archetype = 'quadruped' })\n"
-                 "    eng.camera.look_at(0, 2.5, 2.5, 0, 0.8, -4.5, 0)\n"
+                 "    eng.input.set_mouse_lock(true)\n"
+                 "    eng.camera.set(game.state.px, game.state.py, game.state.pz, game.state.pitch, game.state.yaw, 0, 0)\n"
                  "end\n"
-                 "function update(dt) game.state.ticks = game.state.ticks + 1 end\n"
+                 "function update(dt)\n"
+                 "    local s = game.state\n"
+                 "    s.ticks = s.ticks + 1\n"
+                 "    local dx, dz\n"
+                 "    s.yaw, s.pitch, dx, dz = eng.camera.fps_steer(s.yaw, s.pitch, 6.0, dt)\n"
+                 "    s.px, s.pz = s.px + dx, s.pz + dz\n"
+                 "    eng.camera.set(s.px, s.py, s.pz, s.pitch, s.yaw, 0, 0)\n"
+                 "end\n"
                  "function draw() eng.ui.label(16, 16, eng.i18n.t('title'), 1.0) end\n");
     }
 

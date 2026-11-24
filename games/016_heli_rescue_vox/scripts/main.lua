@@ -228,8 +228,10 @@ function update(dt)
     else
         -- Inside Bigger-on-the-Inside Medevac Cabin!
         local prev_z = S.mz
-        S.mx = eng.math.clamp(S.mx + ix * 9.5 * dt, -5.8, 5.8)
-        S.mz = eng.math.clamp(S.mz - iy * 9.5 * dt, -8.5, 10.4)
+        local dx, dz
+        S.cab_yaw, S.cab_pitch, dx, dz = eng.camera.fps_steer(S.cab_yaw or 0.0, S.cab_pitch or 0.0, 9.5, dt)
+        S.mx = eng.math.clamp(S.mx + dx, -5.8, 5.8)
+        S.mz = eng.math.clamp(S.mz + dz, -8.5, 10.4)
 
         -- Also support walking naturally back out the rear portal threshold
         if prev_z < 9.8 and S.mz >= 9.8 then
@@ -303,7 +305,7 @@ function update(dt)
     end
 
     if S.in_cabin then
-        eng.camera.look_at(S.mx, 1.8, S.mz + 2.5, 0.0, 1.0, -3.5, S.cabin.pocket_id)
+        eng.camera.set(S.mx, 1.65, S.mz, S.cab_pitch or 0.0, S.cab_yaw or 0.0, 0.0, S.cabin.pocket_id)
     else
         eng.camera.look_at(S.hx, S.hy + 6.5, S.hz + 11.0, S.hx, S.hy, S.hz - 6.0, 0)
     end

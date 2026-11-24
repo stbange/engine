@@ -190,7 +190,7 @@ end
 function sync_sub_cam()
     eng.scene.set_pos(S.sub_ent, S.sx, S.sy, S.sz)
     if S.in_bridge then
-        eng.camera.look_at(S.cx, 2.3, math.min(10.6, S.cz + 3.4), 0.0, 1.1, -3.5, S.bridge_pocket)
+        eng.camera.set(S.cx, 1.75, S.cz, S.br_pitch or 0.0, S.br_yaw or 0.0, 0.0, S.bridge_pocket)
     else
         eng.camera.look_at(S.sx, S.sy + 4.8, S.sz + 9.5, S.sx, S.sy - 0.6, S.sz - 7.5, 0)
     end
@@ -256,8 +256,10 @@ function update(dt)
     else
         -- Walkable Bigger-on-the-Inside Submarine Control Room (16m x 22m)!
         local prev_z = S.cz
-        S.cx = eng.math.clamp(S.cx + ix * 11.5 * dt, -6.5, 6.5)
-        S.cz = eng.math.clamp(S.cz - iy * 11.5 * dt, -9.5, 11.4)
+        local dx, dz
+        S.br_yaw, S.br_pitch, dx, dz = eng.camera.fps_steer(S.br_yaw or 0.0, S.br_pitch or 0.0, 11.5, dt)
+        S.cx = eng.math.clamp(S.cx + dx, -6.5, 6.5)
+        S.cz = eng.math.clamp(S.cz + dz, -9.5, 11.4)
         eng.scene.set_pos(S.crew_ent, S.cx, 0.0, S.cz)
         if math.abs(ix) > 0.01 or math.abs(iy) > 0.01 then
             eng.scene.set_rot_deg(S.crew_ent, 0.0, math.deg(math.atan2(-ix, iy)), 0.0)

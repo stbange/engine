@@ -376,6 +376,12 @@ void eng_input_inject_axis(eng_input_t *inp, const char *axis_name, float value)
     ax->has_injected = true;
 }
 
+void eng_input_inject_mouse_delta(eng_input_t *inp, float dx, float dy) {
+    if (!inp) return;
+    inp->mouse_delta.x += dx;
+    inp->mouse_delta.y += dy;
+}
+
 size_t eng_input_save_bindings_json(const eng_input_t *inp, char *out_buf, size_t out_cap) {
     if (!out_buf || out_cap == 0) return 0;
     out_buf[0] = '\0';

@@ -113,6 +113,7 @@ function init()
     S.flash_timer = 0.0
 
     S.px, S.py, S.pz = -2.6, 1.35, -2.2
+    S.yaw, S.pitch = 0.0, 0.0
     S.fire_cd = 0.0
     S.repair_cd = 0.0
     S.hp = 100
@@ -123,23 +124,30 @@ function init()
     S.lost = false
     S.zombies = {}
 
+    eng.input.set_mouse_lock(true)
     spawn_wave(1)
-    eng.camera.look_at(S.px, S.py, S.pz, S.px * 0.5, 1.15, -8.5, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
     eng.mod.emit("post_init")
 end
 
 local function fire_cabin_shotgun()
     local ox, oy, oz = S.px, 1.25, S.pz
-    local dx, dy, dz = 0.0, 0.0, -1.0
+    local ry, rp = math.rad(S.yaw or 0.0), math.rad(S.pitch or 0.0)
+    local cp = math.cos(rp)
+    local dx, dy, dz = -math.sin(ry) * cp, math.sin(rp), -math.cos(ry) * cp
     local best_d = 24.0
+    local locked = eng.input.is_mouse_locked()
     for i = 1, #S.zombies do
         local z = S.zombies[i]
         if z.alive then
             local zx, zy, zz = z.x - ox, 1.0 - oy, z.z - oz
             local d = math.sqrt(zx * zx + zy * zy + zz * zz)
             if d > 0.1 and d < best_d then
-                best_d = d
-                dx, dy, dz = zx / d, zy / d, zz / d
+                local dot = (zx / d) * dx + (zy / d) * dy + (zz / d) * dz
+                if (not locked) or dot > 0.94 then
+                    best_d = d
+                    dx, dy, dz = zx / d, zy / d, zz / d
+                end
             end
         end
     end
@@ -182,9 +190,10 @@ function update(dt)
         end
     end
 
-    local ix, iy = eng.input.axis2d("left", "right", "down", "up")
-    S.px = eng.math.clamp(S.px + ix * 9.5 * dt, -3.6, 3.6)
-    S.pz = eng.math.clamp(S.pz - iy * 9.5 * dt, -3.1, 2.5)
+    local dx, dz
+    S.yaw, S.pitch, dx, dz = eng.camera.fps_steer(S.yaw or 0.0, S.pitch or 0.0, 9.5, dt)
+    S.px = eng.math.clamp(S.px + dx, -3.6, 3.6)
+    S.pz = eng.math.clamp(S.pz + dz, -3.1, 2.5)
 
     -- Repair nearest damaged window barricade with interact
     if (eng.input.pressed("interact") or eng.input.down("interact")) and S.repair_cd <= 0.0 then
@@ -246,7 +255,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px, S.py, S.pz, S.px * 0.5, 1.15, -8.5, 0)
+    eng.camera.set(S.px, S.py, S.pz, S.pitch, S.yaw, 0.0, 0)
 end
 
 function draw()

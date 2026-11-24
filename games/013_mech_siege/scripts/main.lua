@@ -272,7 +272,7 @@ function update(dt)
         end
     end
 
-    eng.camera.look_at(S.px * 0.4, 14.5, S.pz * 0.4 + 16.0, 0.0, 1.2, 0.0, 0)
+    eng.camera.look_at(S.px * 0.4, 14.5, S.pz * 0.4 + 16.0, S.px * 0.4, 1.2, S.pz * 0.4, 0)
 end
 
 function draw()

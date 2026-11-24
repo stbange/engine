@@ -20,6 +20,8 @@ struct eng_platform_s {
     bool fullscreen;
     bool headless;
     bool quit_requested;
+    bool want_mouse_lock;
+    bool mouse_locked;
     uint64_t last_counter;
     uint64_t counter_freq;
 };
@@ -176,6 +178,33 @@ bool eng_platform_set_vsync(eng_platform_t *plat, int vsync) {
     }
     return true;
 }
+
+bool eng_platform_set_mouse_lock(eng_platform_t *plat, bool locked) {
+    if (!plat) return false;
+    plat->want_mouse_lock = locked;
+#ifdef __EMSCRIPTEN__
+    if (!locked) {
+        plat->mouse_locked = false;
+        if (plat->window && !plat->headless) SDL_SetWindowRelativeMouseMode(plat->window, false);
+    }
+    return true;
+#else
+    plat->mouse_locked = locked;
+    if (plat->window && !plat->headless) return SDL_SetWindowRelativeMouseMode(plat->window, locked);
+    return true;
+#endif
+}
+
+void eng_platform_sync_mouse_lock(eng_platform_t *plat, bool active) {
+    if (!plat) return;
+    plat->mouse_locked = active;
+#ifndef __EMSCRIPTEN__
+    if (plat->window && !plat->headless) SDL_SetWindowRelativeMouseMode(plat->window, active);
+#endif
+}
+
+bool eng_platform_wants_mouse_lock(const eng_platform_t *plat) { return plat ? plat->want_mouse_lock : false; }
+bool eng_platform_is_mouse_lock(const eng_platform_t *plat) { return plat ? plat->mouse_locked : false; }
 
 int eng_platform_display_count(void) {
     int count = 0;
