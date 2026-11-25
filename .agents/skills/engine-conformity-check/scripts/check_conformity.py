@@ -368,7 +368,7 @@ def audit_game(root, gdir, opt_keys, recipes, actions):
 
     # 7. Physics & Wall Collision conformity
     has_static = (
-        bool(re.search(r'motion\s*=\s*"static"', code))
+        bool(re.search(r'''motion\s*=\s*["']static["']''', code))
         or "create_pocket_building" in code
         or "attach_vehicle_interior" in code
         or "create_steerable_vehicle" in code
@@ -410,7 +410,7 @@ def audit_game(root, gdir, opt_keys, recipes, actions):
         for ln, arg in find_calls(code, "eng.physics.add_body"):
             m_ent = re.match(r'\s*([A-Za-z_][\w\.]*)\s*,', arg)
             ent = m_ent.group(1) if m_ent else ""
-            if 'motion = "static"' in arg and ent:
+            if re.search(r'''motion\s*=\s*["']static["']''', arg) and ent:
                 after = "\n".join(lines[ln : min(len(lines), ln + 5)])
                 if re.search(rf'eng\.scene\.set_pos\(\s*{re.escape(ent)}\s*,', after):
                     report("ERROR", "collider-order-or-scale", ln,
@@ -478,7 +478,8 @@ def main():
     ap.add_argument("--json", action="store_true", help="Emit JSON report")
     args = ap.parse_args()
 
-    root = find_repo_root(os.getcwd())
+    script_root = find_repo_root(os.path.dirname(os.path.abspath(__file__)))
+    root = script_root if os.path.isfile(os.path.join(script_root, "src", "eng_lua.c")) else find_repo_root(os.getcwd())
     opt_keys, recipes, actions = load_engine_contract(root)
 
     if args.targets:

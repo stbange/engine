@@ -61,6 +61,10 @@ def run_case(chrome, url, out_png, label, extra_args=(), budget_ms=4000):
 
 def main():
     dist_dir = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "dist")
+    install_md = os.path.join(dist_dir, "install.md")
+    if not os.path.isfile(install_md) or os.path.getsize(install_md) < 200:
+        print(f"[WEB FAIL] missing or empty {install_md}", file=sys.stderr)
+        return 1
     chrome = find_chrome()
     if not chrome:
         print("[SKIP] No Chrome/Chromium binary found for web smoke test")

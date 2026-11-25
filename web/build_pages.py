@@ -135,6 +135,10 @@ def build_index_html(games_meta):
       automatic mobile touch controls, and Stereo WebXR — powering one shared <code>engine.wasm</code> across all <b>{total}</b> games ({flagships} multi-level flagships).
     </p>
     <div class="clone-box">git clone https://github.com/stbange/engine.git &amp;&amp; cmake -B build &amp;&amp; cmake --build build -j</div>
+    <p class="sub" style="margin:0 0 8px;font-size:13px">
+      AI coding agent? Tell it: <code>Add stbange/engine to my project. Go to https://stbange.github.io/engine/install.md and follow its instructions.</code>
+      (<a href="install.md" style="color:var(--accent)">install.md</a>)
+    </p>
   </header>
 
   <div class="toolbar">
@@ -242,6 +246,9 @@ def main():
         if os.path.isfile(src):
             shutil.copy2(src, os.path.join(out_dir, fn))
     shutil.copy2(os.path.join(ROOT, "web", "shell_play.html"), os.path.join(out_dir, "play.html"))
+    install_md = os.path.join(ROOT, "install.md")
+    if os.path.isfile(install_md):
+        shutil.copy2(install_md, os.path.join(out_dir, "install.md"))
     with open(os.path.join(out_dir, ".nojekyll"), "w", encoding="utf-8") as f:
         f.write("")
 

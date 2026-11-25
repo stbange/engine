@@ -266,11 +266,12 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
     }
     if (si == 0) strcpy(slug, "new_game");
 
-    char game_json[768];
+    char game_json[896];
     snprintf(game_json, sizeof(game_json),
              "{\n"
              "  \"id\": \"%s\",\n"
              "  \"title\": \"Scaffolded %s Game\",\n"
+             "  \"description\": \"Scaffolded %s game built on stbange/engine.\",\n"
              "  \"genre\": \"%s\",\n"
              "  \"primitives\": [\"mesh\", \"voxel\", \"sdf_text\"],\n"
              "  \"engine_version\": \"%s\",\n"
@@ -284,22 +285,33 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
              "    \"color_bits\": 5\n"
              "  }\n"
              "}\n",
-             slug, tmpl, tmpl, ENG_VERSION_STRING, strcmp(tmpl, "xr") == 0 ? "6dof" : "diorama");
+             slug, tmpl, tmpl, tmpl, ENG_VERSION_STRING, strcmp(tmpl, "xr") == 0 ? "6dof" : "diorama");
 
     char script_buf[2048];
     if (strcmp(tmpl, "pocket_house") == 0) {
         snprintf(script_buf, sizeof(script_buf),
                  "function init()\n"
                  "    game.state.ticks = 0\n"
+                 "    game.state.px, game.state.py, game.state.pz, game.state.pocket = 0, 1.4, 2, 0\n"
+                 "    game.state.yaw, game.state.pitch = 0, 0\n"
                  "    eng.render.add_light({ type = 'dir', dir = {-0.3, -1.0, -0.4}, color = {2.2, 2.1, 1.9} })\n"
                  "    eng.render.add_light({ type = 'point', pocket = 'hut_in', pos = {0, 4, 0}, color = {2.5, 2.0, 1.4}, range = 30 })\n"
                  "    game.state.hut = eng.space.create_pocket_building(eng, {\n"
                  "        exterior_pos = {0, 0, -5}, exterior_size = {3, 3, 3},\n"
                  "        interior_size = {24, 9, 28}, pocket = 'hut_in'\n"
                  "    })\n"
-                 "    eng.camera.look_at(0, 1.4, 2, 0, 1.2, -3.5, 0)\n"
+                 "    eng.input.set_mouse_lock(true)\n"
+                 "    eng.camera.set(0, 1.4, 2, 0, 0, 0, 0)\n"
                  "end\n"
-                 "function update(dt) game.state.ticks = game.state.ticks + 1 end\n"
+                 "function update(dt)\n"
+                 "    local s = game.state; s.ticks = s.ticks + 1\n"
+                 "    local dx, dz\n"
+                 "    s.yaw, s.pitch, dx, dz = eng.camera.fps_steer(s.yaw, s.pitch, 6.0, dt)\n"
+                 "    local nx, nz = eng.physics.slide_move(s.pocket, s.px, s.py, s.pz, dx, dz, 0.35)\n"
+                 "    local dp, wx, wy, wz = eng.portal.check_crossing(s.pocket, s.px, s.py, s.pz, nx, s.py, nz)\n"
+                 "    if dp then s.pocket, s.px, s.py, s.pz = dp, wx, wy, wz else s.px, s.pz = nx, nz end\n"
+                 "    eng.camera.set(s.px, s.py, s.pz, s.pitch, s.yaw, 0, s.pocket)\n"
+                 "end\n"
                  "function draw() eng.ui.label(16, 16, eng.i18n.t('title'), 1.0) end\n");
     } else if (strcmp(tmpl, "planet_explorer") == 0) {
         snprintf(script_buf, sizeof(script_buf),
@@ -333,6 +345,7 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
                  "    local arena = eng.scene.spawn('arena')\n"
                  "    eng.scene.set_pos(arena, -1.6, 0, -6.0)\n"
                  "    eng.scene.set_mesh(arena, vox, { cast_shadow = true })\n"
+                 "    eng.physics.add_body(arena, { shape = 'aabb', motion = 'static', half_extents = {1.6, 0.8, 1.6} })\n"
                  "    eng.procgen_ext.spawn_creature(eng, { name = 'pet', pos = {0, 0, -4}, seed = 7, archetype = 'quadruped' })\n"
                  "    eng.input.set_mouse_lock(true)\n"
                  "    eng.camera.set(game.state.px, game.state.py, game.state.pz, game.state.pitch, game.state.yaw, 0, 0)\n"

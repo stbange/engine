@@ -30,6 +30,13 @@ Licensed under the [MIT License](LICENSE) ([Third-Party Notices](THIRD_PARTY_NOT
 
 ## Quickstart
 
+### 0. Add to Any Project with an AI Coding Agent
+Tell your coding agent:
+```text
+Add stbange/engine to my project. Go to https://stbange.github.io/engine/install.md and follow its instructions.
+```
+(Source: [install.md](install.md).)
+
 ### 1. Build (Linux / macOS / Windows)
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
