@@ -1,6 +1,10 @@
 #include "engine/engine.h"
 
 #include <SDL3/SDL_timer.h>
+#if defined(ENG_HAS_SDL3_NET) && defined(ENG_HAS_BEARSSL)
+#include <SDL3_net/SDL_net.h>
+#include <bearssl.h>
+#endif
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -340,6 +344,238 @@ static void test_net_loopback_udp_and_replication(void) {
     eng_net_destroy(ws_srv);
 }
 
+#if defined(ENG_HAS_SDL3_NET) && defined(ENG_HAS_BEARSSL)
+/* Self-signed P-256 test CA + DNS:localhost leaf cert (valid 2020-2049) for offline wss:// testing */
+static const char TEST_WSS_CA_PEM[] =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIBbjCCARSgAwIBAgICEAAwCgYIKoZIzj0EAwIwHjEcMBoGA1UEAwwTRW5naW5l\n"
+    "IFRlc3QgUm9vdCBDQTAeFw0yMDAxMDEwMDAwMDBaFw00OTEyMzEyMzU5NTlaMB4x\n"
+    "HDAaBgNVBAMME0VuZ2luZSBUZXN0IFJvb3QgQ0EwWTATBgcqhkjOPQIBBggqhkjO\n"
+    "PQMBBwNCAARjcudou5UTZ34+wdnKxb2uK99nsk+GVrbgMjdqteAWXO2nfpszx7KJ\n"
+    "qWoat0REfx9aPwAkD5mhbHiwZIciSk7Eo0IwQDAPBgNVHRMBAf8EBTADAQH/MA4G\n"
+    "A1UdDwEB/wQEAwIBBjAdBgNVHQ4EFgQU0S5+2Y0JU3A18fyzlgqqQMueHhQwCgYI\n"
+    "KoZIzj0EAwIDSAAwRQIgRTfRgsPVTfToej66kBG0u1gim/GfaCQPm+EFAugjHKwC\n"
+    "IQCQ5quJcJYm1zuW6cRHtwASVO3BUQQBOrQOlHt9xj4vrw==\n"
+    "-----END CERTIFICATE-----\n";
+
+static const unsigned char TEST_WSS_LEAF_DER[] = {
+    0x30, 0x82, 0x01, 0xB0, 0x30, 0x82, 0x01, 0x55, 0xA0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x02, 0x10,
+    0x01, 0x30, 0x0A, 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x30, 0x1E, 0x31,
+    0x1C, 0x30, 0x1A, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0C, 0x13, 0x45, 0x6E, 0x67, 0x69, 0x6E, 0x65,
+    0x20, 0x54, 0x65, 0x73, 0x74, 0x20, 0x52, 0x6F, 0x6F, 0x74, 0x20, 0x43, 0x41, 0x30, 0x1E, 0x17,
+    0x0D, 0x32, 0x30, 0x30, 0x31, 0x30, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5A, 0x17, 0x0D,
+    0x34, 0x39, 0x31, 0x32, 0x33, 0x31, 0x32, 0x33, 0x35, 0x39, 0x35, 0x39, 0x5A, 0x30, 0x14, 0x31,
+    0x12, 0x30, 0x10, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0C, 0x09, 0x6C, 0x6F, 0x63, 0x61, 0x6C, 0x68,
+    0x6F, 0x73, 0x74, 0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01,
+    0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04, 0xE9, 0xC9,
+    0xAA, 0x37, 0xF6, 0xB0, 0x09, 0x5C, 0x51, 0x61, 0x04, 0xA8, 0xAC, 0x3E, 0x45, 0xC6, 0xD3, 0x95,
+    0xD1, 0x97, 0x9D, 0x20, 0x15, 0x0D, 0x7C, 0xC6, 0xB0, 0xEB, 0x02, 0x47, 0x6F, 0x8B, 0x71, 0xF2,
+    0xC0, 0x54, 0x97, 0x5E, 0x02, 0x20, 0xFA, 0x5B, 0x6E, 0x8B, 0x0A, 0xC8, 0xB3, 0x92, 0x96, 0x24,
+    0x1D, 0xAF, 0x57, 0x28, 0x40, 0xF3, 0xAE, 0xE5, 0xB6, 0x25, 0xE6, 0x0D, 0xCD, 0xBC, 0xA3, 0x81,
+    0x8C, 0x30, 0x81, 0x89, 0x30, 0x0C, 0x06, 0x03, 0x55, 0x1D, 0x13, 0x01, 0x01, 0xFF, 0x04, 0x02,
+    0x30, 0x00, 0x30, 0x0E, 0x06, 0x03, 0x55, 0x1D, 0x0F, 0x01, 0x01, 0xFF, 0x04, 0x04, 0x03, 0x02,
+    0x07, 0x80, 0x30, 0x13, 0x06, 0x03, 0x55, 0x1D, 0x25, 0x04, 0x0C, 0x30, 0x0A, 0x06, 0x08, 0x2B,
+    0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01, 0x30, 0x14, 0x06, 0x03, 0x55, 0x1D, 0x11, 0x04, 0x0D,
+    0x30, 0x0B, 0x82, 0x09, 0x6C, 0x6F, 0x63, 0x61, 0x6C, 0x68, 0x6F, 0x73, 0x74, 0x30, 0x1D, 0x06,
+    0x03, 0x55, 0x1D, 0x0E, 0x04, 0x16, 0x04, 0x14, 0xB1, 0xB1, 0x1B, 0xD0, 0xF4, 0x98, 0xD4, 0xB5,
+    0x71, 0xBC, 0x63, 0x57, 0x33, 0xA6, 0xDF, 0x9F, 0x6B, 0xA6, 0x57, 0xB6, 0x30, 0x1F, 0x06, 0x03,
+    0x55, 0x1D, 0x23, 0x04, 0x18, 0x30, 0x16, 0x80, 0x14, 0xD1, 0x2E, 0x7E, 0xD9, 0x8D, 0x09, 0x53,
+    0x70, 0x35, 0xF1, 0xFC, 0xB3, 0x96, 0x0A, 0xAA, 0x40, 0xCB, 0x9E, 0x1E, 0x14, 0x30, 0x0A, 0x06,
+    0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x03, 0x49, 0x00, 0x30, 0x46, 0x02, 0x21,
+    0x00, 0xCF, 0xCA, 0x6B, 0x97, 0x91, 0xE1, 0x1B, 0xE6, 0xB9, 0x06, 0xB0, 0xBD, 0xE5, 0xAD, 0x57,
+    0xE7, 0xBF, 0x38, 0x0C, 0x31, 0x6B, 0x75, 0x66, 0x5A, 0x11, 0x2F, 0x4D, 0x4C, 0x41, 0xD0, 0x04,
+    0x05, 0x02, 0x21, 0x00, 0x90, 0xD8, 0x3A, 0xD1, 0x6E, 0x1D, 0x06, 0xC9, 0x67, 0x78, 0x94, 0xAD,
+    0x23, 0x79, 0x3E, 0x73, 0x9A, 0xDD, 0x83, 0x7C, 0x91, 0x06, 0x30, 0xAD, 0x14, 0x2C, 0x74, 0xC2,
+    0xD1, 0xBA, 0x5A, 0xC6,
+};
+
+static const unsigned char TEST_WSS_LEAF_KEY_X[] = {
+    0x28, 0x9A, 0xC9, 0x65, 0x17, 0xA9, 0x66, 0x3F, 0x7C, 0x47, 0x97, 0x82, 0xC1, 0x14, 0xBC, 0x2B,
+    0xF7, 0x2A, 0xF3, 0xED, 0xD5, 0x3A, 0x61, 0xB3, 0xFF, 0xDF, 0x33, 0x9E, 0xC5, 0xEF, 0xC9, 0xDD,
+};
+
+typedef struct {
+    NET_Server *listener;
+    NET_StreamSocket *conn;
+    br_ssl_server_context sc;
+    unsigned char iobuf[BR_SSL_BUFSIZE_BIDI];
+    br_x509_certificate chain[1];
+    br_ec_private_key sk;
+    uint8_t rx[1024];
+    size_t rx_len;
+    bool upgraded;
+    bool got_ping;
+} mock_wss_srv_t;
+
+static void mock_wss_reset_conn(mock_wss_srv_t *m) {
+    if (m->conn) { NET_DestroyStreamSocket(m->conn); m->conn = NULL; }
+    m->rx_len = 0;
+    m->upgraded = false;
+    m->got_ping = false;
+}
+
+static void mock_wss_pump(mock_wss_srv_t *m) {
+    if (!m->conn) {
+        NET_StreamSocket *ns = NULL;
+        if (NET_AcceptClient(m->listener, &ns) && ns) {
+            m->conn = ns;
+            m->rx_len = 0;
+            m->upgraded = false;
+            m->got_ping = false;
+            br_ssl_server_init_full_ec(&m->sc, m->chain, 1, BR_KEYTYPE_EC, &m->sk);
+            br_ssl_engine_set_buffer(&m->sc.eng, m->iobuf, sizeof(m->iobuf), 1);
+            br_ssl_server_reset(&m->sc);
+        }
+        if (!m->conn) return;
+    }
+    for (int iter = 0; iter < 16; iter++) {
+        unsigned st = br_ssl_engine_current_state(&m->sc.eng);
+        if (st == BR_SSL_CLOSED) { mock_wss_reset_conn(m); return; }
+        bool prog = false;
+        if (st & BR_SSL_SENDREC) {
+            size_t n = 0;
+            unsigned char *b = br_ssl_engine_sendrec_buf(&m->sc.eng, &n);
+            if (!NET_WriteToStreamSocket(m->conn, b, (int)n)) { mock_wss_reset_conn(m); return; }
+            br_ssl_engine_sendrec_ack(&m->sc.eng, n);
+            prog = true;
+        }
+        if (st & BR_SSL_RECVREC) {
+            size_t n = 0;
+            unsigned char *b = br_ssl_engine_recvrec_buf(&m->sc.eng, &n);
+            int got = NET_ReadFromStreamSocket(m->conn, b, (int)n);
+            if (got < 0) { mock_wss_reset_conn(m); return; }
+            if (got > 0) { br_ssl_engine_recvrec_ack(&m->sc.eng, (size_t)got); prog = true; }
+        }
+        if (st & BR_SSL_RECVAPP) {
+            size_t n = 0;
+            unsigned char *b = br_ssl_engine_recvapp_buf(&m->sc.eng, &n);
+            size_t cp = n < (sizeof(m->rx) - 1u - m->rx_len) ? n : (sizeof(m->rx) - 1u - m->rx_len);
+            if (cp > 0) { memcpy(m->rx + m->rx_len, b, cp); m->rx_len += cp; m->rx[m->rx_len] = 0; }
+            br_ssl_engine_recvapp_ack(&m->sc.eng, n);
+            prog = true;
+        }
+        if (!m->upgraded && m->rx_len > 4) {
+            char *hdr_end = strstr((char *)m->rx, "\r\n\r\n");
+            if (hdr_end && (br_ssl_engine_current_state(&m->sc.eng) & BR_SSL_SENDAPP)) {
+                size_t hlen = (size_t)(hdr_end - (char *)m->rx) + 4u;
+                memmove(m->rx, m->rx + hlen, m->rx_len - hlen);
+                m->rx_len -= hlen;
+                const char *resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                                   "Connection: Upgrade\r\nSec-WebSocket-Accept: ok\r\n\r\n";
+                size_t alen = 0;
+                unsigned char *ab = br_ssl_engine_sendapp_buf(&m->sc.eng, &alen);
+                size_t rlen = strlen(resp);
+                assert(alen >= rlen);
+                memcpy(ab, resp, rlen);
+                br_ssl_engine_sendapp_ack(&m->sc.eng, rlen);
+                br_ssl_engine_flush(&m->sc.eng, 0);
+                m->upgraded = true;
+                prog = true;
+            }
+        } else if (m->upgraded && !m->got_ping && m->rx_len >= 6) {
+            size_t plen = (size_t)(m->rx[1] & 0x7Fu);
+            if (m->rx_len >= 6u + plen && (br_ssl_engine_current_state(&m->sc.eng) & BR_SSL_SENDAPP)) {
+                uint8_t msg[64] = {0};
+                for (size_t i = 0; i < plen && i < sizeof(msg) - 1u; i++) msg[i] = m->rx[6u + i] ^ m->rx[2u + (i & 3u)];
+                assert(plen == 9u && msg[0] == ENG_CHAN_RELIABLE && memcmp(msg + 1, "PING_WSS", 8) == 0);
+                m->got_ping = true;
+                uint8_t pong[11] = { 0x82u, 9u, (uint8_t)ENG_CHAN_RELIABLE, 'P','O','N','G','_','W','S','S' };
+                size_t alen = 0;
+                unsigned char *ab = br_ssl_engine_sendapp_buf(&m->sc.eng, &alen);
+                assert(alen >= sizeof(pong));
+                memcpy(ab, pong, sizeof(pong));
+                br_ssl_engine_sendapp_ack(&m->sc.eng, sizeof(pong));
+                br_ssl_engine_flush(&m->sc.eng, 0);
+                prog = true;
+            }
+        }
+        if (!prog) break;
+    }
+}
+
+static void test_net_wss_tls(void) {
+    assert(NET_Init());
+    NET_Address *laddr = NET_ResolveHostname("localhost");
+    assert(laddr != NULL && NET_WaitUntilResolved(laddr, 1000) == NET_SUCCESS);
+
+    mock_wss_srv_t *srv = (mock_wss_srv_t *)calloc(1, sizeof(mock_wss_srv_t));
+    assert(srv != NULL);
+    srv->chain[0].data = (unsigned char *)(uintptr_t)TEST_WSS_LEAF_DER;
+    srv->chain[0].data_len = sizeof(TEST_WSS_LEAF_DER);
+    srv->sk.curve = BR_EC_secp256r1;
+    srv->sk.x = (unsigned char *)(uintptr_t)TEST_WSS_LEAF_KEY_X;
+    srv->sk.xlen = sizeof(TEST_WSS_LEAF_KEY_X);
+
+    uint16_t port = 0;
+    for (uint16_t cand = 54321u; cand < 54400u; cand++) {
+        srv->listener = NET_CreateServer(laddr, cand, 0);
+        if (srv->listener) { port = cand; break; }
+    }
+    NET_UnrefAddress(laddr);
+    assert(srv->listener != NULL && port > 0);
+
+    char wss_url[96];
+    snprintf(wss_url, sizeof(wss_url), "wss://localhost:%u/?room=tls", (unsigned)port);
+
+    /* 1. Invalid CA PEM fails closed immediately */
+    eng_net_peer_t *bad_ca = eng_net_create(ENG_NET_WEBSOCKET, 0);
+    assert(eng_net_set_ca_pem(bad_ca, "NOT A VALID CERTIFICATE"));
+    assert(!eng_net_connect_remote(bad_ca, wss_url, 0));
+    eng_net_destroy(bad_ca);
+
+    /* 2. Verified TLS 1.2 wss:// handshake + encrypted binary frame round-trip */
+    eng_net_peer_t *cli = eng_net_create(ENG_NET_WEBSOCKET, 0);
+    assert(eng_net_set_ca_pem(cli, TEST_WSS_CA_PEM));
+    assert(eng_net_connect_remote(cli, wss_url, 0));
+
+    eng_net_event_t ev;
+    uint8_t buf[256];
+    bool connected = false;
+    for (int spin = 0; spin < 4000 && !connected; spin++) {
+        mock_wss_pump(srv);
+        while (eng_net_poll_event(cli, &ev, buf, sizeof(buf))) {
+            assert(ev.type != ENG_NET_EVT_DISCONNECT);
+            if (ev.type == ENG_NET_EVT_CONNECT) connected = true;
+        }
+        SDL_Delay(1);
+    }
+    assert(connected && eng_net_is_connected(cli));
+
+    assert(eng_net_send(cli, ENG_CHAN_RELIABLE, "PING_WSS", 8));
+    bool got_pong = false;
+    for (int spin = 0; spin < 4000 && !got_pong; spin++) {
+        mock_wss_pump(srv);
+        while (eng_net_poll_event(cli, &ev, buf, sizeof(buf))) {
+            if (ev.type == ENG_NET_EVT_MESSAGE && ev.len == 8 && memcmp(buf, "PONG_WSS", 8) == 0) got_pong = true;
+        }
+        SDL_Delay(1);
+    }
+    assert(got_pong && srv->got_ping);
+    eng_net_destroy(cli);
+    mock_wss_reset_conn(srv);
+
+    /* 3. Untrusted cert against real OS root CA store MUST fail X.509 verification and disconnect */
+    eng_net_peer_t *untrusted = eng_net_create(ENG_NET_WEBSOCKET, 0);
+    assert(eng_net_connect_remote(untrusted, wss_url, 0));
+    bool rejected = false;
+    for (int spin = 0; spin < 4000 && !rejected; spin++) {
+        mock_wss_pump(srv);
+        while (eng_net_poll_event(untrusted, &ev, buf, sizeof(buf))) {
+            assert(ev.type != ENG_NET_EVT_CONNECT);
+            if (ev.type == ENG_NET_EVT_DISCONNECT) rejected = true;
+        }
+        SDL_Delay(1);
+    }
+    assert(rejected && !eng_net_is_connected(untrusted));
+    eng_net_destroy(untrusted);
+
+    mock_wss_reset_conn(srv);
+    NET_DestroyServer(srv->listener);
+    free(srv);
+    NET_Quit();
+}
+#endif
+
 int main(void) {
     eng_vfs_t *vfs = eng_vfs_create();
     assert(eng_vfs_mount(vfs, ENG_SOURCE_DIR, 0, false));
@@ -348,6 +584,9 @@ int main(void) {
     test_audio_spatial_synth_wav_and_portals(vfs);
     test_ai_portal_astar_and_bt();
     test_net_loopback_udp_and_replication();
+#if defined(ENG_HAS_SDL3_NET) && defined(ENG_HAS_BEARSSL)
+    test_net_wss_tls();
+#endif
 
     eng_vfs_destroy(vfs);
     printf("Phase 6 unit tests passed!\n");

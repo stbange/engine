@@ -54,8 +54,9 @@ size_t eng_net_client_count(const eng_net_peer_t *peer);
 size_t eng_net_client_ids(const eng_net_peer_t *peer, uint32_t *out_ids, size_t max_out);
 bool eng_net_disconnect_client(eng_net_peer_t *peer, uint32_t client_id);
 
-/* Connect loopback peers in-memory (supports 1-to-1 and N-clients-to-1-server), or connect remote UDP/WebSocket. */
+/* Connect loopback peers in-memory (supports 1-to-1 and N-clients-to-1-server), or connect remote UDP/WebSocket (ws:// and verified wss://). */
 bool eng_net_connect_loopback(eng_net_peer_t *a, eng_net_peer_t *b);
+bool eng_net_set_ca_pem(eng_net_peer_t *peer, const char *ca_pem);
 bool eng_net_connect_remote(eng_net_peer_t *peer, const char *host_or_url, uint16_t remote_port);
 
 /* Send payload: on client sends to server; on server client_id == 0 broadcasts to all clients. */

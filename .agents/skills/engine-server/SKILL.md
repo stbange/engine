@@ -13,9 +13,9 @@ Use this skill whenever adding online multiplayer, creating a dedicated server, 
 
 ## 1. Cross-Platform Transport Architecture
 - **Same binary wire protocol everywhere**: Every packet over WebSocket is a binary frame `[uint8_t channel][payload...]`.
-- **Desktop (Windows / macOS / Linux)**: Uses `SDL3_net` (`NET_Server` / `NET_StreamSocket`) with the engine's built-in RFC 6455 Binary WebSocket server & client (plus multi-client UDP for Desktop-only LAN).
+- **Desktop (Windows / macOS / Linux)**: Uses `SDL3_net` (`NET_Server` / `NET_StreamSocket`) with the engine's built-in RFC 6455 Binary WebSocket server & client, plus **verified TLS 1.2 (`wss://`)** via BearSSL (MIT) validating X.509 certificates and SNI hostnames against the OS root CA store (`ENG_TLS_CA_FILE` / `SSL_CERT_FILE` overrides for private CAs), and multi-client UDP for Desktop-only LAN.
 - **Browser (Emscripten WebGL2)**: Uses `<emscripten/websocket.h>` speaking the exact same binary protocol (`ws://` for local dev, `wss://` for HTTPS sites such as GitHub Pages).
-- **One server hosts all platforms simultaneously**: A single `./engine --server` process accepts Browser, Windows, macOS, and Linux players in the same match.
+- **One server & one `wss://` invite URL for all platforms**: A single `./engine --server` behind Caddy (`wss://...`) accepts Browser, Windows, macOS, and Linux clients simultaneously with the exact same URL.
 
 ## 2. Server Script Architecture (Two Options)
 When launched with `--server`, the engine automatically boots in headless fixed-tick mode, hosts a multi-client WebSocket listener on `--bind`/`--port`, and sets `eng.net.is_server() == true`.

@@ -7,6 +7,19 @@
 #elif defined(ENG_HAS_SDL3_NET)
 #include <SDL3/SDL.h>
 #include <SDL3_net/SDL_net.h>
+#ifdef ENG_HAS_BEARSSL
+#include <bearssl.h>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <wincrypt.h>
+#elif defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+#endif
+#endif
 #endif
 
 #include <ctype.h>
@@ -34,6 +47,26 @@ typedef struct {
     size_t len;
 } unacked_pkt_t;
 
+#if defined(ENG_HAS_SDL3_NET) && defined(ENG_HAS_BEARSSL)
+typedef struct {
+    br_x509_trust_anchor *items;
+    size_t count;
+    size_t cap;
+} eng_tls_anchors_t;
+
+typedef struct {
+    br_ssl_client_context sc;
+    br_x509_minimal_context xc;
+    unsigned char iobuf[BR_SSL_BUFSIZE_BIDI];
+    eng_tls_anchors_t anchors;
+    uint8_t *tx_buf;
+    size_t tx_len;
+    size_t tx_cap;
+} eng_tls_ctx_t;
+
+static void tls_ctx_destroy(eng_tls_ctx_t *t);
+#endif
+
 typedef struct {
     bool active;
     uint32_t id;
@@ -41,8 +74,11 @@ typedef struct {
     eng_net_peer_t *loop_peer;
     uint32_t loop_remote_id;
 #ifdef ENG_HAS_SDL3_NET
-    /* WebSocket TCP stream (via SDL3_net) */
+    /* WebSocket TCP stream (via SDL3_net, optionally wrapped in BearSSL TLS 1.2) */
     NET_StreamSocket *ws_sock;
+#ifdef ENG_HAS_BEARSSL
+    eng_tls_ctx_t *tls;
+#endif
     bool ws_open;
     bool ws_hs_sent;
     uint8_t *rx_buf;
@@ -71,6 +107,9 @@ struct eng_net_peer_s {
     NET_DatagramSocket *udp_sock;
     char ws_host[128];
     char ws_path[128];
+    uint16_t ws_port;
+    bool ws_tls;
+    char *ca_pem;
 #elif defined(__EMSCRIPTEN__)
     EMSCRIPTEN_WEBSOCKET_T em_ws;
 #endif
@@ -123,6 +162,9 @@ static net_slot_t *alloc_slot(eng_net_peer_t *p) {
 static void clear_slot(net_slot_t *s) {
     if (!s || !s->active) return;
 #ifdef ENG_HAS_SDL3_NET
+#ifdef ENG_HAS_BEARSSL
+    tls_ctx_destroy(s->tls);
+#endif
     if (s->ws_sock) NET_DestroyStreamSocket(s->ws_sock);
     if (s->udp_addr) NET_UnrefAddress(s->udp_addr);
     free(s->rx_buf);
@@ -215,9 +257,319 @@ static void ws_compute_accept(const char *client_key, char out_b64[32]) {
     b64_encode(hash, 20, out_b64);
 }
 
-static bool ws_send_frame(eng_net_peer_t *p, NET_StreamSocket *sock, uint8_t opcode,
+#ifdef ENG_HAS_BEARSSL
+typedef struct {
+    uint8_t *data;
+    size_t len;
+    size_t cap;
+} tls_buf_t;
+
+static void tls_buf_append(void *ctx, const void *src, size_t len) {
+    tls_buf_t *b = (tls_buf_t *)ctx;
+    if (!b || !src || len == 0) return;
+    if (b->len + len > b->cap) {
+        size_t nc = b->cap ? b->cap * 2u : 512u;
+        while (nc < b->len + len) nc *= 2u;
+        uint8_t *nb = (uint8_t *)realloc(b->data, nc);
+        if (!nb) return;
+        b->data = nb;
+        b->cap = nc;
+    }
+    memcpy(b->data + b->len, src, len);
+    b->len += len;
+}
+
+static unsigned char *tls_dup_bytes(const void *src, size_t len) {
+    if (!src || len == 0) return NULL;
+    unsigned char *out = (unsigned char *)malloc(len);
+    if (out) memcpy(out, src, len);
+    return out;
+}
+
+static void tls_anchors_free(eng_tls_anchors_t *a) {
+    if (!a) return;
+    for (size_t i = 0; i < a->count; i++) {
+        free(a->items[i].dn.data);
+        if (a->items[i].pkey.key_type == BR_KEYTYPE_RSA) {
+            free(a->items[i].pkey.key.rsa.n);
+            free(a->items[i].pkey.key.rsa.e);
+        } else if (a->items[i].pkey.key_type == BR_KEYTYPE_EC) {
+            free(a->items[i].pkey.key.ec.q);
+        }
+    }
+    free(a->items);
+    memset(a, 0, sizeof(*a));
+}
+
+static void tls_add_der_cert(eng_tls_anchors_t *a, const uint8_t *der, size_t len) {
+    if (!a || !der || len == 0) return;
+    br_x509_decoder_context dc;
+    tls_buf_t dn = {0};
+    br_x509_decoder_init(&dc, tls_buf_append, &dn);
+    br_x509_decoder_push(&dc, der, len);
+    br_x509_pkey *pk = br_x509_decoder_get_pkey(&dc);
+    if (!pk || !dn.data || dn.len == 0) { free(dn.data); return; }
+
+    br_x509_trust_anchor ta;
+    memset(&ta, 0, sizeof(ta));
+    ta.dn.data = dn.data;
+    ta.dn.len = dn.len;
+    ta.flags = br_x509_decoder_isCA(&dc) ? BR_X509_TA_CA : 0u;
+    if (pk->key_type == BR_KEYTYPE_RSA) {
+        ta.pkey.key_type = BR_KEYTYPE_RSA;
+        ta.pkey.key.rsa.n = tls_dup_bytes(pk->key.rsa.n, pk->key.rsa.nlen);
+        ta.pkey.key.rsa.nlen = pk->key.rsa.nlen;
+        ta.pkey.key.rsa.e = tls_dup_bytes(pk->key.rsa.e, pk->key.rsa.elen);
+        ta.pkey.key.rsa.elen = pk->key.rsa.elen;
+        if (!ta.pkey.key.rsa.n || !ta.pkey.key.rsa.e) {
+            free(ta.dn.data); free(ta.pkey.key.rsa.n); free(ta.pkey.key.rsa.e);
+            return;
+        }
+    } else if (pk->key_type == BR_KEYTYPE_EC) {
+        ta.pkey.key_type = BR_KEYTYPE_EC;
+        ta.pkey.key.ec.curve = pk->key.ec.curve;
+        ta.pkey.key.ec.q = tls_dup_bytes(pk->key.ec.q, pk->key.ec.qlen);
+        ta.pkey.key.ec.qlen = pk->key.ec.qlen;
+        if (!ta.pkey.key.ec.q) { free(ta.dn.data); return; }
+    } else {
+        free(ta.dn.data);
+        return;
+    }
+
+    if (a->count >= a->cap) {
+        size_t nc = a->cap ? a->cap * 2u : 32u;
+        br_x509_trust_anchor *ni = (br_x509_trust_anchor *)realloc(a->items, nc * sizeof(*ni));
+        if (!ni) {
+            free(ta.dn.data);
+            if (ta.pkey.key_type == BR_KEYTYPE_RSA) { free(ta.pkey.key.rsa.n); free(ta.pkey.key.rsa.e); }
+            else free(ta.pkey.key.ec.q);
+            return;
+        }
+        a->items = ni;
+        a->cap = nc;
+    }
+    a->items[a->count++] = ta;
+}
+
+static void tls_add_pem_buf(eng_tls_anchors_t *a, const char *pem, size_t len) {
+    if (!a || !pem || len == 0) return;
+    br_pem_decoder_context pc;
+    br_pem_decoder_init(&pc);
+    tls_buf_t der = {0};
+    bool in_cert = false;
+    const char *p = pem;
+    size_t rem = len;
+    bool sent_nl = false;
+    while (rem > 0 || !sent_nl) {
+        size_t n = 0;
+        if (rem > 0) {
+            n = br_pem_decoder_push(&pc, p, rem);
+            p += n;
+            rem -= n;
+        } else {
+            const char nl = '\n';
+            (void)br_pem_decoder_push(&pc, &nl, 1u);
+            sent_nl = true;
+        }
+        int ev = br_pem_decoder_event(&pc);
+        if (ev == BR_PEM_BEGIN_OBJ) {
+            const char *name = br_pem_decoder_name(&pc);
+            der.len = 0;
+            in_cert = (strcmp(name, "CERTIFICATE") == 0 ||
+                       strcmp(name, "TRUSTED CERTIFICATE") == 0 ||
+                       strcmp(name, "X509 CERTIFICATE") == 0);
+            br_pem_decoder_setdest(&pc, in_cert ? tls_buf_append : NULL, in_cert ? &der : NULL);
+        } else if (ev == BR_PEM_END_OBJ) {
+            if (in_cert && der.len > 0) tls_add_der_cert(a, der.data, der.len);
+            in_cert = false;
+            der.len = 0;
+        } else if (ev == BR_PEM_ERROR) {
+            in_cert = false;
+            der.len = 0;
+        }
+    }
+    free(der.data);
+}
+
+static bool tls_add_pem_file(eng_tls_anchors_t *a, const char *path) {
+    if (!path || !path[0]) return false;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return false;
+    if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return false; }
+    long sz = ftell(fp);
+    if (sz <= 0 || sz > 4 * 1024 * 1024) { fclose(fp); return false; }
+    rewind(fp);
+    char *buf = (char *)malloc((size_t)sz);
+    if (!buf) { fclose(fp); return false; }
+    size_t got = fread(buf, 1u, (size_t)sz, fp);
+    fclose(fp);
+    size_t before = a->count;
+    tls_add_pem_buf(a, buf, got);
+    free(buf);
+    return a->count > before;
+}
+
+static bool tls_load_trust_store(eng_tls_anchors_t *a, const char *custom_pem) {
+    if (custom_pem && custom_pem[0]) {
+        tls_add_pem_buf(a, custom_pem, strlen(custom_pem));
+        return a->count > 0;
+    }
+    const char *env_ca = getenv("ENG_TLS_CA_FILE");
+    if (!env_ca || !env_ca[0]) env_ca = getenv("SSL_CERT_FILE");
+    if (env_ca && env_ca[0]) return tls_add_pem_file(a, env_ca);
+#ifdef _WIN32
+    HCERTSTORE store = CertOpenSystemStoreA(0, "ROOT");
+    if (store) {
+        PCCERT_CONTEXT cert = NULL;
+        while ((cert = CertEnumCertificatesInStore(store, cert)) != NULL) {
+            tls_add_der_cert(a, cert->pbCertEncoded, (size_t)cert->cbCertEncoded);
+        }
+        CertCloseStore(store, 0);
+    }
+#elif defined(__APPLE__)
+    CFArrayRef anchors = NULL;
+    if (SecTrustCopyAnchorCertificates(&anchors) == errSecSuccess && anchors) {
+        CFIndex n = CFArrayGetCount(anchors);
+        for (CFIndex i = 0; i < n; i++) {
+            SecCertificateRef cert = (SecCertificateRef)CFArrayGetValueAtIndex(anchors, i);
+            CFDataRef der = SecCertificateCopyData(cert);
+            if (der) {
+                tls_add_der_cert(a, CFDataGetBytePtr(der), (size_t)CFDataGetLength(der));
+                CFRelease(der);
+            }
+        }
+        CFRelease(anchors);
+    }
+#else
+    static const char *const k_ca_paths[] = {
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/ca-bundle.pem",
+        "/etc/ssl/cert.pem"
+    };
+    for (size_t i = 0; i < sizeof(k_ca_paths) / sizeof(k_ca_paths[0]); i++) {
+        if (tls_add_pem_file(a, k_ca_paths[i])) break;
+    }
+#endif
+    return a->count > 0;
+}
+
+static void tls_ctx_destroy(eng_tls_ctx_t *t) {
+    if (!t) return;
+    tls_anchors_free(&t->anchors);
+    free(t->tx_buf);
+    free(t);
+}
+
+static eng_tls_ctx_t *tls_ctx_create(const char *host, const char *custom_pem) {
+    eng_tls_ctx_t *t = (eng_tls_ctx_t *)calloc(1, sizeof(eng_tls_ctx_t));
+    if (!t) return NULL;
+    if (!tls_load_trust_store(&t->anchors, custom_pem)) {
+        ENG_LOGW("net", "TLS init failed: no verified root CA trust anchors loaded");
+        tls_ctx_destroy(t);
+        return NULL;
+    }
+    /* shortcut: BearSSL supports TLS 1.2 (works with Caddy/Let's Encrypt/Cloudflare/nginx), upgrade if a strict TLS-1.3-only endpoint is required */
+    br_ssl_client_init_full(&t->sc, &t->xc, t->anchors.items, t->anchors.count);
+    br_ssl_engine_set_buffer(&t->sc.eng, t->iobuf, sizeof(t->iobuf), 1);
+    if (!br_ssl_client_reset(&t->sc, host, 0)) {
+        tls_ctx_destroy(t);
+        return NULL;
+    }
+    return t;
+}
+
+static bool tls_pump_io(net_slot_t *s) {
+    eng_tls_ctx_t *t = s->tls;
+    if (!t || !s->ws_sock) return false;
+    for (int iter = 0; iter < 16; iter++) {
+        unsigned st = br_ssl_engine_current_state(&t->sc.eng);
+        if (st == BR_SSL_CLOSED) {
+            int err = br_ssl_engine_last_error(&t->sc.eng);
+            if (err != 0) ENG_LOGW("net", "TLS closed with BearSSL error %d", err);
+            return false;
+        }
+        bool progressed = false;
+        if (st & BR_SSL_SENDREC) {
+            size_t rlen = 0;
+            unsigned char *rbuf = br_ssl_engine_sendrec_buf(&t->sc.eng, &rlen);
+            if (!NET_WriteToStreamSocket(s->ws_sock, rbuf, (int)rlen)) return false;
+            br_ssl_engine_sendrec_ack(&t->sc.eng, rlen);
+            progressed = true;
+        }
+        if (st & BR_SSL_RECVREC) {
+            size_t rlen = 0;
+            unsigned char *rbuf = br_ssl_engine_recvrec_buf(&t->sc.eng, &rlen);
+            int got = NET_ReadFromStreamSocket(s->ws_sock, rbuf, (int)rlen);
+            if (got < 0) return false;
+            if (got > 0) {
+                br_ssl_engine_recvrec_ack(&t->sc.eng, (size_t)got);
+                progressed = true;
+            }
+        }
+        if ((st & BR_SSL_SENDAPP) && t->tx_len > 0) {
+            size_t alen = 0;
+            unsigned char *abuf = br_ssl_engine_sendapp_buf(&t->sc.eng, &alen);
+            size_t take = t->tx_len < alen ? t->tx_len : alen;
+            memcpy(abuf, t->tx_buf, take);
+            br_ssl_engine_sendapp_ack(&t->sc.eng, take);
+            if (take < t->tx_len) memmove(t->tx_buf, t->tx_buf + take, t->tx_len - take);
+            t->tx_len -= take;
+            if (t->tx_len == 0) br_ssl_engine_flush(&t->sc.eng, 0);
+            progressed = true;
+        }
+        if (!progressed) break;
+    }
+    return br_ssl_engine_current_state(&t->sc.eng) != BR_SSL_CLOSED;
+}
+#endif /* ENG_HAS_BEARSSL */
+
+static bool ws_stream_write(net_slot_t *s, const void *data, size_t len) {
+    if (!s || !s->ws_sock) return false;
+#ifdef ENG_HAS_BEARSSL
+    if (s->tls) {
+        eng_tls_ctx_t *t = s->tls;
+        if (len > 0) {
+            if (t->tx_len + len > t->tx_cap) {
+                size_t nc = t->tx_cap ? t->tx_cap * 2u : 1024u;
+                while (nc < t->tx_len + len) nc *= 2u;
+                uint8_t *nb = (uint8_t *)realloc(t->tx_buf, nc);
+                if (!nb) return false;
+                t->tx_buf = nb;
+                t->tx_cap = nc;
+            }
+            memcpy(t->tx_buf + t->tx_len, data, len);
+            t->tx_len += len;
+        }
+        return tls_pump_io(s);
+    }
+#endif
+    return NET_WriteToStreamSocket(s->ws_sock, data, (int)len);
+}
+
+static int ws_stream_read(net_slot_t *s, void *out, size_t cap) {
+    if (!s || !s->ws_sock) return -1;
+#ifdef ENG_HAS_BEARSSL
+    if (s->tls) {
+        if (!tls_pump_io(s)) return -1;
+        unsigned st = br_ssl_engine_current_state(&s->tls->sc.eng);
+        if (st & BR_SSL_RECVAPP) {
+            size_t alen = 0;
+            unsigned char *abuf = br_ssl_engine_recvapp_buf(&s->tls->sc.eng, &alen);
+            size_t take = alen < cap ? alen : cap;
+            memcpy(out, abuf, take);
+            br_ssl_engine_recvapp_ack(&s->tls->sc.eng, take);
+            return (int)take;
+        }
+        return 0;
+    }
+#endif
+    return NET_ReadFromStreamSocket(s->ws_sock, out, (int)cap);
+}
+
+static bool ws_send_frame(eng_net_peer_t *p, net_slot_t *s, uint8_t opcode,
                           const uint8_t *payload, size_t len, bool mask) {
-    if (!sock || len > ENG_NET_MAX_MSG_SIZE) return false;
+    if (!s || !s->ws_sock || len > ENG_NET_MAX_MSG_SIZE) return false;
     uint8_t hdr[14];
     size_t hlen = 2u;
     hdr[0] = (uint8_t)(0x80u | (opcode & 0x0Fu));
@@ -248,7 +600,7 @@ static bool ws_send_frame(eng_net_peer_t *p, NET_StreamSocket *sock, uint8_t opc
             memcpy(frame + hlen, payload, len);
         }
     }
-    bool ok = NET_WriteToStreamSocket(sock, frame, (int)(hlen + len));
+    bool ok = ws_stream_write(s, frame, hlen + len);
     free(frame);
     return ok;
 }
@@ -260,7 +612,7 @@ static bool ws_send_app_msg(eng_net_peer_t *p, net_slot_t *s, eng_net_channel_t 
     if (!buf) return false;
     buf[0] = (uint8_t)chan;
     if (len > 0 && payload) memcpy(buf + 1u, payload, len);
-    bool ok = ws_send_frame(p, s->ws_sock, 0x02u, buf, len + 1u, !p->is_server);
+    bool ok = ws_send_frame(p, s, 0x02u, buf, len + 1u, !p->is_server);
     free(buf);
     return ok;
 }
@@ -316,7 +668,7 @@ static void ws_rx_consume(net_slot_t *s, size_t n) {
 static void ws_pump_slot(eng_net_peer_t *p, net_slot_t *s) {
     if (!s->active || !s->ws_sock) return;
 
-    /* Client-side async TCP connect + HTTP Upgrade send */
+    /* Client-side async TCP connect + TLS handshake + HTTP Upgrade send */
     if (!p->is_server && !s->ws_open) {
         NET_Status st = NET_GetConnectionStatus(s->ws_sock);
         if (st == NET_FAILURE) {
@@ -334,28 +686,37 @@ static void ws_pump_slot(eng_net_peer_t *p, net_slot_t *s) {
             }
             char key_b64[32];
             b64_encode(nonce, 16, key_b64);
+            char host_hdr[160];
+            const char *h = p->ws_host[0] ? p->ws_host : "localhost";
+            bool std_port = (p->ws_tls && p->ws_port == 443u) || (!p->ws_tls && p->ws_port == 80u);
+            if (!std_port && p->ws_port > 0) snprintf(host_hdr, sizeof(host_hdr), "%s:%u", h, (unsigned)p->ws_port);
+            else snprintf(host_hdr, sizeof(host_hdr), "%s", h);
             char req[512];
             int rn = snprintf(req, sizeof(req),
                               "GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\n"
                               "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
                               "Sec-WebSocket-Version: 13\r\n\r\n",
-                              p->ws_path[0] ? p->ws_path : "/",
-                              p->ws_host[0] ? p->ws_host : "localhost", key_b64);
-            NET_WriteToStreamSocket(s->ws_sock, req, rn);
+                              p->ws_path[0] ? p->ws_path : "/", host_hdr, key_b64);
+            if (!ws_stream_write(s, req, (size_t)rn)) {
+                p->connected = false;
+                clear_slot(s);
+                push_evt(p, ENG_NET_EVT_DISCONNECT, 0, ENG_CHAN_RELIABLE, NULL, 0);
+                return;
+            }
             s->ws_hs_sent = true;
         }
     }
 
-    /* Non-blocking drain from stream socket */
+    /* Non-blocking drain from stream (plain TCP or BearSSL TLS) */
     uint8_t tmp[4096];
     for (;;) {
-        int n = NET_ReadFromStreamSocket(s->ws_sock, tmp, (int)sizeof(tmp));
+        int n = ws_stream_read(s, tmp, sizeof(tmp));
         if (n < 0) {
             uint32_t cid = p->is_server ? s->id : 0u;
             bool was_open = s->ws_open;
             if (!p->is_server) p->connected = false;
             clear_slot(s);
-            if (was_open) push_evt(p, ENG_NET_EVT_DISCONNECT, cid, ENG_CHAN_RELIABLE, NULL, 0);
+            if (was_open || !p->is_server) push_evt(p, ENG_NET_EVT_DISCONNECT, cid, ENG_CHAN_RELIABLE, NULL, 0);
             return;
         }
         if (n == 0) break;
@@ -389,7 +750,7 @@ static void ws_pump_slot(eng_net_peer_t *p, net_slot_t *s) {
                               "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
                               "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",
                               accept_b64);
-            NET_WriteToStreamSocket(s->ws_sock, resp, rn);
+            ws_stream_write(s, resp, (size_t)rn);
             ws_rx_consume(s, hdr_len);
             s->ws_open = true;
             push_evt(p, ENG_NET_EVT_CONNECT, s->id, ENG_CHAN_RELIABLE, NULL, 0);
@@ -397,6 +758,7 @@ static void ws_pump_slot(eng_net_peer_t *p, net_slot_t *s) {
             if (strstr((const char *)s->rx_buf, " 101 ") == NULL) {
                 p->connected = false;
                 clear_slot(s);
+                push_evt(p, ENG_NET_EVT_DISCONNECT, 0, ENG_CHAN_RELIABLE, NULL, 0);
                 return;
             }
             ws_rx_consume(s, hdr_len);
@@ -432,9 +794,9 @@ static void ws_pump_slot(eng_net_peer_t *p, net_slot_t *s) {
             for (size_t i = 0; i < plen; i++) body[i] ^= mk[i & 3u];
         }
         if (opcode == 0x09u) {
-            ws_send_frame(p, s->ws_sock, 0x0Au, body, plen, !p->is_server);
+            ws_send_frame(p, s, 0x0Au, body, plen, !p->is_server);
         } else if (opcode == 0x08u) {
-            ws_send_frame(p, s->ws_sock, 0x08u, NULL, 0, !p->is_server);
+            ws_send_frame(p, s, 0x08u, NULL, 0, !p->is_server);
             uint32_t cid = p->is_server ? s->id : 0u;
             if (!p->is_server) p->connected = false;
             clear_slot(s);
@@ -455,8 +817,8 @@ static bool parse_ws_url(const char *url, uint16_t fallback_port,
     uint16_t def_port = fallback_port ? fallback_port : 7777u;
     if (strncmp(s, "ws://", 5) == 0) { s += 5; if (!fallback_port) def_port = 80u; }
     else if (strncmp(s, "wss://", 6) == 0) { s += 6; *is_wss = true; if (!fallback_port) def_port = 443u; }
-    const char *slash = strchr(s, '/');
-    size_t hlen = slash ? (size_t)(slash - s) : strlen(s);
+    const char *sep = strpbrk(s, "/?");
+    size_t hlen = sep ? (size_t)(sep - s) : strlen(s);
     const char *colon = NULL;
     for (size_t i = 0; i < hlen; i++) if (s[i] == ':') colon = s + i;
     size_t host_len = colon ? (size_t)(colon - s) : hlen;
@@ -464,7 +826,7 @@ static bool parse_ws_url(const char *url, uint16_t fallback_port,
     memcpy(host_out, s, host_len);
     host_out[host_len] = '\0';
     *port_out = colon ? (uint16_t)atoi(colon + 1) : def_port;
-    snprintf(path_out, 128, "%s", slash ? slash : "/");
+    snprintf(path_out, 128, "%s%s", (!sep || *sep == '?') ? "/" : "", sep ? sep : "");
     return *port_out > 0;
 }
 
@@ -698,6 +1060,7 @@ void eng_net_destroy(eng_net_peer_t *peer) {
         peer->evt_count--;
     }
 #ifdef ENG_HAS_SDL3_NET
+    free(peer->ca_pem);
     if (peer->ws_server) NET_DestroyServer(peer->ws_server);
     if (peer->udp_sock) NET_DestroyDatagramSocket(peer->udp_sock);
     if (peer->transport == ENG_NET_UDP || peer->transport == ENG_NET_WEBSOCKET) sdlnet_release();
@@ -757,7 +1120,7 @@ bool eng_net_disconnect_client(eng_net_peer_t *peer, uint32_t client_id) {
         }
     }
 #ifdef ENG_HAS_SDL3_NET
-    if (s->ws_sock && s->ws_open) ws_send_frame(peer, s->ws_sock, 0x08u, NULL, 0, !peer->is_server);
+    if (s->ws_sock && s->ws_open) ws_send_frame(peer, s, 0x08u, NULL, 0, !peer->is_server);
 #endif
     clear_slot(s);
     push_evt(peer, ENG_NET_EVT_DISCONNECT, client_id, ENG_CHAN_RELIABLE, NULL, 0);
@@ -780,6 +1143,24 @@ bool eng_net_connect_loopback(eng_net_peer_t *a, eng_net_peer_t *b) {
     push_evt(a, ENG_NET_EVT_CONNECT, a->is_server ? sa->id : 0u, ENG_CHAN_RELIABLE, NULL, 0);
     push_evt(b, ENG_NET_EVT_CONNECT, b->is_server ? sb->id : 0u, ENG_CHAN_RELIABLE, NULL, 0);
     return true;
+}
+
+bool eng_net_set_ca_pem(eng_net_peer_t *peer, const char *ca_pem) {
+    if (!peer) return false;
+#ifdef ENG_HAS_SDL3_NET
+    free(peer->ca_pem);
+    peer->ca_pem = NULL;
+    if (ca_pem && ca_pem[0]) {
+        size_t len = strlen(ca_pem);
+        peer->ca_pem = (char *)malloc(len + 1u);
+        if (!peer->ca_pem) return false;
+        memcpy(peer->ca_pem, ca_pem, len + 1u);
+    }
+    return true;
+#else
+    (void)ca_pem;
+    return true;
+#endif
 }
 
 bool eng_net_connect_remote(eng_net_peer_t *peer, const char *host_or_url, uint16_t remote_port) {
@@ -823,22 +1204,49 @@ bool eng_net_connect_remote(eng_net_peer_t *peer, const char *host_or_url, uint1
         uint16_t port = 0;
         bool is_wss = false;
         if (!parse_ws_url(host_or_url, remote_port, peer->ws_host, &port, peer->ws_path, &is_wss)) return false;
+        peer->ws_port = port;
+        peer->ws_tls = is_wss;
+#ifdef ENG_HAS_BEARSSL
+        eng_tls_ctx_t *tls = NULL;
         if (is_wss) {
-            ENG_LOGW("net", "Native desktop client requires plain ws:// (use server ws:// port or TLS tunnel)");
+            tls = tls_ctx_create(peer->ws_host, peer->ca_pem);
+            if (!tls) return false;
+        }
+#else
+        if (is_wss) {
+            ENG_LOGW("net", "Native wss:// requires BearSSL (built without ENG_HAS_BEARSSL)");
             return false;
         }
+#endif
         NET_Address *addr = NET_ResolveHostname(peer->ws_host);
         if (!addr || NET_WaitUntilResolved(addr, 1000) != NET_SUCCESS) {
             if (addr) NET_UnrefAddress(addr);
+#ifdef ENG_HAS_BEARSSL
+            tls_ctx_destroy(tls);
+#endif
             return false;
         }
         NET_StreamSocket *sock = NET_CreateClient(addr, port, 0);
         NET_UnrefAddress(addr);
-        if (!sock) return false;
+        if (!sock) {
+#ifdef ENG_HAS_BEARSSL
+            tls_ctx_destroy(tls);
+#endif
+            return false;
+        }
         clear_slot(&peer->slots[0]);
         net_slot_t *s = alloc_slot(peer);
-        if (!s) { NET_DestroyStreamSocket(sock); return false; }
+        if (!s) {
+            NET_DestroyStreamSocket(sock);
+#ifdef ENG_HAS_BEARSSL
+            tls_ctx_destroy(tls);
+#endif
+            return false;
+        }
         s->ws_sock = sock;
+#ifdef ENG_HAS_BEARSSL
+        s->tls = tls;
+#endif
         ws_pump_slot(peer, s);
         return true;
     }

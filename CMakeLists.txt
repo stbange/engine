@@ -82,6 +82,33 @@ else()
         target_link_libraries(eng_sdl3 INTERFACE SDL3_net::SDL3_net-static)
     endif()
     target_compile_definitions(eng_sdl3 INTERFACE ENG_HAS_SDL3_NET=1)
+
+    include(FetchContent)
+    FetchContent_Declare(
+        BearSSL
+        GIT_REPOSITORY https://www.bearssl.org/git/BearSSL
+        GIT_TAG 7bea48e5e850ab4cafbe68d3765cdaba13a86d6f
+    )
+    FetchContent_MakeAvailable(BearSSL)
+    file(GLOB_RECURSE ENG_BEARSSL_SOURCES CONFIGURE_DEPENDS "${bearssl_SOURCE_DIR}/src/*.c")
+    add_library(eng_bearssl STATIC ${ENG_BEARSSL_SOURCES})
+    target_include_directories(eng_bearssl
+        PUBLIC "${bearssl_SOURCE_DIR}/inc"
+        PRIVATE "${bearssl_SOURCE_DIR}/src"
+    )
+    set_target_properties(eng_bearssl PROPERTIES C_EXTENSIONS ON)
+    if(MSVC)
+        target_compile_options(eng_bearssl PRIVATE /W0)
+    else()
+        target_compile_options(eng_bearssl PRIVATE -w)
+    endif()
+    target_link_libraries(eng_sdl3 INTERFACE eng_bearssl)
+    if(WIN32)
+        target_link_libraries(eng_sdl3 INTERFACE crypt32 advapi32)
+    elseif(APPLE)
+        target_link_libraries(eng_sdl3 INTERFACE "-framework CoreFoundation" "-framework Security")
+    endif()
+    target_compile_definitions(eng_sdl3 INTERFACE ENG_HAS_BEARSSL=1)
 endif()
 
 # -----------------------------------------------------------------------------
