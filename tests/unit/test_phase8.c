@@ -333,6 +333,51 @@ int main(void) {
     eng_vec3_t null_slide = eng_physics_slide_xz(NULL, 0, eng_v3(1, 1, 1), 2.0f, 3.0f, 0.38f);
     assert(fabsf(null_slide.x - 3.0f) < 0.01f && fabsf(null_slide.z - 4.0f) < 0.01f);
 
+    /* Exercise multiplayer Lua APIs: split-screen cameras, per-player input, viewport_anchor, eng.net & eng.mp */
+    assert(eng_runtime_exec_lua(rt, "=mp_lua_test",
+        "eng.input.set_split_keyboard(true); assert(eng.input.is_split_keyboard())\n"
+        "eng.input.set_player_device(1, 'auto'); eng.input.set_player_device(2, 'keyboard', 1); eng.input.set_player_device(3, 'gamepad', 2)\n"
+        "assert(eng.input.gamepad_count() >= 0 and eng.input.player_has_gamepad(1) == false)\n"
+        "eng.input.inject_player(1, 'up', true); eng.input.inject_player(1, 'fire', true)\n"
+        "assert(eng.input.player_down(1, 'fire') and eng.input.player_pressed(1, 'fire'))\n"
+        "local mx, my = eng.input.player_move(1); local lx, ly = eng.input.player_look(1)\n"
+        "assert(my > 0.9 and lx == 0 and ly == 0)\n"
+        "local py, pp, pdx, pdz = eng.camera.fps_steer_player(1, 0, 0, 6.0, 0.1, 90.0)\n"
+        "assert(pdz < -0.5)\n"
+        "eng.input.inject_player(1, 'up', false); eng.input.inject_player(1, 'fire', false)\n"
+        "eng.camera.set_split(2, 'horizontal'); eng.camera.set_split(2, 'vertical')\n"
+        "eng.camera.set_split(3, 'vertical'); eng.camera.set_split(3, 'top2_bot1')\n"
+        "eng.camera.set_split(4, 'grid4'); eng.camera.set_viewport(4, 0.5, 0.5, 0.5, 0.5)\n"
+        "eng.camera.set_view(1, 0, 1.5, 4, 0, 0, 0, 0); eng.camera.look_at_view(2, 1, 2, 3, 0, 0, 0, 0)\n"
+        "local vr = eng.camera.get_view_rect(4); assert(math.abs(vr.x - 0.5) < 0.01 and math.abs(vr.y - 0.5) < 0.01)\n"
+        "local ax, ay = eng.ui.viewport_anchor(vr, 'top_left', 10, 10, 120, 24, 1280, 720)\n"
+        "assert(ax >= 640 and ay >= 360)\n"
+        "eng.camera.set_split(1)\n"
+        "local packed = eng.mp.pack({ a = 1.5, b = true, c = false, s = 'hi;x=1%2' })\n"
+        "local upk = eng.mp.unpack(packed)\n"
+        "assert(math.abs(upk.a - 1.5) < 0.01 and upk.b == true and upk.c == false and upk.s == 'hi;x=1%2')\n"
+        "assert(next(eng.mp.unpack('')) == nil)\n"
+        "assert(math.abs(eng.mp.lerp(0, 10, 0.5, 1.0) - 5.0) < 0.01)\n"
+        "assert(eng.net.is_server() == false and eng.net.launch_url() == nil)\n"
+        "assert(eng.net.start_loopback())\n"
+        "assert(#eng.net.clients() == 1 and eng.net.is_connected('client'))\n"
+        "local joined, left, got_ev, got_st = false, false, false, false\n"
+        "local srv = eng.mp.create_server(eng, { seed = 99, snapshot_hz = 60, on_join = function() joined = true end, on_leave = function() left = true end, on_input = function(cid, p, pkt) p.x = (pkt.x or 0) end, on_snapshot = function() end })\n"
+        "local cli = eng.mp.create_client(eng, { input_hz = 60, on_welcome = function() end, on_state = function() got_st = true end, on_event = function() got_ev = true end })\n"
+        "assert(cli:connect('') == false)\n"
+        "srv:step(0.05); cli:step(0.05, { x = 7.25 }); srv:step(0.05); cli:step(0.05)\n"
+        "eng.net.broadcast(eng.mp.pack({ t = 'custom', v = 3 }), true); cli:step(0.05)\n"
+        "assert(eng.net.broadcast_snapshot(0))\n"
+        "local snap_ev = eng.net.poll_event('client')\n"
+        "assert(snap_ev and snap_ev.type == 'message' and eng.net.apply_snapshot(snap_ev.data))\n"
+        "assert(eng.net.kick(1)); srv:step(0.05); cli:step(0.05)\n"
+        "assert(joined and left and got_st and got_ev and cli.local_id == 1 and cli.seed == 99)\n"
+        "local wsp = eng.net.host('ws', 0, '127.0.0.1'); assert(wsp > 0)\n"
+        "assert(eng.net.connect('ws://127.0.0.1:' .. tostring(wsp)))\n"
+        "return 'mp_ok'", lrep, sizeof(lrep)));
+    assert(strcmp(lrep, "mp_ok") == 0);
+    assert(!eng_runtime_is_server(rt));
+
     assert(eng_runtime_step(rt, 1.0f / 60.0f, err, sizeof(err)));
     assert(eng_runtime_render(rt, err, sizeof(err)));
     assert(eng_renderer_resize(eng_runtime_renderer(rt), 120, 240));
@@ -378,7 +423,7 @@ int main(void) {
     eng_profiler_destroy(prof);
     eng_runtime_destroy(rt);
 
-    /* 5. Exercise CLI entrypoints (--version, no-args usage, --gen-stubs, --fuzz-seeds, headless loop) */
+    /* 5. Exercise CLI entrypoints (--version, no-args usage, --gen-stubs, --fuzz-seeds, --server, --connect, multiplayer scaffold) */
     char *av_ver[] = {"engine", "--version"};
     assert(eng_cli_run(2, av_ver) == 0);
 
@@ -395,6 +440,15 @@ int main(void) {
 
     char *av_repo_stubs[] = {"engine", "--gen-stubs", ENG_SOURCE_DIR "/lua/eng_api.lua"};
     assert(eng_cli_run(3, av_repo_stubs) == 0);
+
+    char mp_dir[512];
+    snprintf(mp_dir, sizeof(mp_dir), "%s/tmp_mp_game", ENG_BINARY_DIR);
+    char *av_new_mp[] = {"engine", "--new", mp_dir, "--template", "multiplayer"};
+    assert(eng_cli_run(5, av_new_mp) == 0);
+    char *av_srv[] = {"engine", "--repo-root", ENG_SOURCE_DIR, "--game", mp_dir, "--server", "--bind", "127.0.0.1", "--port", "0", "--tick-rate", "60", "--transport", "ws", "--max-frames", "3"};
+    assert(eng_cli_run(16, av_srv) == 0);
+    char *av_cli[] = {"engine", "--repo-root", ENG_SOURCE_DIR, "--game", mp_dir, "--headless", "--connect", "ws://127.0.0.1:19999", "--max-frames", "2"};
+    assert(eng_cli_run(10, av_cli) == 0);
 
     char sheet_tmp[512];
     snprintf(sheet_tmp, sizeof(sheet_tmp), "%s/tmp_sheet.png", ENG_BINARY_DIR);

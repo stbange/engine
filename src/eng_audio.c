@@ -24,15 +24,20 @@ typedef struct {
     double cursor;
 } audio_voice_t;
 
+typedef struct {
+    uint16_t pocket_id;
+    eng_vec3_t pos;
+    eng_vec3_t vel;
+    eng_vec3_t right;
+} audio_listener_int_t;
+
 struct eng_audio_s {
     bool headless;
     SDL_AudioStream *stream;
     float bus_gain[ENG_BUS_COUNT];
 
-    uint16_t listener_pocket;
-    eng_vec3_t listener_pos;
-    eng_vec3_t listener_vel;
-    eng_vec3_t listener_right;
+    audio_listener_int_t listeners[ENG_MAX_LISTENERS];
+    int listener_count;
 
     audio_clip_t clips[ENG_MAX_CLIPS];
     uint32_t clip_count;
@@ -77,7 +82,8 @@ eng_audio_t *eng_audio_create(bool headless) {
     if (!a) return NULL;
     a->headless = headless;
     for (int i = 0; i < ENG_BUS_COUNT; i++) a->bus_gain[i] = 1.0f;
-    a->listener_right = eng_v3(1.0f, 0.0f, 0.0f);
+    a->listener_count = 1;
+    a->listeners[0].right = eng_v3(1.0f, 0.0f, 0.0f);
     a->next_voice_id = 1u;
     eng_rng_seed(&a->noise_rng, 0xA0D10u);
 
@@ -104,13 +110,22 @@ float eng_audio_get_bus_gain(const eng_audio_t *aud, eng_audio_bus_t bus) {
     return (aud && (int)bus >= 0 && bus < ENG_BUS_COUNT) ? aud->bus_gain[bus] : 0.0f;
 }
 
+void eng_audio_set_listeners(eng_audio_t *aud, const eng_audio_listener_t *listeners, int count) {
+    if (!aud || !listeners || count <= 0) return;
+    if (count > ENG_MAX_LISTENERS) count = ENG_MAX_LISTENERS;
+    aud->listener_count = count;
+    for (int i = 0; i < count; i++) {
+        aud->listeners[i].pocket_id = listeners[i].pocket_id;
+        aud->listeners[i].pos = listeners[i].pos;
+        aud->listeners[i].vel = listeners[i].vel;
+        aud->listeners[i].right = eng_quat_rotate_v3(listeners[i].rot, eng_v3(1.0f, 0.0f, 0.0f));
+    }
+}
+
 void eng_audio_set_listener(eng_audio_t *aud, uint16_t pocket_id,
                             eng_vec3_t pos, eng_vec3_t vel, eng_quat_t rot) {
-    if (!aud) return;
-    aud->listener_pocket = pocket_id;
-    aud->listener_pos = pos;
-    aud->listener_vel = vel;
-    aud->listener_right = eng_quat_rotate_v3(rot, eng_v3(1.0f, 0.0f, 0.0f));
+    eng_audio_listener_t l = {pocket_id, pos, vel, rot};
+    eng_audio_set_listeners(aud, &l, 1);
 }
 
 static uint32_t store_mono_clip(eng_audio_t *aud, float *samples, size_t count) {
@@ -244,34 +259,28 @@ void eng_audio_stop(eng_audio_t *aud, uint32_t voice_id) {
     }
 }
 
-static bool compute_voice_spatial(const eng_audio_t *aud, const audio_voice_t *v,
-                                  const eng_scene_t *scene, const eng_portal_sys_t *portals,
-                                  float *out_gain_l, float *out_gain_r, float *out_doppler) {
+static bool compute_voice_for_listener(const audio_listener_int_t *lis, const audio_voice_t *v,
+                                       const eng_scene_t *scene, const eng_portal_sys_t *portals,
+                                       float *out_gain_l, float *out_gain_r, float *out_doppler) {
     *out_doppler = 1.0f;
-    if (!v->d.spatial_3d) {
-        *out_gain_l = 0.7071f;
-        *out_gain_r = 0.7071f;
-        return true;
-    }
-
     eng_vec3_t eff_pos = v->d.pos;
     float extra_dist = 0.0f;
 
     /* Cross-portal acoustic routing when listener and source live in different pocket spaces */
-    if (v->d.pocket_id != aud->listener_pocket) {
+    if (v->d.pocket_id != lis->pocket_id) {
         if (!scene || !portals) return false;
         float best_total = 1e30f;
         bool found = false;
         size_t pc = eng_portal_count(portals);
         for (size_t i = 0; i < pc; i++) {
             const eng_portal_t *p = eng_portal_get(portals, i);
-            if (!p || p->src_pocket != aud->listener_pocket || p->dst_pocket != v->d.pocket_id) continue;
+            if (!p || p->src_pocket != lis->pocket_id || p->dst_pocket != v->d.pocket_id) continue;
             const eng_mat4_t *ms = eng_scene_get_world_matrix(scene, p->src_ent);
             const eng_mat4_t *md = eng_scene_get_world_matrix(scene, p->dst_ent);
             if (!ms || !md) continue;
             eng_vec3_t near_door = eng_v3(ms->m[12], ms->m[13], ms->m[14]);
             eng_vec3_t far_door  = eng_v3(md->m[12], md->m[13], md->m[14]);
-            float d1 = eng_v3_len(eng_v3_sub(near_door, aud->listener_pos));
+            float d1 = eng_v3_len(eng_v3_sub(near_door, lis->pos));
             float d2 = eng_v3_len(eng_v3_sub(v->d.pos, far_door));
             if (d1 + d2 < best_total) {
                 best_total = d1 + d2;
@@ -283,7 +292,7 @@ static bool compute_voice_spatial(const eng_audio_t *aud, const audio_voice_t *v
         if (!found) return false;
     }
 
-    eng_vec3_t to_src = eng_v3_sub(eff_pos, aud->listener_pos);
+    eng_vec3_t to_src = eng_v3_sub(eff_pos, lis->pos);
     float direct_d = eng_v3_len(to_src);
     float total_d = direct_d + extra_dist;
     float max_d = fmaxf(v->d.max_dist, v->d.min_dist + 0.1f);
@@ -296,18 +305,45 @@ static bool compute_voice_spatial(const eng_audio_t *aud, const audio_voice_t *v
     }
 
     eng_vec3_t dir = direct_d > 1e-4f ? eng_v3_scale(to_src, 1.0f / direct_d) : eng_v3(0, 0, -1);
-    float pan = eng_clampf(eng_v3_dot(dir, aud->listener_right), -1.0f, 1.0f);
+    float pan = eng_clampf(eng_v3_dot(dir, lis->right), -1.0f, 1.0f);
     float angle = (pan * 0.5f + 0.5f) * (0.5f * ENG_PI);
     *out_gain_l = cosf(angle) * atten;
     *out_gain_r = sinf(angle) * atten;
 
     /* Radial Doppler shift (speed of sound = 343 m/s) */
-    if (v->d.pocket_id == aud->listener_pocket) {
-        float vl = eng_clampf(eng_v3_dot(aud->listener_vel, dir), -150.0f, 150.0f);
+    if (v->d.pocket_id == lis->pocket_id) {
+        float vl = eng_clampf(eng_v3_dot(lis->vel, dir), -150.0f, 150.0f);
         float vs = eng_clampf(eng_v3_dot(v->d.vel, dir), -150.0f, 150.0f);
         *out_doppler = eng_clampf((343.0f + vl) / (343.0f + vs), 0.5f, 2.0f);
     }
     return true;
+}
+
+static bool compute_voice_spatial(const eng_audio_t *aud, const audio_voice_t *v,
+                                  const eng_scene_t *scene, const eng_portal_sys_t *portals,
+                                  float *out_gain_l, float *out_gain_r, float *out_doppler) {
+    *out_doppler = 1.0f;
+    if (!v->d.spatial_3d) {
+        *out_gain_l = 0.7071f;
+        *out_gain_r = 0.7071f;
+        return true;
+    }
+    bool any = false;
+    float best_mag = -1.0f;
+    for (int i = 0; i < aud->listener_count; i++) {
+        float gl = 0.0f, gr = 0.0f, dop = 1.0f;
+        if (compute_voice_for_listener(&aud->listeners[i], v, scene, portals, &gl, &gr, &dop)) {
+            float mag = gl + gr;
+            if (mag > best_mag) {
+                best_mag = mag;
+                *out_gain_l = gl;
+                *out_gain_r = gr;
+                *out_doppler = dop;
+                any = true;
+            }
+        }
+    }
+    return any;
 }
 
 void eng_audio_mix_frames(eng_audio_t *aud, const eng_scene_t *scene,

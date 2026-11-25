@@ -256,6 +256,70 @@ static void test_platform_and_input_and_xr(void) {
     eng_input_process_event(inp, plat, &ev);
     assert(!eng_input_down(inp, "jump"));
 
+    /* Multi-player local input: 4-zone split keyboard + 4-gamepad hot-plug isolation */
+    eng_input_set_split_keyboard(inp, true);
+    assert(eng_input_is_split_keyboard(inp));
+    eng_input_begin_frame(inp, 1.0f / 60.0f);
+    memset(&ev, 0, sizeof(ev));
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_W; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_RIGHT; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_I; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_F; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_Q; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_LSHIFT; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_RSHIFT; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_P; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_KEY_DOWN; ev.key.scancode = SDL_SCANCODE_V; eng_input_process_event(inp, plat, &ev);
+    assert(eng_input_player_move(inp, 0).y > 0.9f && fabsf(eng_input_player_move(inp, 0).x) < 0.01f);
+    assert(eng_input_player_move(inp, 1).x > 0.9f && fabsf(eng_input_player_move(inp, 1).y) < 0.01f);
+    assert(eng_input_player_move(inp, 2).y > 0.9f);
+    assert(eng_input_player_move(inp, 3).x < -0.9f);
+    assert(eng_input_player_look(inp, 0).x < -0.5f);
+    assert(eng_input_player_down(inp, 0, "fire") && eng_input_player_pressed(inp, 0, "fire"));
+    assert(eng_input_player_down(inp, 1, "jump") && eng_input_player_down(inp, 2, "jump") && eng_input_player_down(inp, 3, "jump"));
+    /* Release split keys */
+    SDL_Scancode rel_keys[] = {SDL_SCANCODE_W, SDL_SCANCODE_RIGHT, SDL_SCANCODE_I, SDL_SCANCODE_F,
+                               SDL_SCANCODE_Q, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_RSHIFT, SDL_SCANCODE_P, SDL_SCANCODE_V};
+    for (size_t ki = 0; ki < sizeof(rel_keys) / sizeof(rel_keys[0]); ki++) {
+        ev.type = SDL_EVENT_KEY_UP; ev.key.scancode = rel_keys[ki]; eng_input_process_event(inp, plat, &ev);
+    }
+
+    /* Synthetic 2-gamepad hot-plug, axis/button isolation, device lock & unplug */
+    memset(&ev, 0, sizeof(ev));
+    ev.type = SDL_EVENT_GAMEPAD_ADDED; ev.gdevice.which = 101; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_GAMEPAD_ADDED; ev.gdevice.which = 202; eng_input_process_event(inp, plat, &ev);
+    assert(eng_input_gamepad_count(inp) == 2 && eng_input_player_has_gamepad(inp, 0) && eng_input_player_has_gamepad(inp, 1));
+    assert(!eng_input_player_has_gamepad(inp, 2));
+
+    eng_input_begin_frame(inp, 1.0f / 60.0f);
+    memset(&ev, 0, sizeof(ev));
+    ev.type = SDL_EVENT_GAMEPAD_AXIS_MOTION; ev.gaxis.which = 202; ev.gaxis.axis = SDL_GAMEPAD_AXIS_LEFTX; ev.gaxis.value = 32767;
+    eng_input_process_event(inp, plat, &ev);
+    ev.gaxis.axis = SDL_GAMEPAD_AXIS_RIGHTX; ev.gaxis.value = 16384;
+    eng_input_process_event(inp, plat, &ev);
+    ev.gaxis.axis = SDL_GAMEPAD_AXIS_RIGHT_TRIGGER; ev.gaxis.value = 25000;
+    eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN; ev.gbutton.which = 202; ev.gbutton.button = SDL_GAMEPAD_BUTTON_EAST;
+    eng_input_process_event(inp, plat, &ev);
+    assert(eng_input_player_move(inp, 1).x > 0.9f && fabsf(eng_input_player_move(inp, 0).x) < 0.01f);
+    assert(eng_input_player_look(inp, 1).x > 0.3f);
+    assert(eng_input_player_down(inp, 1, "fire") && eng_input_player_down(inp, 1, "interact") && eng_input_player_pressed(inp, 1, "interact"));
+    eng_input_set_player_device(inp, 1, ENG_PDEV_KEYBOARD, 1);
+    assert(fabsf(eng_input_player_move(inp, 1).x) < 0.01f);
+    eng_input_set_player_device(inp, 1, ENG_PDEV_AUTO, -1);
+
+    eng_input_inject_player_action(inp, 2, "up", true);
+    eng_input_inject_player_action(inp, 2, "fire", true);
+    assert(eng_input_player_move(inp, 2).y > 0.9f && eng_input_player_down(inp, 2, "fire"));
+    eng_input_inject_player_action(inp, 2, "up", false);
+    eng_input_inject_player_action(inp, 2, "fire", false);
+
+    memset(&ev, 0, sizeof(ev));
+    ev.type = SDL_EVENT_GAMEPAD_REMOVED; ev.gdevice.which = 101; eng_input_process_event(inp, plat, &ev);
+    ev.type = SDL_EVENT_GAMEPAD_REMOVED; ev.gdevice.which = 202; eng_input_process_event(inp, plat, &ev);
+    assert(eng_input_gamepad_count(inp) == 0);
+    eng_input_set_split_keyboard(inp, false);
+
     /* JSON action rebinding round-trip */
     assert(eng_input_bind_key(inp, "jump", SDL_SCANCODE_J));
     char bind_json[1024], err[256];

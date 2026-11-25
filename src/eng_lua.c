@@ -76,6 +76,10 @@ struct eng_runtime_s {
     eng_net_peer_t *net_cli;
 
     eng_camera_t cam;
+    eng_viewport_t views[ENG_MAX_VIEWPORTS];
+    int view_count;
+    bool is_server;
+    char connect_url_buf[256];
     eng_rng_t rng;
 
     ent_visual_t visuals[ENG_MAX_ENT_VISUALS];
@@ -356,6 +360,66 @@ static int l_input_mouse_delta(lua_State *L) {
     lua_pushnumber(L, d.y);
     return 2;
 }
+static int l_input_set_split_kb(lua_State *L) {
+    eng_input_set_split_keyboard(get_rt(L)->input, lua_toboolean(L, 1) != 0);
+    return 0;
+}
+static int l_input_is_split_kb(lua_State *L) {
+    lua_pushboolean(L, eng_input_is_split_keyboard(get_rt(L)->input));
+    return 1;
+}
+static int l_input_set_player_dev(lua_State *L) {
+    int p = (int)luaL_checkinteger(L, 1) - 1;
+    const char *m = luaL_optstring(L, 2, "auto");
+    eng_player_dev_t dev = (strcmp(m, "keyboard") == 0) ? ENG_PDEV_KEYBOARD :
+                           (strcmp(m, "gamepad") == 0) ? ENG_PDEV_GAMEPAD : ENG_PDEV_AUTO;
+    int slot = (int)luaL_optinteger(L, 3, -1);
+    eng_input_set_player_device(get_rt(L)->input, p, dev, slot);
+    return 0;
+}
+static int l_input_gamepad_count(lua_State *L) {
+    lua_pushinteger(L, eng_input_gamepad_count(get_rt(L)->input));
+    return 1;
+}
+static int l_input_player_has_gp(lua_State *L) {
+    lua_pushboolean(L, eng_input_player_has_gamepad(get_rt(L)->input, (int)luaL_checkinteger(L, 1) - 1));
+    return 1;
+}
+static int l_input_player_down(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int p = (int)luaL_checkinteger(L, 1) - 1;
+    const char *act = luaL_checkstring(L, 2);
+    note_input_action(rt, act);
+    lua_pushboolean(L, eng_input_player_down(rt->input, p, act));
+    return 1;
+}
+static int l_input_player_pressed(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int p = (int)luaL_checkinteger(L, 1) - 1;
+    const char *act = luaL_checkstring(L, 2);
+    note_input_action(rt, act);
+    lua_pushboolean(L, eng_input_player_pressed(rt->input, p, act));
+    return 1;
+}
+static int l_input_player_move(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    rt->seen_inputs |= (1u | 2u);
+    eng_vec2_t mv = eng_input_player_move(rt->input, (int)luaL_checkinteger(L, 1) - 1);
+    lua_pushnumber(L, mv.x);
+    lua_pushnumber(L, mv.y);
+    return 2;
+}
+static int l_input_player_look(lua_State *L) {
+    eng_vec2_t lk = eng_input_player_look(get_rt(L)->input, (int)luaL_checkinteger(L, 1) - 1);
+    lua_pushnumber(L, lk.x);
+    lua_pushnumber(L, lk.y);
+    return 2;
+}
+static int l_input_inject_player(lua_State *L) {
+    eng_input_inject_player_action(get_rt(L)->input, (int)luaL_checkinteger(L, 1) - 1,
+                                   luaL_checkstring(L, 2), lua_toboolean(L, 3) != 0);
+    return 0;
+}
 
 static int l_xr_set_mode(lua_State *L) {
     const char *m = luaL_checkstring(L, 1);
@@ -486,6 +550,7 @@ static int l_cam_set(lua_State *L) {
         rt->cam.rot = eng_quat_from_euler_deg(eng_v3(chk_f(L, 4), opt_f(L, 5, 0.0f), opt_f(L, 6, 0.0f)));
     }
     if (!lua_isnoneornil(L, 7)) rt->cam.pocket_id = (uint16_t)luaL_checkinteger(L, 7);
+    rt->views[0].cam = rt->cam;
     return 0;
 }
 static int l_cam_look_at(lua_State *L) {
@@ -498,6 +563,7 @@ static int l_cam_look_at(lua_State *L) {
     float pitch = asinf(eng_clampf(d.y, -1.0f, 1.0f)) * ENG_RAD2DEG;
     rt->cam.rot = eng_quat_from_euler_deg(eng_v3(pitch, yaw, 0.0f));
     if (!lua_isnoneornil(L, 7)) rt->cam.pocket_id = (uint16_t)luaL_checkinteger(L, 7);
+    rt->views[0].cam = rt->cam;
     return 0;
 }
 static int l_cam_get(lua_State *L) {
@@ -505,6 +571,107 @@ static int l_cam_get(lua_State *L) {
     lua_pushnumber(L, rt->cam.pos.x); lua_pushnumber(L, rt->cam.pos.y); lua_pushnumber(L, rt->cam.pos.z);
     lua_pushinteger(L, rt->cam.pocket_id);
     return 4;
+}
+static void set_rect4(float dst[4], float x, float y, float w, float h) {
+    dst[0] = x; dst[1] = y; dst[2] = w; dst[3] = h;
+}
+static int l_cam_set_split(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int n = (int)luaL_checkinteger(L, 1);
+    const char *layout = luaL_optstring(L, 2, "");
+    if (n < 1) n = 1;
+    if (n > ENG_MAX_VIEWPORTS) n = ENG_MAX_VIEWPORTS;
+    rt->view_count = n;
+    eng_input_set_split_keyboard(rt->input, n > 1);
+    for (int i = 0; i < n; i++) {
+        if (rt->views[i].cam.fov_y_deg <= 1.0f) rt->views[i].cam = rt->cam;
+    }
+    if (n == 1) {
+        set_rect4(rt->views[0].norm_rect, 0.0f, 0.0f, 1.0f, 1.0f);
+    } else if (n == 2) {
+        if (strcmp(layout, "horizontal") == 0) {
+            set_rect4(rt->views[0].norm_rect, 0.0f, 0.5f, 1.0f, 0.5f);
+            set_rect4(rt->views[1].norm_rect, 0.0f, 0.0f, 1.0f, 0.5f);
+        } else {
+            set_rect4(rt->views[0].norm_rect, 0.0f, 0.0f, 0.5f, 1.0f);
+            set_rect4(rt->views[1].norm_rect, 0.5f, 0.0f, 0.5f, 1.0f);
+        }
+    } else if (n == 3) {
+        if (strcmp(layout, "vertical") == 0) {
+            set_rect4(rt->views[0].norm_rect, 0.0f, 0.0f, 1.0f / 3.0f, 1.0f);
+            set_rect4(rt->views[1].norm_rect, 1.0f / 3.0f, 0.0f, 1.0f / 3.0f, 1.0f);
+            set_rect4(rt->views[2].norm_rect, 2.0f / 3.0f, 0.0f, 1.0f / 3.0f, 1.0f);
+        } else {
+            set_rect4(rt->views[0].norm_rect, 0.0f, 0.5f, 0.5f, 0.5f);
+            set_rect4(rt->views[1].norm_rect, 0.5f, 0.5f, 0.5f, 0.5f);
+            set_rect4(rt->views[2].norm_rect, 0.0f, 0.0f, 1.0f, 0.5f);
+        }
+    } else {
+        set_rect4(rt->views[0].norm_rect, 0.0f, 0.5f, 0.5f, 0.5f);
+        set_rect4(rt->views[1].norm_rect, 0.5f, 0.5f, 0.5f, 0.5f);
+        set_rect4(rt->views[2].norm_rect, 0.0f, 0.0f, 0.5f, 0.5f);
+        set_rect4(rt->views[3].norm_rect, 0.5f, 0.0f, 0.5f, 0.5f);
+    }
+    return 0;
+}
+static int l_cam_set_viewport(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int idx = (int)luaL_checkinteger(L, 1) - 1;
+    if (idx < 0 || idx >= ENG_MAX_VIEWPORTS) return 0;
+    float x = chk_f(L, 2), y = chk_f(L, 3), w = chk_f(L, 4), h = chk_f(L, 5);
+    /* Lua UI coords are top-left normalized; convert Y to bottom-left OpenGL coords */
+    set_rect4(rt->views[idx].norm_rect, x, 1.0f - (y + h), w, h);
+    if (idx + 1 > rt->view_count) rt->view_count = idx + 1;
+    return 0;
+}
+static int l_cam_set_view(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int idx = (int)luaL_checkinteger(L, 1) - 1;
+    if (idx < 0 || idx >= ENG_MAX_VIEWPORTS) return 0;
+    eng_camera_t *c = &rt->views[idx].cam;
+    if (c->fov_y_deg <= 1.0f) *c = eng_camera_default();
+    c->pos = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+    if (!lua_isnoneornil(L, 5)) {
+        c->rot = eng_quat_from_euler_deg(eng_v3(chk_f(L, 5), opt_f(L, 6, 0.0f), opt_f(L, 7, 0.0f)));
+    }
+    if (!lua_isnoneornil(L, 8)) c->pocket_id = (uint16_t)luaL_checkinteger(L, 8);
+    if (idx == 0) rt->cam = *c;
+    return 0;
+}
+static int l_cam_look_at_view(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int idx = (int)luaL_checkinteger(L, 1) - 1;
+    if (idx < 0 || idx >= ENG_MAX_VIEWPORTS) return 0;
+    eng_camera_t *c = &rt->views[idx].cam;
+    if (c->fov_y_deg <= 1.0f) *c = eng_camera_default();
+    eng_vec3_t eye = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+    eng_vec3_t tgt = eng_v3(chk_f(L, 5), chk_f(L, 6), chk_f(L, 7));
+    c->pos = eye;
+    eng_vec3_t d = eng_v3_norm(eng_v3_sub(tgt, eye));
+    float yaw = atan2f(-d.x, -d.z) * ENG_RAD2DEG;
+    float pitch = asinf(eng_clampf(d.y, -1.0f, 1.0f)) * ENG_RAD2DEG;
+    c->rot = eng_quat_from_euler_deg(eng_v3(pitch, yaw, 0.0f));
+    if (!lua_isnoneornil(L, 8)) c->pocket_id = (uint16_t)luaL_checkinteger(L, 8);
+    if (idx == 0) rt->cam = *c;
+    return 0;
+}
+static int l_cam_get_view_rect(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int idx = (int)luaL_optinteger(L, 1, 1) - 1;
+    if (idx < 0) idx = 0;
+    if (idx >= ENG_MAX_VIEWPORTS) idx = ENG_MAX_VIEWPORTS - 1;
+    const float *r = rt->views[idx].norm_rect;
+    float top_y = 1.0f - (r[1] + r[3]);
+    lua_newtable(L);
+    lua_pushnumber(L, r[0]); lua_rawseti(L, -2, 1);
+    lua_pushnumber(L, top_y); lua_rawseti(L, -2, 2);
+    lua_pushnumber(L, r[2]); lua_rawseti(L, -2, 3);
+    lua_pushnumber(L, r[3]); lua_rawseti(L, -2, 4);
+    lua_pushnumber(L, r[0]); lua_setfield(L, -2, "x");
+    lua_pushnumber(L, top_y); lua_setfield(L, -2, "y");
+    lua_pushnumber(L, r[2]); lua_setfield(L, -2, "w");
+    lua_pushnumber(L, r[3]); lua_setfield(L, -2, "h");
+    return 1;
 }
 static int l_cam_fps_steer(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
@@ -531,6 +698,35 @@ static int l_cam_fps_steer(lua_State *L) {
     lua_pushnumber(L, pitch);
     lua_pushnumber(L, (fx * iy + rx * ix) * speed * dt);
     lua_pushnumber(L, (fz * iy + rz * ix) * speed * dt);
+    lua_pushnumber(L, fx);
+    lua_pushnumber(L, fz);
+    return 6;
+}
+static int l_cam_fps_steer_player(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int p = (int)luaL_checkinteger(L, 1) - 1;
+    float yaw = opt_f(L, 2, 0.0f);
+    float pitch = opt_f(L, 3, 0.0f);
+    float speed = chk_f(L, 4);
+    float dt = chk_f(L, 5);
+    float turn_spd = opt_f(L, 6, 130.0f);
+    rt->seen_inputs |= (1u | 2u);
+    eng_vec2_t lk = eng_input_player_look(rt->input, p);
+    yaw -= lk.x * turn_spd * dt;
+    pitch = eng_clampf(pitch - lk.y * turn_spd * 0.65f * dt, -80.0f, 80.0f);
+    if (p == 0 && rt->view_count == 1) {
+        eng_vec2_t md = get_look_delta(rt);
+        yaw -= md.x * 0.22f;
+        pitch = eng_clampf(pitch - md.y * 0.22f, -80.0f, 80.0f);
+    }
+    eng_vec2_t mv = eng_input_player_move(rt->input, p);
+    float rad = yaw * ENG_DEG2RAD;
+    float fx = -sinf(rad), fz = -cosf(rad);
+    float rx = cosf(rad), rz = -sinf(rad);
+    lua_pushnumber(L, yaw);
+    lua_pushnumber(L, pitch);
+    lua_pushnumber(L, (fx * mv.y + rx * mv.x) * speed * dt);
+    lua_pushnumber(L, (fz * mv.y + rz * mv.x) * speed * dt);
     lua_pushnumber(L, fx);
     lua_pushnumber(L, fz);
     return 6;
@@ -1380,14 +1576,19 @@ static int l_anim_ik_fabrik(lua_State *L) {
 
 static eng_net_transport_t parse_net_tr(const char *s) {
     if (s && strcmp(s, "udp") == 0) return ENG_NET_UDP;
-    if (s && strcmp(s, "websocket") == 0) return ENG_NET_WEBSOCKET;
+    if (s && (strcmp(s, "websocket") == 0 || strcmp(s, "ws") == 0)) return ENG_NET_WEBSOCKET;
     return ENG_NET_LOOPBACK;
+}
+static eng_net_peer_t *pick_net_peer(eng_runtime_t *rt, const char *role) {
+    if (!rt) return NULL;
+    if (!role || !role[0]) return rt->is_server ? rt->net_srv : (rt->net_cli ? rt->net_cli : rt->net_srv);
+    return (strcmp(role, "server") == 0) ? rt->net_srv : rt->net_cli;
 }
 static int l_net_start_loopback(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
     eng_net_destroy(rt->net_srv);
     eng_net_destroy(rt->net_cli);
-    rt->net_srv = eng_net_create(ENG_NET_LOOPBACK, 0);
+    rt->net_srv = eng_net_host(ENG_NET_LOOPBACK, NULL, 0);
     rt->net_cli = eng_net_create(ENG_NET_LOOPBACK, 0);
     lua_pushboolean(L, eng_net_connect_loopback(rt->net_srv, rt->net_cli));
     return 1;
@@ -1395,14 +1596,22 @@ static int l_net_start_loopback(lua_State *L) {
 static int l_net_host(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
     eng_net_destroy(rt->net_srv);
-    rt->net_srv = eng_net_create(parse_net_tr(luaL_optstring(L, 1, "udp")), (uint16_t)luaL_optinteger(L, 2, 0));
+    rt->net_srv = eng_net_host(parse_net_tr(luaL_optstring(L, 1, "ws")),
+                               luaL_optstring(L, 3, NULL),
+                               (uint16_t)luaL_optinteger(L, 2, 0));
     lua_pushinteger(L, rt->net_srv ? eng_net_bound_port(rt->net_srv) : 0);
     return 1;
 }
 static int l_net_connect(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
+    const char *a1 = luaL_optstring(L, 1, "ws");
     eng_net_destroy(rt->net_cli);
-    rt->net_cli = eng_net_create(parse_net_tr(luaL_optstring(L, 1, "udp")), 0);
+    if (strncmp(a1, "ws://", 5) == 0 || strncmp(a1, "wss://", 6) == 0) {
+        rt->net_cli = eng_net_create(ENG_NET_WEBSOCKET, 0);
+        lua_pushboolean(L, rt->net_cli && eng_net_connect_remote(rt->net_cli, a1, 0));
+        return 1;
+    }
+    rt->net_cli = eng_net_create(parse_net_tr(a1), 0);
     lua_pushboolean(L, rt->net_cli && eng_net_connect_remote(rt->net_cli, luaL_optstring(L, 2, "127.0.0.1"), (uint16_t)luaL_optinteger(L, 3, 7777)));
     return 1;
 }
@@ -1412,25 +1621,106 @@ static int l_net_send(lua_State *L) {
     size_t len = 0;
     const char *msg = luaL_checklstring(L, 2, &len);
     bool rel = lua_isnoneornil(L, 3) ? true : lua_toboolean(L, 3);
-    eng_net_peer_t *p = (strcmp(role, "server") == 0) ? rt->net_srv : rt->net_cli;
+    eng_net_peer_t *p = pick_net_peer(rt, role);
     lua_pushboolean(L, p && eng_net_send(p, rel ? ENG_CHAN_RELIABLE : ENG_CHAN_UNRELIABLE, msg, len));
+    return 1;
+}
+static int l_net_send_to(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint32_t cid = (uint32_t)luaL_checkinteger(L, 1);
+    size_t len = 0;
+    const char *msg = luaL_checklstring(L, 2, &len);
+    bool rel = lua_isnoneornil(L, 3) ? true : lua_toboolean(L, 3);
+    lua_pushboolean(L, rt->net_srv && eng_net_send_to(rt->net_srv, cid, rel ? ENG_CHAN_RELIABLE : ENG_CHAN_UNRELIABLE, msg, len));
+    return 1;
+}
+static int l_net_broadcast(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    size_t len = 0;
+    const char *msg = luaL_checklstring(L, 1, &len);
+    bool rel = lua_isnoneornil(L, 2) ? true : lua_toboolean(L, 2);
+    lua_pushboolean(L, rt->net_srv && eng_net_send_to(rt->net_srv, 0, rel ? ENG_CHAN_RELIABLE : ENG_CHAN_UNRELIABLE, msg, len));
     return 1;
 }
 static int l_net_poll(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
-    const char *role = luaL_checkstring(L, 1);
-    eng_net_peer_t *p = (strcmp(role, "server") == 0) ? rt->net_srv : rt->net_cli;
-    char buf[1400];
+    eng_net_peer_t *p = pick_net_peer(rt, luaL_optstring(L, 1, ""));
+    char buf[16384];
     size_t n = p ? eng_net_poll(p, buf, sizeof(buf), NULL) : 0;
     if (n == 0) { lua_pushnil(L); return 1; }
     lua_pushlstring(L, buf, n);
+    return 1;
+}
+static int l_net_poll_event(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_net_peer_t *p = pick_net_peer(rt, luaL_optstring(L, 1, ""));
+    eng_net_event_t ev;
+    char buf[16384];
+    if (!p || !eng_net_poll_event(p, &ev, buf, sizeof(buf))) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_newtable(L);
+    const char *tstr = (ev.type == ENG_NET_EVT_CONNECT) ? "connect" :
+                       (ev.type == ENG_NET_EVT_DISCONNECT) ? "disconnect" : "message";
+    lua_pushstring(L, tstr); lua_setfield(L, -2, "type");
+    lua_pushinteger(L, (lua_Integer)ev.client_id); lua_setfield(L, -2, "client_id");
+    lua_pushboolean(L, ev.chan == ENG_CHAN_RELIABLE); lua_setfield(L, -2, "reliable");
+    if (ev.type == ENG_NET_EVT_MESSAGE) {
+        lua_pushlstring(L, buf, ev.len);
+        lua_setfield(L, -2, "data");
+    }
+    return 1;
+}
+static int l_net_clients(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint32_t ids[ENG_NET_MAX_CLIENTS];
+    size_t n = rt->net_srv ? eng_net_client_ids(rt->net_srv, ids, ENG_NET_MAX_CLIENTS) : 0;
+    lua_newtable(L);
+    for (size_t i = 0; i < n; i++) {
+        lua_pushinteger(L, (lua_Integer)ids[i]);
+        lua_rawseti(L, -2, (int)(i + 1));
+    }
+    return 1;
+}
+static int l_net_kick(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    lua_pushboolean(L, rt->net_srv && eng_net_disconnect_client(rt->net_srv, (uint32_t)luaL_checkinteger(L, 1)));
+    return 1;
+}
+static int l_net_is_server(lua_State *L) {
+    lua_pushboolean(L, get_rt(L)->is_server);
+    return 1;
+}
+static int l_net_is_connected(lua_State *L) {
+    eng_net_peer_t *p = pick_net_peer(get_rt(L), luaL_optstring(L, 1, ""));
+    lua_pushboolean(L, p && eng_net_is_connected(p));
+    return 1;
+}
+static int l_net_launch_url(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    if (rt->connect_url_buf[0]) lua_pushstring(L, rt->connect_url_buf);
+    else lua_pushnil(L);
+    return 1;
+}
+static int l_net_broadcast_snapshot(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint32_t cid = (uint32_t)luaL_optinteger(L, 1, 0);
+    lua_pushboolean(L, rt->net_srv && eng_net_send_scene_snapshot_to(rt->net_srv, cid, rt->scene));
+    return 1;
+}
+static int l_net_apply_snapshot(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    size_t len = 0;
+    const char *data = luaL_checklstring(L, 1, &len);
+    lua_pushboolean(L, eng_net_apply_scene_snapshot(rt->scene, data, len));
     return 1;
 }
 static int l_net_sync_scene(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
     if (!rt->net_srv || !rt->net_cli) { lua_pushboolean(L, 0); return 1; }
     if (!eng_net_send_scene_snapshot(rt->net_srv, rt->scene)) { lua_pushboolean(L, 0); return 1; }
-    uint8_t snap[1400];
+    uint8_t snap[16384];
     size_t n = eng_net_poll(rt->net_cli, snap, sizeof(snap), NULL);
     lua_pushboolean(L, n > 0 && eng_net_apply_scene_snapshot(rt->scene, snap, n));
     return 1;
@@ -1453,6 +1743,16 @@ static const lua_fn_desc_t k_api_table[] = {
     {"input",     "set_mouse_lock",   l_input_set_mouse_lock,  "(locked: boolean): boolean", "Request or release relative mouse pointer lock (ESC unlocks)"},
     {"input",     "is_mouse_locked",  l_input_is_mouse_locked, "(): boolean", "True while mouse pointer lock is active"},
     {"input",     "mouse_delta",      l_input_mouse_delta,     "(): number, number", "Relative mouse look delta (dx, dy) while locked/dragging/touch"},
+    {"input",     "set_split_keyboard", l_input_set_split_kb,  "(enabled: boolean)", "Enable/disable 4-zone non-overlapping split-keyboard bindings"},
+    {"input",     "is_split_keyboard",  l_input_is_split_kb,   "(): boolean", "True when 4-zone split-keyboard mode is active"},
+    {"input",     "set_player_device",  l_input_set_player_dev,"(player: integer, mode: string, pad_slot?: integer)", "Assign player 1..4 to auto|keyboard|gamepad and optional pad slot"},
+    {"input",     "gamepad_count",      l_input_gamepad_count, "(): integer", "Number of connected SDL3 gamepads"},
+    {"input",     "player_has_gamepad", l_input_player_has_gp, "(player: integer): boolean", "True if player slot 1..4 has a connected gamepad"},
+    {"input",     "player_down",        l_input_player_down,   "(player: integer, action: string): boolean", "True while player 1..4 holds action on assigned keyboard zone or gamepad"},
+    {"input",     "player_pressed",     l_input_player_pressed,"(player: integer, action: string): boolean", "True on rising edge of player 1..4 action"},
+    {"input",     "player_move",        l_input_player_move,   "(player: integer): number, number", "Player 1..4 normalized 2D movement vector (mx, my)"},
+    {"input",     "player_look",        l_input_player_look,   "(player: integer): number, number", "Player 1..4 right-stick / keyboard look vector (lx, ly)"},
+    {"input",     "inject_player",      l_input_inject_player, "(player: integer, action: string, down: boolean)", "Inject deterministic virtual input for player slot 1..4"},
     {"xr",        "set_mode",         l_xr_set_mode,           "(mode: string)", "Set WebXR mode: diorama|cockpit|first_person|6dof"},
     {"xr",        "is_active",        l_xr_active,             "(): boolean", "True while Stereo WebXR session is active"},
     {"scene",     "spawn",            l_scene_spawn,           "(name?: string): number", "Spawn entity (+X right, +Y up, -Z forward)"},
@@ -1471,7 +1771,13 @@ static const lua_fn_desc_t k_api_table[] = {
     {"camera",    "set",              l_cam_set,               "(x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer)", "Set active camera pose & pocket"},
     {"camera",    "look_at",          l_cam_look_at,           "(ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer)", "Aim camera at 3D target"},
     {"camera",    "get",              l_cam_get,               "(): number, number, number, integer", "Return camera x, y, z, pocket_id"},
+    {"camera",    "set_split",        l_cam_set_split,         "(count: integer, layout?: string)", "Configure 1..4 split-screen viewports (vertical|horizontal|top2_bot1|grid4) and split keyboard"},
+    {"camera",    "set_viewport",     l_cam_set_viewport,      "(idx: integer, x: number, y: number, w: number, h: number)", "Set normalized top-left viewport rectangle for view 1..4"},
+    {"camera",    "set_view",         l_cam_set_view,          "(idx: integer, x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer)", "Set pose & pocket for split-screen camera 1..4"},
+    {"camera",    "look_at_view",     l_cam_look_at_view,      "(idx: integer, ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer)", "Aim split-screen camera 1..4 at target"},
+    {"camera",    "get_view_rect",    l_cam_get_view_rect,     "(idx: integer): table", "Return top-left normalized viewport rect {x,y,w,h} for eng.ui.viewport_anchor"},
     {"camera",    "fps_steer",        l_cam_fps_steer,         "(yaw: number, pitch: number, speed: number, dt: number, sens?: number): number, number, number, number, number, number", "Mouse-locked yaw/pitch look + camera-relative WASD forward/strafe step"},
+    {"camera",    "fps_steer_player", l_cam_fps_steer_player,  "(player: integer, yaw: number, pitch: number, speed: number, dt: number, turn_speed?: number): number, number, number, number, number, number", "Per-player (1..4) gamepad/split-keyboard yaw/pitch look + camera-relative move step"},
     {"render",    "set_pipeline",     l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
     {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT"},
     {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number)", "Set procedural skybox gradient"},
@@ -1527,10 +1833,20 @@ static const lua_fn_desc_t k_api_table[] = {
     {"ai",        "set_grid",         l_ai_set_grid,           "(pocket: integer, cell_size: number, w: integer, d: integer, walk_tbl?: table): boolean", "Register walkable NavGrid"},
     {"ai",        "find_path",        l_ai_find_path,          "(p0: integer, x0: number, y0: number, z0: number, p1: integer, x1: number, y1: number, z1: number): table", "Portal-traversing A* pathfinding"},
     {"net",       "start_loopback",   l_net_start_loopback,    "(): boolean", "Initialize connected in-memory server/client peers"},
-    {"net",       "host",             l_net_host,              "(transport?: string, port?: integer): integer", "Bind server peer (loopback|udp|websocket)"},
-    {"net",       "connect",          l_net_connect,           "(transport?: string, host?: string, port?: integer): boolean", "Connect client peer"},
+    {"net",       "host",             l_net_host,              "(transport?: string, port?: integer, bind_ip?: string): integer", "Host multi-client server (ws|udp|loopback) and return bound port"},
+    {"net",       "connect",          l_net_connect,           "(transport_or_url: string, host?: string, port?: integer): boolean", "Connect client peer via URL ('ws://...'/'wss://...') or transport+host+port"},
     {"net",       "send",             l_net_send,              "(role: string, msg: string, reliable?: boolean): boolean", "Send packet from server or client peer"},
-    {"net",       "poll",             l_net_poll,              "(role: string): string|nil", "Poll next packet on server or client peer"},
+    {"net",       "send_to",          l_net_send_to,           "(client_id: integer, msg: string, reliable?: boolean): boolean", "Send server packet to one client_id (0 = broadcast)"},
+    {"net",       "broadcast",        l_net_broadcast,         "(msg: string, reliable?: boolean): boolean", "Broadcast server packet to all connected clients"},
+    {"net",       "poll",             l_net_poll,              "(role?: string): string|nil", "Poll next message payload on server or client peer"},
+    {"net",       "poll_event",       l_net_poll_event,        "(role?: string): table|nil", "Poll next connect/disconnect/message event with client_id and data"},
+    {"net",       "clients",          l_net_clients,           "(): table", "Return array of connected client_id integers on server"},
+    {"net",       "kick",             l_net_kick,              "(client_id: integer): boolean", "Disconnect a client by client_id on server"},
+    {"net",       "is_server",        l_net_is_server,         "(): boolean", "True when running in dedicated --server mode"},
+    {"net",       "is_connected",     l_net_is_connected,      "(role?: string): boolean", "True when client is connected or server has >= 1 client"},
+    {"net",       "launch_url",       l_net_launch_url,        "(): string|nil", "Return --connect / ?server= launch URL if provided"},
+    {"net",       "broadcast_snapshot", l_net_broadcast_snapshot, "(client_id?: integer): boolean", "Send pocket-aware scene snapshot to all clients or one client_id"},
+    {"net",       "apply_snapshot",   l_net_apply_snapshot,    "(data: string): boolean", "Apply received pocket-aware scene snapshot payload"},
     {"net",       "sync_scene",       l_net_sync_scene,        "(): boolean", "Replicate pocket-aware scene snapshot from server to client"},
     {"save",      "write",            l_save_write,            "(slot: string, data: string): boolean", "Write versioned ENGB save slot"},
     {"save",      "read",             l_save_read,             "(slot: string): string|nil", "Read versioned ENGB save slot"},
@@ -1574,7 +1890,7 @@ static int strict_root_index(lua_State *L) {
         "log", "math", "input", "xr", "scene", "camera", "render", "asset",
         "portal", "physics", "procgen", "terrain", "particles", "anim",
         "audio", "ai", "net", "save", "i18n", "mod",
-        "async", "bt", "space", "procgen_ext", "ui", "fx", "fun", "test"
+        "async", "bt", "space", "procgen_ext", "ui", "fx", "fun", "mp", "test"
     };
     const char *sug = eng_str_suggest(key, mods, sizeof(mods) / sizeof(mods[0]), 4);
     luaL_where(L, 1);
@@ -1688,7 +2004,12 @@ eng_runtime_cfg_t eng_runtime_default_cfg(void) {
         .width = 640,
         .height = 480,
         .seed = 42u,
-        .lua_cov_out_path = NULL
+        .lua_cov_out_path = NULL,
+        .is_server = false,
+        .bind_ip = NULL,
+        .server_port = 0,
+        .connect_url = NULL,
+        .net_transport = NULL
     };
 }
 
@@ -1697,9 +2018,11 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     eng_runtime_t *rt = (eng_runtime_t *)calloc(1, sizeof(eng_runtime_t));
     if (!rt) return NULL;
     rt->cfg = c;
+    rt->is_server = c.is_server;
     snprintf(rt->repo_root_buf, sizeof(rt->repo_root_buf), "%s", c.repo_root ? c.repo_root : ".");
     if (c.game_dir) snprintf(rt->game_dir_buf, sizeof(rt->game_dir_buf), "%s", c.game_dir);
     if (c.mod_dir) snprintf(rt->mod_dir_buf, sizeof(rt->mod_dir_buf), "%s", c.mod_dir);
+    if (c.connect_url) snprintf(rt->connect_url_buf, sizeof(rt->connect_url_buf), "%s", c.connect_url);
     if (c.lua_cov_out_path) {
         snprintf(rt->cov_path_buf, sizeof(rt->cov_path_buf), "%s", c.lua_cov_out_path);
         rt->cov_enabled = true;
@@ -1707,6 +2030,9 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
 
     eng_rng_seed(&rt->rng, c.seed ? c.seed : 42u);
     rt->cam = eng_camera_default();
+    rt->view_count = 1;
+    rt->views[0].cam = rt->cam;
+    set_rect4(rt->views[0].norm_rect, 0.0f, 0.0f, 1.0f, 1.0f);
 
     rt->vfs = eng_vfs_create();
     eng_vfs_mount(rt->vfs, rt->repo_root_buf, 0, false);
@@ -1716,7 +2042,7 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     eng_platform_config_t pcfg = eng_platform_default_config();
     pcfg.width = c.width > 0 ? c.width : 640;
     pcfg.height = c.height > 0 ? c.height : 480;
-    pcfg.headless = c.headless;
+    pcfg.headless = c.headless || c.is_server;
     rt->plat = eng_platform_create(&pcfg);
     rt->input = eng_input_create();
     eng_input_bind_key(rt->input, "left", SDL_SCANCODE_A);
@@ -1731,7 +2057,7 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     eng_input_bind_key(rt->input, "fire", SDL_SCANCODE_RETURN);
     eng_input_bind_key(rt->input, "interact", SDL_SCANCODE_E);
     eng_input_bind_mouse_button(rt->input, "fire", 1);
-    /* Local 3-player cooperative keyboard bindings (WASD+E, IJKL+U, Arrows+Return) + Tab/C */
+    /* Local 3-player cooperative keyboard bindings (WASD+E, IJKL+U, Arrows+Return) + Tab/C/V/1/2/4 */
     eng_input_bind_key(rt->input, "p1_up", SDL_SCANCODE_W);
     eng_input_bind_key(rt->input, "p1_down", SDL_SCANCODE_S);
     eng_input_bind_key(rt->input, "p1_left", SDL_SCANCODE_A);
@@ -1749,17 +2075,33 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     eng_input_bind_key(rt->input, "p3_act", SDL_SCANCODE_RETURN);
     eng_input_bind_key(rt->input, "switch_crew", SDL_SCANCODE_TAB);
     eng_input_bind_key(rt->input, "toggle_cam", SDL_SCANCODE_C);
+    eng_input_bind_key(rt->input, "toggle_split", SDL_SCANCODE_V);
+    eng_input_bind_key(rt->input, "split_1", SDL_SCANCODE_1);
+    eng_input_bind_key(rt->input, "split_2", SDL_SCANCODE_2);
+    eng_input_bind_key(rt->input, "split_4", SDL_SCANCODE_4);
     rt->xr = eng_xr_create();
     rt->assets = eng_asset_cache_create(rt->vfs);
     rt->renderer = eng_renderer_create(rt->vfs, rt->assets, pcfg.width, pcfg.height);
     rt->scene = eng_scene_create(2048);
     rt->portals = eng_portal_sys_create();
     rt->physics = eng_physics_create();
-    rt->audio = eng_audio_create(c.headless);
+    rt->audio = eng_audio_create(pcfg.headless);
     rt->nav = eng_nav_create();
     rt->i18n = eng_i18n_create(rt->vfs, "en");
     rt->font = eng_font_load_ttf(rt->assets, rt->vfs, "assets/shared/fonts/proggy_clean.ttf", 16.0f);
     if (!rt->font) rt->font = eng_font_create_builtin(rt->assets);
+
+    if (rt->is_server) {
+        eng_net_transport_t tr = c.net_transport ? parse_net_tr(c.net_transport) : ENG_NET_WEBSOCKET;
+        uint16_t port = c.server_port ? c.server_port : 7777u;
+        rt->net_srv = eng_net_host(tr, c.bind_ip, port);
+        if (rt->net_srv) {
+            ENG_LOGI("net", "Dedicated server listening on %s:%u",
+                     c.bind_ip ? c.bind_ip : "0.0.0.0", (unsigned)eng_net_bound_port(rt->net_srv));
+        } else {
+            ENG_LOGE("net", "Dedicated server failed to bind port %u", (unsigned)port);
+        }
+    }
 
     /* Initialize Lua 5.1 / LuaJIT VM */
     lua_State *L = luaL_newstate();
@@ -1819,6 +2161,7 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     load_eng_lua_module(rt, "lua/eng/ui.lua", "ui");
     load_eng_lua_module(rt, "lua/eng/fx.lua", "fx");
     load_eng_lua_module(rt, "lua/eng/fun.lua", "fun");
+    load_eng_lua_module(rt, "lua/eng/mp.lua", "mp");
     load_eng_lua_module(rt, "lua/eng/test.lua", "test");
 
     /* Lock root `eng` table with strict Levenshtein __index metatable */
@@ -1868,6 +2211,7 @@ eng_xr_t *eng_runtime_xr(eng_runtime_t *rt)             { return rt ? rt->xr : N
 eng_platform_t *eng_runtime_platform(eng_runtime_t *rt) { return rt ? rt->plat : NULL; }
 eng_camera_t *eng_runtime_camera(eng_runtime_t *rt)     { return rt ? &rt->cam : NULL; }
 uint32_t eng_runtime_light_count(const eng_runtime_t *rt) { return rt ? (uint32_t)rt->persist_light_count : 0; }
+bool eng_runtime_is_server(const eng_runtime_t *rt)       { return rt ? rt->is_server : false; }
 
 bool eng_runtime_exec_lua(eng_runtime_t *rt, const char *chunk_name, const char *code,
                           char *out_or_err, size_t cap) {
@@ -1923,15 +2267,24 @@ static void on_script_modified_cb(const char *vpath, void *userdata) {
     eng_runtime_reload_scripts(rt, err, sizeof(err));
 }
 
+static const char *runtime_entry_script(const eng_runtime_t *rt) {
+    return (rt && rt->is_server && eng_vfs_exists(rt->vfs, "scripts/server.lua"))
+               ? "scripts/server.lua"
+               : "scripts/main.lua";
+}
+
 bool eng_runtime_reload_scripts(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
     if (!rt) return false;
+    const char *vpath = runtime_entry_script(rt);
     size_t sz = 0;
-    char *code = (char *)eng_vfs_read_all(rt->vfs, "scripts/main.lua", &sz);
+    char *code = (char *)eng_vfs_read_all(rt->vfs, vpath, &sz);
     if (!code) {
-        if (err_buf && err_cap > 0) snprintf(err_buf, err_cap, "Missing scripts/main.lua");
+        if (err_buf && err_cap > 0) snprintf(err_buf, err_cap, "Missing %s", vpath);
         return false;
     }
-    bool ok = eng_runtime_exec_lua(rt, "@scripts/main.lua", code, err_buf, err_cap);
+    char chunk[64];
+    snprintf(chunk, sizeof(chunk), "@%s", vpath);
+    bool ok = eng_runtime_exec_lua(rt, chunk, code, err_buf, err_cap);
     free(code);
     if (!ok) return false;
 
@@ -2023,10 +2376,11 @@ bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
         free(sjson);
     }
 
-    /* 3. Load scripts/main.lua + watch for hot reload */
-    if (eng_vfs_exists(rt->vfs, "scripts/main.lua")) {
+    /* 3. Load scripts/main.lua (or scripts/server.lua in --server mode) + watch for hot reload */
+    const char *entry = runtime_entry_script(rt);
+    if (eng_vfs_exists(rt->vfs, entry)) {
         if (!eng_runtime_reload_scripts(rt, err_buf, err_cap)) return false;
-        eng_vfs_watch(rt->vfs, "scripts/main.lua", on_script_modified_cb, rt);
+        eng_vfs_watch(rt->vfs, entry, on_script_modified_cb, rt);
     }
 
     /* 4. Load optional mod.lua overlay */
@@ -2094,7 +2448,16 @@ bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap
         eng_emitter_step(rt->emitters[i], dt);
     }
 
-    eng_audio_set_listener(rt->audio, rt->cam.pocket_id, rt->cam.pos, eng_v3(0, 0, 0), rt->cam.rot);
+    eng_audio_listener_t listeners[ENG_MAX_LISTENERS];
+    int nl = rt->view_count < 1 ? 1 : (rt->view_count > ENG_MAX_LISTENERS ? ENG_MAX_LISTENERS : rt->view_count);
+    rt->views[0].cam = rt->cam;
+    for (int i = 0; i < nl; i++) {
+        listeners[i].pocket_id = rt->views[i].cam.pocket_id;
+        listeners[i].pos = rt->views[i].cam.pos;
+        listeners[i].vel = eng_v3(0, 0, 0);
+        listeners[i].rot = rt->views[i].cam.rot;
+    }
+    eng_audio_set_listeners(rt->audio, listeners, nl);
     eng_audio_update(rt->audio, rt->scene, rt->portals, dt);
     return true;
 }
@@ -2149,7 +2512,8 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
     lua_pcall(L, 1, 0, 0);
     lua_pop(L, 2);
 
-    eng_renderer_render_frame(rt->renderer, rt->scene, rt->portals, &rt->cam, rt->xr);
+    rt->views[0].cam = rt->cam;
+    eng_renderer_render_views(rt->renderer, rt->scene, rt->portals, rt->views, rt->view_count, rt->xr);
     return true;
 }
 

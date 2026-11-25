@@ -1,5 +1,5 @@
 {
   "title": "TITAN-REINIGER: 3-CREW-MECH",
-  "controls": "S1[WASD+E] S2[IJKL+U] S3[Pfeile+Enter] | [Tab] Crew | [C] Kamera",
+  "controls": "S1[WASD+E/Pad1] S2[IJKL+U/Pad2] S3[Pfeile+Enter/Pad3] | [V] 3P-Split | [C] Kamera",
   "victory": "PLATZ 100% GEREINIGT! ALLE AN BORD!"
 }

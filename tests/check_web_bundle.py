@@ -15,6 +15,7 @@ SMOKE_SLUGS = [
     "008_clockwork_manor",
     "009_voxel_rail_tycoon",
     "101_giant_cleaner_mech",
+    "102_portal_arena_mp",
 ]
 
 FATAL_MARKERS = (

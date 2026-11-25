@@ -23,6 +23,13 @@ The engine SHALL map keyboard (with primary and alternate key bindings per actio
 - **WHEN** a first-person or free-roam game requests mouse lock (`eng.input.set_mouse_lock(true)` or `eng.camera.fps_steer`) and the player clicks the canvas on Web or Desktop
 - **THEN** pointer lock engages (`ESC` releases), mouse movement rotates camera yaw/pitch freely, and both `W`/`S`/`A`/`D` and `Arrow` keys steer forward/backward and strafe left/right relative to camera yaw without orbiting a fixed point
 
+### Requirement: Multi-Player Local Input (Per-Player Gamepads and Split Keyboard Zones)
+The engine SHALL support up to 4 independent local player input slots (`1..4`), hot-plugging SDL3 gamepads by device ID across Desktop and Web while providing optional non-overlapping 4-zone split-keyboard bindings (`WASD`, `Arrows`, `IJKL`, `TFGH`/`Numpad`) and per-player virtual input injection for playtests.
+
+#### Scenario: Four-player mixed gamepad and split-keyboard input isolation
+- **WHEN** split-keyboard mode is enabled and multiple SDL3 gamepads connect
+- **THEN** each player slot (`1..4`) independently reads its assigned keyboard zone and/or dedicated gamepad axes and buttons via `eng.input.player_*` without cross-talk between players
+
 ### Requirement: Automatic Mobile Web Touch Controls
 The engine SHALL detect touch-primary mobile browsers on Web builds and automatically activate a skinnable virtual thumbstick/button overlay matching the game's `touch_preset`.
 

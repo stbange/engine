@@ -59,6 +59,7 @@ eng_platform_t *eng_platform_create(const eng_platform_config_t *cfg_in) {
         SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
         p->headless = true;
     }
+    (void)SDL_InitSubSystem(SDL_INIT_GAMEPAD);
 
     p->counter_freq = SDL_GetPerformanceFrequency();
     p->last_counter = SDL_GetPerformanceCounter();

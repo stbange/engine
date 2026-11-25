@@ -15,7 +15,10 @@ function init()
     S.frame = 0
     S.won = false
     S.cam_mode = 0 -- 0 = Bridge Panorama, 1..3 = Crew Follow, 4 = Exterior Giant Mech Cam
+    S.split_view = (eng.input.gamepad_count() >= 2)
+    if S.split_view then eng.camera.set_split(3, "top2_bot1") end
     S.active_crew = 1
+    for gi = 1, 3 do eng.input.set_player_device(gi, "gamepad", gi - 1) end
     S.cruise_throttle = 0.0
     S.hopper_load = 0
     S.hopper_cap = 2
@@ -183,6 +186,12 @@ local function crew_axes_and_act(idx, c)
     local lx = (eng.input.down(p .. "_right") and 1.0 or 0.0) - (eng.input.down(p .. "_left") and 1.0 or 0.0)
     local lz = (eng.input.down(p .. "_down") and 1.0 or 0.0) - (eng.input.down(p .. "_up") and 1.0 or 0.0)
     local act = eng.input.pressed(p .. "_act")
+    local gmx, gmy = eng.input.player_move(idx)
+    lx = eng.math.clamp(lx + gmx, -1.0, 1.0)
+    lz = eng.math.clamp(lz - gmy, -1.0, 1.0)
+    if eng.input.player_pressed(idx, "interact") or eng.input.player_pressed(idx, "jump") or eng.input.player_pressed(idx, "fire") then
+        act = true
+    end
     return lx, lz, act
 end
 
@@ -242,6 +251,10 @@ function update(dt)
     end
     if eng.input.pressed("toggle_cam") then
         S.cam_mode = (S.cam_mode == 4) and 0 or 4
+    end
+    if eng.input.pressed("toggle_split") then
+        S.split_view = not S.split_view
+        if S.split_view then eng.camera.set_split(3, "top2_bot1") else eng.camera.set_split(1) end
     end
 
     -- 1. Gather helm steering from whichever crew member has Helm Lock active (plus persistent cruise!)
@@ -370,8 +383,14 @@ function update(dt)
         eng.fun.record_outcome(S.fun, true)
     end
 
-    -- 4. Update active camera
-    if S.cam_mode == 0 then
+    -- 4. Update active camera(s)
+    if S.split_view then
+        for i = 1, 3 do
+            local fc = S.crew[i]
+            local px, py, pz = eng.scene.get_pos(fc.ent)
+            eng.camera.look_at_view(i, px, py + 2.2, pz + 3.6, px, py + 0.6, pz - 4.0, fc.pocket)
+        end
+    elseif S.cam_mode == 0 then
         eng.camera.look_at(0.0, 3.9, 6.4, 0.0, 1.9, -9.0, S.bridge_pocket)
     elseif S.cam_mode >= 1 and S.cam_mode <= 3 then
         local fc = S.crew[S.cam_mode]

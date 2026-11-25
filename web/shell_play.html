@@ -169,6 +169,10 @@
             await preloadList(Module.FS, mf.mod_files);
             args.push('--mod', '/mods/' + modSlug);
           }
+          const serverUrl = (params.get('server') || params.get('join') || '').trim();
+          if (serverUrl && /^wss?:\/\/[^\s]+$/i.test(serverUrl)) {
+            args.push('--connect', serverUrl);
+          }
           statusEl.style.display = 'none';
           Module.callMain(args);
           Module.canvas.focus();

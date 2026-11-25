@@ -3,9 +3,14 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
+#include <SDL3/SDL_timer.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static volatile sig_atomic_t g_srv_stop = 0;
+static void on_srv_sig(int sig) { (void)sig; g_srv_stop = 1; }
 
 static void draw_runtime_hud(eng_ui_t *ui, const eng_runtime_t *rt) {
     size_t n = eng_runtime_hud_text_count(rt);
@@ -136,11 +141,17 @@ int eng_cli_run(int argc, char **argv) {
     const char *new_dir = NULL;
     const char *tmpl = "fps";
     const char *gen_stubs = NULL;
+    const char *bind_ip = NULL;
+    const char *connect_url = NULL;
+    const char *net_transport = "ws";
     bool headless = false;
+    bool is_server = false;
     bool doctor = false;
     int fuzz_seeds = 0;
     int max_frames = 0;
+    int tick_rate = 30;
     int win_w = 0, win_h = 0;
+    uint16_t server_port = 7777u;
     uint64_t seed = 42u;
 
     for (int i = 1; i < argc; i++) {
@@ -161,6 +172,19 @@ int eng_cli_run(int argc, char **argv) {
             mod_dir = argv[++i];
         } else if (strcmp(a, "--headless") == 0) {
             headless = true;
+        } else if (strcmp(a, "--server") == 0) {
+            is_server = true;
+            headless = true;
+        } else if (strcmp(a, "--port") == 0 && i + 1 < argc) {
+            server_port = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(a, "--bind") == 0 && i + 1 < argc) {
+            bind_ip = argv[++i];
+        } else if (strcmp(a, "--tick-rate") == 0 && i + 1 < argc) {
+            tick_rate = atoi(argv[++i]);
+        } else if (strcmp(a, "--transport") == 0 && i + 1 < argc) {
+            net_transport = argv[++i];
+        } else if (strcmp(a, "--connect") == 0 && i + 1 < argc) {
+            connect_url = argv[++i];
         } else if (strcmp(a, "--doctor") == 0) {
             doctor = true;
         } else if (strcmp(a, "--fuzz-seeds") == 0 && i + 1 < argc) {
@@ -199,7 +223,7 @@ int eng_cli_run(int argc, char **argv) {
     }
 
     if (!game_dir) {
-        printf("Engine %s ready. Usage: engine [--game <dir>] [--headless] [--doctor] [--fuzz-seeds <N>] [--test <playtest.lua>] [--capture-sheet <out.png>] [--new <dir> --template <name>]\n",
+        printf("Engine %s ready. Usage: engine [--game <dir>] [--headless] [--server --port <N>] [--connect <url>] [--doctor] [--fuzz-seeds <N>] [--test <playtest.lua>] [--capture-sheet <out.png>] [--new <dir> --template <name>]\n",
                eng_version_string());
         return 0;
     }
@@ -219,6 +243,11 @@ int eng_cli_run(int argc, char **argv) {
     if (win_w > 0) rcfg.width = win_w;
     if (win_h > 0) rcfg.height = win_h;
     rcfg.seed = seed;
+    rcfg.is_server = is_server;
+    rcfg.bind_ip = bind_ip;
+    rcfg.server_port = server_port;
+    rcfg.connect_url = connect_url;
+    rcfg.net_transport = net_transport;
 
     eng_runtime_t *rt = eng_runtime_create(&rcfg);
     if (!rt) return 1;
@@ -244,6 +273,30 @@ int eng_cli_run(int argc, char **argv) {
             rc = 1;
         } else {
             printf("[PLAYTEST PASS] %s (%s)\n", game_dir, test_script);
+        }
+    } else if (rc == 0 && !doctor && is_server) {
+        /* Headless fixed-tick authoritative game server loop (no swap/UI/renderer work) */
+        if (tick_rate < 1) tick_rate = 1;
+        if (tick_rate > 240) tick_rate = 240;
+        float dt = 1.0f / (float)tick_rate;
+        uint64_t step_ns = (uint64_t)(1000000000ull / (uint64_t)tick_rate);
+        g_srv_stop = 0;
+        signal(SIGINT, on_srv_sig);
+        signal(SIGTERM, on_srv_sig);
+        int f = 0;
+        while (!g_srv_stop) {
+            uint64_t t0 = SDL_GetTicksNS();
+            if (!eng_runtime_step(rt, dt, err, sizeof(err))) {
+                fprintf(stderr, "Server error: %s\n", err);
+                rc = 1;
+                break;
+            }
+            f++;
+            if (max_frames > 0 && f >= max_frames) break;
+            if (max_frames == 0) {
+                uint64_t el = SDL_GetTicksNS() - t0;
+                if (el < step_ns) SDL_DelayNS(step_ns - el);
+            }
         }
     } else if (rc == 0 && !doctor) {
         /* Standard interactive or fixed-frame loop with Profiler, Nuklear HUD/Console (~) & Editor (F1/F5) */

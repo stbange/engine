@@ -5,9 +5,9 @@ All bundled or linked third-party software and shared assets use permissive MIT-
 
 ---
 
-## 1. Simple DirectMedia Layer (SDL3) — zlib License
-- Upstream: https://github.com/libsdl-org/SDL
-- Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
+## 1. Simple DirectMedia Layer (SDL3 & SDL3_net) — zlib License
+- Upstream: https://github.com/libsdl-org/SDL & https://github.com/libsdl-org/SDL_net (`release-3.2.0`)
+- Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org> & Ryan C. Gordon
 - Licensed under the **zlib License**:
   > This software is provided 'as-is', without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
   > Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:

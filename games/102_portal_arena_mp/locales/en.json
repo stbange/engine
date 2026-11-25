@@ -1,0 +1,6 @@
+{
+  "title": "PORTAL ARENA CROSS-PLAY",
+  "controls": "P1[WASD] P2[Arrows] P3[IJKL] P4[TFGH/Pad1-4] | [1/2/4/V] Split | --server/--connect Online",
+  "vault_hint": "Enter the Crystal Vault portal to double your score!",
+  "online_status": "ONLINE"
+}

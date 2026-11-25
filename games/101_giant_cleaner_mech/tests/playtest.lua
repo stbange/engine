@@ -26,6 +26,7 @@ function playtest_frame(f)
     clear_prefix("p2")
     clear_prefix("p3")
     eng.input.inject("toggle_cam", f == 120 or f == 150)
+    eng.input.inject("toggle_split", f == 165 or f == 195)
 
     local c1, c2, c3 = S.crew[1], S.crew[2], S.crew[3]
     local x1, _, z1 = eng.scene.get_pos(c1.ent)

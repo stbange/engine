@@ -43,3 +43,10 @@ The engine SHALL natively render glTF/OBJ/compound-CSG 3D meshes, depth-writing 
 #### Scenario: Greedy voxel remeshing on block edit
 - **WHEN** Lua or C modifies a voxel inside a `16x16x16` chunk
 - **THEN** `eng_voxel` greedy-merges coplanar same-palette faces with per-vertex AO and updates only the dirty chunk mesh
+
+### Requirement: Multi-Viewport Split-Screen Rendering
+The engine SHALL render 1 to 4 independent camera viewports per frame (`eng_renderer_render_views`, `eng.camera.set_split`) across both Forward and Deferred pipelines with per-viewport aspect/FOV, isolated pocket portals and shadows, pixel-exact Deferred G-buffer sampling (`texelFetch`), divider bars, and viewport-relative HUD anchoring.
+
+#### Scenario: Two-to-four player split-screen across different pockets
+- **WHEN** a game enables 2-way or 4-way split-screen and players view different `pocket_id` spaces
+- **THEN** each viewport renders its own camera, pocket lighting, portals, and viewport-anchored HUD cleanly clipped to its screen rectangle without bleeding across viewports

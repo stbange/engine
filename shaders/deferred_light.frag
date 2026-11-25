@@ -23,10 +23,11 @@ uniform int u_has_shadow;
 layout(location = 0) out vec4 o_color;
 
 void main() {
-    vec4 pa = texture(u_gb_pos_ao, v_uv);
+    ivec2 px = ivec2(gl_FragCoord.xy);
+    vec4 pa = texelFetch(u_gb_pos_ao, px, 0);
     if (pa.w < 0.5) discard;
-    vec4 am = texture(u_gb_albedo_met, v_uv);
-    vec4 nr = texture(u_gb_norm_rough, v_uv);
+    vec4 am = texelFetch(u_gb_albedo_met, px, 0);
+    vec4 nr = texelFetch(u_gb_norm_rough, px, 0);
 
     vec3 world_pos = pa.xyz;
     vec3 N = normalize(nr.xyz * 2.0 - 1.0);

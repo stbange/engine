@@ -112,6 +112,18 @@ bool eng_renderer_submit_mesh(eng_renderer_t *r, const eng_draw_item_t *item);
 bool eng_renderer_submit_sprites(eng_renderer_t *r, const eng_sprite_item_t *sprites, size_t count);
 bool eng_renderer_add_light(eng_renderer_t *r, const eng_light_t *light);
 
+#define ENG_MAX_VIEWPORTS 4
+
+typedef struct {
+    eng_camera_t cam;
+    float norm_rect[4]; /* normalized {x, y, w, h} in [0..1], bottom-left GL coords */
+} eng_viewport_t;
+
+void eng_renderer_render_views(eng_renderer_t *r, const eng_scene_t *scene,
+                               const eng_portal_sys_t *portals,
+                               const eng_viewport_t *views, int view_count,
+                               const eng_xr_t *xr);
+
 void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
                                const eng_portal_sys_t *portals,
                                const eng_camera_t *cam, const eng_xr_t *xr);

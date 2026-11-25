@@ -1,0 +1,34 @@
+services:
+  game-server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    environment:
+      GAME_DIR: ${GAME_DIR:-games/102_portal_arena_mp}
+      SERVER_PORT: "7777"
+      TICK_RATE: ${TICK_RATE:-30}
+    ports:
+      # Direct ws:// access for LAN / Desktop testing
+      - "7777:7777"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      # Set SERVER_DOMAIN=play.yourdomain.com for automatic Let's Encrypt wss:// on port 443
+      SERVER_DOMAIN: ${SERVER_DOMAIN:-:8443}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - game-server
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -22,9 +22,9 @@ Licensed under the [MIT License](LICENSE) ([Third-Party Notices](THIRD_PARTY_NOT
   - Greedy-meshed palette voxel chunks (`.vox` + `voxel_ascii` + boolean CSG + 4-level vertex AO + DDA raycasts), 8-directional & billboard sprites, heightmap terrain, particles, and `stb_truetype` UTF-8 SDF text.
 - **Cross-Platform Desktop, Mobile Web & Stereo WebXR**:
   - Targets **Windows**, **Linux**, **macOS**, **WebAssembly (Emscripten)** with automatic mobile touch HUD switching, and **Stereo WebXR (`immersive-vr`)** (`diorama`, `cockpit`, `first_person`, `6dof`).
-- **Complete Runtime, Tooling & 101 Example Games**:
-  - Sparse-set SoA ECS, arena/pool allocators, `SDL_Thread` jobs, pure-C BVH/GJK/voxel physics, glTF skinning + 2-bone/FABRIK IK, SDL3 3D audio (`WAV`, `stb_vorbis` Ogg, ADSR synth), NavGrid A* + Lua Behavior Trees, UDP/WebSocket/Loopback netcode, Nuklear HUD, `~` console + sandboxed Lua REPL, CPU/GPU profiler + 3D debug draw, `F1` scene editor (`F5` Play-in-Editor), modding VFS (`mods/`), `ENGB`/JSON saves, and UTF-8 i18n.
-  - Ships **101 playable, automated-tested games** (`games/001_*` – `games/101_*`, including 3-player walkable giant bipedal mech `101_giant_cleaner_mech`) deployed to GitHub Pages from `main` via one shared `engine.wasm`.
+- **Complete Runtime, Tooling, Multiplayer & 102 Example Games**:
+  - Sparse-set SoA ECS, arena/pool allocators, `SDL_Thread` jobs, pure-C BVH/GJK/voxel physics, glTF skinning + 2-bone/FABRIK IK, multi-listener SDL3 3D audio (`WAV`, `stb_vorbis` Ogg, ADSR synth), NavGrid A* + Lua Behavior Trees, 1–4P split-screen (`eng.camera.set_split`) with per-player SDL3 gamepads & 4-zone split keyboard, cross-platform WebSocket (`SDL3_net` + Emscripten) / UDP / Loopback netcode + `--server` dedicated server mode (`server/docker-compose.yml`), Nuklear HUD, `~` console + sandboxed Lua REPL, CPU/GPU profiler + 3D debug draw, `F1` scene editor (`F5` Play-in-Editor), modding VFS (`mods/`), `ENGB`/JSON saves, and UTF-8 i18n.
+  - Ships **102 playable, automated-tested games** (`games/001_*` – `games/102_*`, including 3P split-screen walkable giant mech `101_giant_cleaner_mech` and 4P split-screen + cross-play WebSocket showcase `102_portal_arena_mp`) deployed to GitHub Pages from `main` via one shared `engine.wasm`.
 
 ---
 
@@ -43,20 +43,24 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-### 2. Run, Audit, Edit, or Mod Any of the 101 Games
+### 2. Run, Host Multiplayer Servers, Audit, Edit, or Mod Any of the 102 Games
 ```bash
 # Play interactively (press H for Help, F1 for Level Editor, F5 for Play-in-Editor, ~ for Lua Console)
-./build/engine --game games/101_giant_cleaner_mech
+./build/engine --game games/102_portal_arena_mp
+
+# Host a cross-platform dedicated WebSocket server (Browser + Windows/macOS/Linux join together!)
+./build/engine --server --game games/102_portal_arena_mp --port 7777
+./build/engine --game games/102_portal_arena_mp --connect ws://127.0.0.1:7777
 
 # Play with an active VFS + Lua mod overlay
 ./build/engine --game games/001_catacomb_blitz --mod mods/example_retro_pack
 
 # Headless Spatial Doctor + multi-seed procedural fuzz audit + 2x2 contact sheet
-./build/engine --headless --doctor --fuzz-seeds 5 --game games/101_giant_cleaner_mech
-./build/engine --headless --game games/101_giant_cleaner_mech --capture-sheet sheet.png --frames 30
+./build/engine --headless --doctor --fuzz-seeds 5 --game games/102_portal_arena_mp
+./build/engine --headless --game games/102_portal_arena_mp --capture-sheet sheet.png --frames 30
 
-# Run all 101 automated game audits & headless playtests
-python3 tests/run_all_games.py ./build/engine --expect-count 101
+# Run all 102 automated game audits & headless playtests
+python3 tests/run_all_games.py ./build/engine --expect-count 102
 ```
 
 ### 3. Run Unit Tests & >= 95% C + Lua Coverage Gate

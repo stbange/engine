@@ -1,5 +1,5 @@
 {
   "title": "TITAN JANITOR: 3-CREW MECH",
-  "controls": "P1[WASD+E] P2[IJKL+U] P3[Arrows+Enter] | [Tab] Crew | [C] Cam",
+  "controls": "P1[WASD+E/Pad1] P2[IJKL+U/Pad2] P3[Arrows+Enter/Pad3] | [V] 3P Split | [C] Cam",
   "victory": "PLAZA 100% SANITIZED! ALL CREW ABOARD!"
 }

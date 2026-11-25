@@ -58,6 +58,36 @@ function eng.input.is_mouse_locked(): boolean end
 --- Relative mouse look delta (dx, dy) while locked/dragging/touch
 function eng.input.mouse_delta(): number, number end
 
+--- Enable/disable 4-zone non-overlapping split-keyboard bindings
+function eng.input.set_split_keyboard(enabled: boolean) end
+
+--- True when 4-zone split-keyboard mode is active
+function eng.input.is_split_keyboard(): boolean end
+
+--- Assign player 1..4 to auto|keyboard|gamepad and optional pad slot
+function eng.input.set_player_device(player: integer, mode: string, pad_slot?: integer) end
+
+--- Number of connected SDL3 gamepads
+function eng.input.gamepad_count(): integer end
+
+--- True if player slot 1..4 has a connected gamepad
+function eng.input.player_has_gamepad(player: integer): boolean end
+
+--- True while player 1..4 holds action on assigned keyboard zone or gamepad
+function eng.input.player_down(player: integer, action: string): boolean end
+
+--- True on rising edge of player 1..4 action
+function eng.input.player_pressed(player: integer, action: string): boolean end
+
+--- Player 1..4 normalized 2D movement vector (mx, my)
+function eng.input.player_move(player: integer): number, number end
+
+--- Player 1..4 right-stick / keyboard look vector (lx, ly)
+function eng.input.player_look(player: integer): number, number end
+
+--- Inject deterministic virtual input for player slot 1..4
+function eng.input.inject_player(player: integer, action: string, down: boolean) end
+
 ---@class eng.xr
 eng.xr = {}
 
@@ -121,8 +151,26 @@ function eng.camera.look_at(ex: number, ey: number, ez: number, tx: number, ty: 
 --- Return camera x, y, z, pocket_id
 function eng.camera.get(): number, number, number, integer end
 
+--- Configure 1..4 split-screen viewports (vertical|horizontal|top2_bot1|grid4) and split keyboard
+function eng.camera.set_split(count: integer, layout?: string) end
+
+--- Set normalized top-left viewport rectangle for view 1..4
+function eng.camera.set_viewport(idx: integer, x: number, y: number, w: number, h: number) end
+
+--- Set pose & pocket for split-screen camera 1..4
+function eng.camera.set_view(idx: integer, x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer) end
+
+--- Aim split-screen camera 1..4 at target
+function eng.camera.look_at_view(idx: integer, ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer) end
+
+--- Return top-left normalized viewport rect {x,y,w,h} for eng.ui.viewport_anchor
+function eng.camera.get_view_rect(idx: integer): table end
+
 --- Mouse-locked yaw/pitch look + camera-relative WASD forward/strafe step
 function eng.camera.fps_steer(yaw: number, pitch: number, speed: number, dt: number, sens?: number): number, number, number, number, number, number end
+
+--- Per-player (1..4) gamepad/split-keyboard yaw/pitch look + camera-relative move step
+function eng.camera.fps_steer_player(player: integer, yaw: number, pitch: number, speed: number, dt: number, turn_speed?: number): number, number, number, number, number, number end
 
 ---@class eng.render
 eng.render = {}
@@ -322,17 +370,47 @@ eng.net = {}
 --- Initialize connected in-memory server/client peers
 function eng.net.start_loopback(): boolean end
 
---- Bind server peer (loopback|udp|websocket)
-function eng.net.host(transport?: string, port?: integer): integer end
+--- Host multi-client server (ws|udp|loopback) and return bound port
+function eng.net.host(transport?: string, port?: integer, bind_ip?: string): integer end
 
---- Connect client peer
-function eng.net.connect(transport?: string, host?: string, port?: integer): boolean end
+--- Connect client peer via URL ('ws://...'/'wss://...') or transport+host+port
+function eng.net.connect(transport_or_url: string, host?: string, port?: integer): boolean end
 
 --- Send packet from server or client peer
 function eng.net.send(role: string, msg: string, reliable?: boolean): boolean end
 
---- Poll next packet on server or client peer
-function eng.net.poll(role: string): string|nil end
+--- Send server packet to one client_id (0 = broadcast)
+function eng.net.send_to(client_id: integer, msg: string, reliable?: boolean): boolean end
+
+--- Broadcast server packet to all connected clients
+function eng.net.broadcast(msg: string, reliable?: boolean): boolean end
+
+--- Poll next message payload on server or client peer
+function eng.net.poll(role?: string): string|nil end
+
+--- Poll next connect/disconnect/message event with client_id and data
+function eng.net.poll_event(role?: string): table|nil end
+
+--- Return array of connected client_id integers on server
+function eng.net.clients(): table end
+
+--- Disconnect a client by client_id on server
+function eng.net.kick(client_id: integer): boolean end
+
+--- True when running in dedicated --server mode
+function eng.net.is_server(): boolean end
+
+--- True when client is connected or server has >= 1 client
+function eng.net.is_connected(role?: string): boolean end
+
+--- Return --connect / ?server= launch URL if provided
+function eng.net.launch_url(): string|nil end
+
+--- Send pocket-aware scene snapshot to all clients or one client_id
+function eng.net.broadcast_snapshot(client_id?: integer): boolean end
+
+--- Apply received pocket-aware scene snapshot payload
+function eng.net.apply_snapshot(data: string): boolean end
 
 --- Replicate pocket-aware scene snapshot from server to client
 function eng.net.sync_scene(): boolean end

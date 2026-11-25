@@ -39,6 +39,11 @@ typedef struct {
     int height;
     uint64_t seed;
     const char *lua_cov_out_path;
+    bool is_server;
+    const char *bind_ip;
+    uint16_t server_port;
+    const char *connect_url;
+    const char *net_transport;
 } eng_runtime_cfg_t;
 
 typedef struct eng_runtime_s eng_runtime_t;
@@ -64,6 +69,7 @@ size_t eng_runtime_hud_text_count(const eng_runtime_t *rt);
 const char *eng_runtime_hud_text_get(const eng_runtime_t *rt, size_t idx, float *out_x, float *out_y);
 const char *eng_runtime_game_desc(const eng_runtime_t *rt);
 void eng_runtime_format_controls(const eng_runtime_t *rt, char *out_buf, size_t cap);
+bool eng_runtime_is_server(const eng_runtime_t *rt);
 
 /* Load game.json + scenes/main.json (if present) + scripts/main.lua + active mod.lua, then call init(). */
 bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap);

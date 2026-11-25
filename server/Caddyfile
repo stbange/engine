@@ -1,0 +1,7 @@
+# Automatic HTTPS / WSS reverse proxy for stbange/engine dedicated servers
+# Set SERVER_DOMAIN in docker-compose.yml (e.g. play.example.com).
+# Caddy provisions Let's Encrypt TLS certificates automatically so HTTPS browser
+# clients (GitHub Pages / itch.io) can connect via wss://play.example.com.
+{$SERVER_DOMAIN::8443} {
+    reverse_proxy game-server:7777
+}

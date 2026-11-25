@@ -36,7 +36,7 @@ DEFAULT_ACTIONS = {
     "p1_up", "p1_down", "p1_left", "p1_right", "p1_act",
     "p2_up", "p2_down", "p2_left", "p2_right", "p2_act",
     "p3_up", "p3_down", "p3_left", "p3_right", "p3_act",
-    "switch_crew", "toggle_cam",
+    "switch_crew", "toggle_cam", "toggle_split", "split_1", "split_2", "split_4",
 }
 VALID_BODY_SHAPES = {"aabb", "sphere", "capsule", "voxel"}
 VALID_BODY_MOTIONS = {"static", "kinematic", "dynamic"}
@@ -44,6 +44,8 @@ VALID_ANIMALS = {"quadruped", "biped", "avian", "insectoid", "aquatic", "serpent
 VALID_WAVES = {"square", "saw", "triangle", "sine", "noise"}
 VALID_XR = {"diorama", "cockpit", "first_person", "6dof"}
 VALID_PIPELINES = {"forward", "deferred"}
+VALID_SPLIT_LAYOUTS = {"vertical", "horizontal", "top2_bot1", "grid4"}
+VALID_PDEV_MODES = {"auto", "keyboard", "gamepad"}
 VALID_GAME_RETRO_KEYS = {
     "vertex_snap", "nearest_textures", "dither_bayer",
     "color_bits", "crt_scanlines", "fog_density", "fog_color", "fog_height", "bloom",
@@ -285,6 +287,18 @@ def audit_game(root, gdir, opt_keys, recipes, actions):
             report("ERROR", "invalid-enum-value", ln,
                    f"eng.render.set_pipeline('{m.group(1)}') unsupported",
                    f"Use one of {sorted(VALID_PIPELINES)}.")
+    for ln, arg in find_calls(code, "eng.camera.set_split"):
+        m = re.search(r'"([^"]+)"', arg)
+        if m and m.group(1) not in VALID_SPLIT_LAYOUTS:
+            report("ERROR", "invalid-enum-value", ln,
+                   f"eng.camera.set_split layout '{m.group(1)}' unsupported",
+                   f"Use one of {sorted(VALID_SPLIT_LAYOUTS)}.")
+    for ln, arg in find_calls(code, "eng.input.set_player_device"):
+        m = re.search(r'"([^"]+)"', arg)
+        if m and m.group(1) not in VALID_PDEV_MODES:
+            report("ERROR", "invalid-enum-value", ln,
+                   f"eng.input.set_player_device mode '{m.group(1)}' unsupported",
+                   f"Use one of {sorted(VALID_PDEV_MODES)}.")
 
     # 3. Unbound input action names (skip concatenated dynamic strings like `p .. "_up"`)
     for fn in ("eng.input.down", "eng.input.pressed", "eng.input.axis2d"):

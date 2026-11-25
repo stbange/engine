@@ -16,6 +16,13 @@ function M.anchor(anchor, ox, oy, w, h, sw, sh)
     return x, y, rw, rh, s
 end
 
+function M.viewport_anchor(vp, anchor, ox, oy, w, h, sw, sh)
+    sw, sh = sw or 1280, sh or 720
+    local vx, vy, vw, vh = (vp[1] or 0) * sw, (vp[2] or 0) * sh, (vp[3] or 1) * sw, (vp[4] or 1) * sh
+    local x, y, rw, rh, s = M.anchor(anchor, ox, oy, w, h, vw, vh)
+    return vx + x, vy + y, rw, rh, s
+end
+
 function M.label(x, y, text, scale, color)
     M._cmds[#M._cmds + 1] = { kind = "text", x = x, y = y, text = tostring(text), scale = scale or 1.0, color = color or {1, 1, 1, 1} }
 end

@@ -904,21 +904,16 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
     }
 }
 
-void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
+void eng_renderer_render_views(eng_renderer_t *r, const eng_scene_t *scene,
                                const eng_portal_sys_t *portals,
-                               const eng_camera_t *cam, const eng_xr_t *xr) {
-    if (!r || !cam) return;
+                               const eng_viewport_t *views, int view_count,
+                               const eng_xr_t *xr) {
+    if (!r || !views || view_count <= 0) return;
+    if (view_count > ENG_MAX_VIEWPORTS) view_count = ENG_MAX_VIEWPORTS;
     const eng_gl_api_t *gl = eng_gl();
     gl->Disable(ENG_GL_BLEND);
 
-    /* Build dynamic sprite batch without leaking mesh cache slots */
-    uint32_t saved_mesh_check = r->portal_quad_mesh;
-    (void)saved_mesh_check;
-
-    eng_mat4_t light_vp;
-    bool has_shadow = render_shadow_map(r, cam->pocket_id, cam->pos, &light_vp);
-
-    /* Clear HDR + Depth + Stencil FBO once before eye loop */
+    /* Clear HDR + Depth + Stencil FBO once before viewport/eye loop */
     gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
     gl->Viewport(0, 0, r->width, r->height);
     gl->Disable(ENG_GL_SCISSOR_TEST);
@@ -931,22 +926,30 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
     gl->Clear(ENG_GL_COLOR_BUFFER_BIT | ENG_GL_DEPTH_BUFFER_BIT | ENG_GL_STENCIL_BUFFER_BIT);
 
     bool xr_on = (xr != NULL && eng_xr_is_active(xr));
-    int eye_count = xr_on ? 2 : 1;
+    int pass_count = xr_on ? 2 : view_count;
     GLuint dst_fbo = xr_on ? eng_xr_framebuffer(xr) : 0u;
 
-    for (int eye = 0; eye < eye_count; eye++) {
+    eng_mat4_t light_vp;
+    bool has_shadow = false;
+    if (xr_on) {
+        has_shadow = render_shadow_map(r, views[0].cam.pocket_id, views[0].cam.pos, &light_vp);
+        gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
+    }
+
+    for (int pass = 0; pass < pass_count; pass++) {
+        const eng_camera_t *cam = &views[xr_on ? 0 : pass].cam;
         eng_mat4_t view, proj;
         int vp_rect[4] = {0, 0, r->width, r->height};
         eng_vec3_t eye_pos = cam->pos;
 
         if (xr_on) {
-            const eng_xr_eye_t *xe = eng_xr_get_eye(xr, eye);
+            const eng_xr_eye_t *xe = eng_xr_get_eye(xr, pass);
             if (!xe) continue;
             view = xe->view;
             proj = xe->proj;
             memcpy(vp_rect, xe->viewport, sizeof(vp_rect));
             if (vp_rect[2] <= 0 || vp_rect[3] <= 0) {
-                vp_rect[0] = (eye == 0) ? 0 : (r->width / 2);
+                vp_rect[0] = (pass == 0) ? 0 : (r->width / 2);
                 vp_rect[1] = 0;
                 vp_rect[2] = r->width / 2;
                 vp_rect[3] = r->height;
@@ -956,13 +959,22 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
                 eye_pos = eng_v3(inv_v.m[12], inv_v.m[13], inv_v.m[14]);
             }
         } else {
+            const float *nr = views[pass].norm_rect;
+            vp_rect[0] = (int)floorf(nr[0] * (float)r->width + 0.5f);
+            vp_rect[1] = (int)floorf(nr[1] * (float)r->height + 0.5f);
+            vp_rect[2] = (int)floorf(nr[2] * (float)r->width + 0.5f);
+            vp_rect[3] = (int)floorf(nr[3] * (float)r->height + 0.5f);
+            if (vp_rect[2] <= 0 || vp_rect[3] <= 0) continue;
+
+            has_shadow = render_shadow_map(r, cam->pocket_id, cam->pos, &light_vp);
+            gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
+
             eng_vec3_t fwd = eng_quat_rotate_v3(cam->rot, eng_v3(0.0f, 0.0f, -1.0f));
             eng_vec3_t up = eng_quat_rotate_v3(cam->rot, eng_v3(0.0f, 1.0f, 0.0f));
             view = eng_mat4_look_at(cam->pos, eng_v3_add(cam->pos, fwd), up);
-            float aspect = (float)r->width / (float)(r->height > 0 ? r->height : 1);
+            float aspect = (float)vp_rect[2] / (float)vp_rect[3];
             float fov_y = cam->fov_y_deg * ENG_DEG2RAD;
             if (aspect < 1.0f) {
-                /* Keep horizontal FOV comfortable on narrow portrait screens */
                 fov_y = 2.0f * atanf(tanf(fov_y * 0.5f) / fmaxf(aspect, 0.55f));
                 if (fov_y > 105.0f * ENG_DEG2RAD) fov_y = 105.0f * ENG_DEG2RAD;
             }
@@ -971,6 +983,28 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
 
         render_pocket_recursive(r, scene, portals, cam->pocket_id, &view, &proj,
                                 eye_pos, vp_rect, vp_rect, 0, ENG_ENTITY_NULL, &light_vp, has_shadow);
+    }
+
+    /* Draw crisp 2px dark divider lines between split-screen viewports */
+    if (!xr_on && view_count > 1) {
+        gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
+        gl->Enable(ENG_GL_SCISSOR_TEST);
+        gl->Disable(ENG_GL_STENCIL_TEST);
+        gl->Disable(ENG_GL_DEPTH_TEST);
+        gl->ClearColor(0.03f, 0.04f, 0.07f, 1.0f);
+        for (int i = 0; i < view_count; i++) {
+            const float *nr = views[i].norm_rect;
+            if (nr[0] > 0.01f) {
+                int sx = (int)(nr[0] * (float)r->width) - 1;
+                gl->Scissor(sx > 0 ? sx : 0, (int)(nr[1] * (float)r->height), 2, (int)(nr[3] * (float)r->height));
+                gl->Clear(ENG_GL_COLOR_BUFFER_BIT);
+            }
+            if (nr[1] > 0.01f) {
+                int sy = (int)(nr[1] * (float)r->height) - 1;
+                gl->Scissor((int)(nr[0] * (float)r->width), sy > 0 ? sy : 0, (int)(nr[2] * (float)r->width), 2);
+                gl->Clear(ENG_GL_COLOR_BUFFER_BIT);
+            }
+        }
     }
 
     /* Post-Processing: Dual-Kawase Bloom + ACES Tonemap + Bayer Dither + CRT */
@@ -1009,6 +1043,14 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
     eng_shader_set_float(&r->sh_post, "u_color_levels", levels);
     eng_shader_set_float(&r->sh_post, "u_crt_scanline", r->retro.crt_scanlines);
     gl->DrawArrays(ENG_GL_TRIANGLES, 0, 6);
+}
+
+void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
+                               const eng_portal_sys_t *portals,
+                               const eng_camera_t *cam, const eng_xr_t *xr) {
+    if (!r || !cam) return;
+    eng_viewport_t v = {*cam, {0.0f, 0.0f, 1.0f, 1.0f}};
+    eng_renderer_render_views(r, scene, portals, &v, 1, xr);
 }
 
 bool eng_renderer_read_pixels(const eng_renderer_t *r, uint8_t *out_rgba_bottom_up, int w, int h) {

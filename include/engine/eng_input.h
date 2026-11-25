@@ -62,6 +62,26 @@ void eng_input_inject_action(eng_input_t *inp, const char *action, bool down);
 void eng_input_inject_axis(eng_input_t *inp, const char *axis_name, float value);
 void eng_input_inject_mouse_delta(eng_input_t *inp, float dx, float dy);
 
+/* Multi-player local input (slots 0..3: dedicated SDL3 gamepads + 4-zone split keyboard) */
+#define ENG_MAX_PLAYERS 4
+
+typedef enum {
+    ENG_PDEV_AUTO = 0,     /* Dedicated gamepad + keyboard zone */
+    ENG_PDEV_KEYBOARD = 1, /* Keyboard zone only */
+    ENG_PDEV_GAMEPAD = 2   /* Dedicated gamepad only */
+} eng_player_dev_t;
+
+void eng_input_set_split_keyboard(eng_input_t *inp, bool enabled);
+bool eng_input_is_split_keyboard(const eng_input_t *inp);
+void eng_input_set_player_device(eng_input_t *inp, int player_idx, eng_player_dev_t mode, int pad_slot);
+int eng_input_gamepad_count(const eng_input_t *inp);
+bool eng_input_player_has_gamepad(const eng_input_t *inp, int player_idx);
+bool eng_input_player_down(const eng_input_t *inp, int player_idx, const char *action);
+bool eng_input_player_pressed(const eng_input_t *inp, int player_idx, const char *action);
+eng_vec2_t eng_input_player_move(const eng_input_t *inp, int player_idx);
+eng_vec2_t eng_input_player_look(const eng_input_t *inp, int player_idx);
+void eng_input_inject_player_action(eng_input_t *inp, int player_idx, const char *action, bool down);
+
 /* JSON serialization for rebindable controls */
 size_t eng_input_save_bindings_json(const eng_input_t *inp, char *out_buf, size_t out_cap);
 bool eng_input_load_bindings_json(eng_input_t *inp, const char *json_src, char *err_buf, size_t err_cap);

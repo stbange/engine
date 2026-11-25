@@ -1,0 +1,23 @@
+{
+  "id": "102_portal_arena_mp",
+  "title": "Portal Arena Cross-Play (4P Split + Online)",
+  "description": "1-4P split-screen & cross-platform WebSocket arena with a Bigger-on-the-Inside crystal vault, gamepads, and 4-zone keyboard.",
+  "genre": "multiplayer_arena",
+  "flagship": true,
+  "primitives": ["mesh", "particles", "sdf_text"],
+  "engine_version": "0.2.0",
+  "entry_script": "scripts/main.lua",
+  "pipeline": "forward",
+  "touch_preset": "dual_stick",
+  "xr_mode": "first_person",
+  "retro": {
+    "vertex_snap": 0,
+    "nearest_textures": false,
+    "dither_bayer": false,
+    "color_bits": 8,
+    "fog_density": 0.012,
+    "fog_color": [0.14, 0.22, 0.34],
+    "fog_height": 2.4,
+    "bloom": 0.48
+  }
+}

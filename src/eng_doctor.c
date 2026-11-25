@@ -211,7 +211,11 @@ bool eng_doctor_capture_sheet(eng_runtime_t *rt, const char *out_png_path) {
     char err[128];
     for (int v = 0; v < 4; v++) {
         *cam = views[v];
-        eng_runtime_render(rt, err, sizeof(err));
+        if (v == 0) {
+            eng_runtime_render(rt, err, sizeof(err));
+        } else {
+            eng_renderer_render_frame(ren, eng_runtime_scene(rt), eng_runtime_portals(rt), &views[v], NULL);
+        }
         eng_renderer_read_pixels(ren, panel, pw, ph);
 
         int qx = (v & 1) * pw;
@@ -287,7 +291,7 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
              "}\n",
              slug, tmpl, tmpl, tmpl, ENG_VERSION_STRING, strcmp(tmpl, "xr") == 0 ? "6dof" : "diorama");
 
-    char script_buf[2048];
+    char script_buf[4096];
     if (strcmp(tmpl, "pocket_house") == 0) {
         snprintf(script_buf, sizeof(script_buf),
                  "function init()\n"
@@ -322,6 +326,50 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
                  "    eng.camera.look_at(0, 24, 48, 0, 0, 0, 0)\n"
                  "end\n"
                  "function update(dt) game.state.ticks = game.state.ticks + 1 end\n"
+                 "function draw() eng.ui.label(16, 16, eng.i18n.t('title'), 1.0) end\n");
+    } else if (strcmp(tmpl, "multiplayer") == 0) {
+        snprintf(script_buf, sizeof(script_buf),
+                 "function init()\n"
+                 "    local s = game.state\n"
+                 "    s.ticks, s.split = 0, 2\n"
+                 "    s.p = {{ x = -2, y = 1.4, z = 4, yaw = 0, pitch = 0 }, { x = 2, y = 1.4, z = 4, yaw = 0, pitch = 0 }}\n"
+                 "    eng.render.add_light({ type = 'dir', dir = {-0.3, -1.0, -0.4}, color = {2.2, 2.1, 1.9} })\n"
+                 "    local floor = eng.scene.spawn('floor')\n"
+                 "    eng.scene.set_pos(floor, 0, -0.5, 0)\n"
+                 "    eng.scene.set_mesh(floor, eng.asset.box(24, 1, 24), { color = {0.25, 0.30, 0.35, 1} })\n"
+                 "    local wall = eng.scene.spawn('north_wall')\n"
+                 "    eng.scene.set_pos(wall, 0, 1.5, -11)\n"
+                 "    eng.scene.set_mesh(wall, eng.asset.box(24, 3, 1), { color = {0.32, 0.38, 0.45, 1} })\n"
+                 "    eng.physics.add_body(wall, { shape = 'aabb', motion = 'static', half_extents = {12, 1.5, 0.5} })\n"
+                 "    s.body_mesh = eng.asset.box(0.7, 1.4, 0.7)\n"
+                 "    for i = 1, 2 do\n"
+                 "        local e = eng.scene.spawn('p' .. i)\n"
+                 "        eng.scene.set_pos(e, s.p[i].x, 0.7, s.p[i].z)\n"
+                 "        eng.scene.set_mesh(e, s.body_mesh, { color = i == 1 and {0.2, 0.85, 0.9, 1} or {0.95, 0.5, 0.2, 1} })\n"
+                 "        s.p[i].ent = e\n"
+                 "    end\n"
+                 "    if eng.net.is_server() then\n"
+                 "        s.srv = eng.mp.create_server(eng, { seed = 42, on_input = function(cid, p, pkt, dt)\n"
+                 "            p.x, p.z = eng.physics.slide_move(0, p.x, p.y, p.z, (pkt.mx or 0) * 6.0 * dt, -(pkt.my or 0) * 6.0 * dt, 0.38)\n"
+                 "        end })\n"
+                 "    else\n"
+                 "        s.cli = eng.mp.create_client(eng, {})\n"
+                 "        if s.cli.url then s.cli:connect() end\n"
+                 "        eng.camera.set_split(2, 'vertical')\n"
+                 "    end\n"
+                 "end\n"
+                 "function update(dt)\n"
+                 "    local s = game.state; s.ticks = s.ticks + 1\n"
+                 "    if s.srv then s.srv:step(dt); return end\n"
+                 "    for i = 1, 2 do\n"
+                 "        local p, dx, dz = s.p[i]\n"
+                 "        p.yaw, p.pitch, dx, dz = eng.camera.fps_steer_player(i, p.yaw, p.pitch, 6.0, dt)\n"
+                 "        p.x, p.z = eng.physics.slide_move(0, p.x, p.y, p.z, dx, dz, 0.38)\n"
+                 "        eng.scene.set_pos(p.ent, p.x, 0.7, p.z)\n"
+                 "        eng.camera.set_view(i, p.x, p.y, p.z, p.pitch, p.yaw, 0, 0)\n"
+                 "    end\n"
+                 "    if s.cli then local mx, my = eng.input.player_move(1); s.cli:step(dt, { mx = mx, my = my }) end\n"
+                 "end\n"
                  "function draw() eng.ui.label(16, 16, eng.i18n.t('title'), 1.0) end\n");
     } else if (strcmp(tmpl, "procgen_roguelike") == 0) {
         snprintf(script_buf, sizeof(script_buf),

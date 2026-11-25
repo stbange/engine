@@ -46,11 +46,11 @@ jobs:
           xvfb-run -a ctest --test-dir build-cov --output-on-failure
           python3 tests/check_coverage.py build-cov
 
-      - name: Run All 101 Automated Headless Game Audits & Playtests
+      - name: Run All 102 Automated Headless Game Audits & Playtests
         run: |
           cmake -B build-rel -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-rel -j
-          python3 tests/run_all_games.py ./build-rel/engine --expect-count 101
+          python3 tests/run_all_games.py ./build-rel/engine --expect-count 102
 
   cross-platform-build:
     name: Build (${{ matrix.os }})
@@ -94,7 +94,7 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
-      - name: Compile Shared WebAssembly Engine, Render 101 Gallery Thumbnails & Smoke-Test in Chrome
+      - name: Compile Shared WebAssembly Engine, Render 102 Gallery Thumbnails & Smoke-Test in Chrome
         run: |
           emcmake cmake -B build-web -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-web -j

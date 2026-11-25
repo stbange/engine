@@ -67,8 +67,18 @@ void eng_audio_destroy(eng_audio_t *aud);
 void eng_audio_set_bus_gain(eng_audio_t *aud, eng_audio_bus_t bus, float gain);
 float eng_audio_get_bus_gain(const eng_audio_t *aud, eng_audio_bus_t bus);
 
+#define ENG_MAX_LISTENERS 4
+
+typedef struct {
+    uint16_t pocket_id;
+    eng_vec3_t pos;
+    eng_vec3_t vel;
+    eng_quat_t rot;
+} eng_audio_listener_t;
+
 void eng_audio_set_listener(eng_audio_t *aud, uint16_t pocket_id,
                             eng_vec3_t pos, eng_vec3_t vel, eng_quat_t rot);
+void eng_audio_set_listeners(eng_audio_t *aud, const eng_audio_listener_t *listeners, int count);
 
 uint32_t eng_audio_load_wav_mem(eng_audio_t *aud, const void *bytes, size_t len);
 uint32_t eng_audio_load_ogg_mem(eng_audio_t *aud, const void *bytes, size_t len);

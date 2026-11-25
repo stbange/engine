@@ -58,6 +58,30 @@ else()
     else()
         target_link_libraries(eng_sdl3 INTERFACE SDL3::SDL3-static)
     endif()
+
+    find_package(SDL3_net QUIET)
+    if(NOT SDL3_net_FOUND)
+        include(FetchContent)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+        set(SDLNET_SAMPLES OFF CACHE BOOL "" FORCE)
+        set(SDLNET_INSTALL OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            SDL3_net
+            GIT_REPOSITORY https://github.com/libsdl-org/SDL_net.git
+            GIT_TAG release-3.2.0
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(SDL3_net)
+        if(TARGET SDL3_net-static)
+            set_target_properties(SDL3_net-static PROPERTIES C_EXTENSIONS ON)
+        endif()
+    endif()
+    if(TARGET SDL3_net::SDL3_net)
+        target_link_libraries(eng_sdl3 INTERFACE SDL3_net::SDL3_net)
+    elseif(TARGET SDL3_net::SDL3_net-static)
+        target_link_libraries(eng_sdl3 INTERFACE SDL3_net::SDL3_net-static)
+    endif()
+    target_compile_definitions(eng_sdl3 INTERFACE ENG_HAS_SDL3_NET=1)
 endif()
 
 # -----------------------------------------------------------------------------
@@ -191,6 +215,7 @@ if(ENG_BUILD_RUNNER)
     if(EMSCRIPTEN)
         target_link_options(engine PRIVATE
             "-lidbfs.js"
+            "-lwebsocket.js"
             "-sFORCE_FILESYSTEM=1"
             "-sSTACK_SIZE=2097152"
             "-sINITIAL_MEMORY=33554432"

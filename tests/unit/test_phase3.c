@@ -372,6 +372,28 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
     eng_renderer_render_frame(ren, sc, portals, &cam, xr);
     assert(eng_renderer_stats(ren).portal_views >= 2); /* Both left & right XR eyes rendered portal */
 
+    /* Test 3: 4-way split-screen across 2 different pockets in BOTH Deferred and Forward pipelines */
+    eng_viewport_t views[4];
+    eng_camera_t cam_in = cam;
+    cam_in.pocket_id = p_inside;
+    cam_in.pos = eng_v3(0.0f, 1.5f, 18.0f);
+    views[0] = (eng_viewport_t){ cam,    {0.0f, 0.5f, 0.5f, 0.5f} };
+    views[1] = (eng_viewport_t){ cam_in, {0.5f, 0.5f, 0.5f, 0.5f} };
+    views[2] = (eng_viewport_t){ cam,    {0.0f, 0.0f, 0.5f, 0.5f} };
+    views[3] = (eng_viewport_t){ cam_in, {0.5f, 0.0f, 0.5f, 0.5f} };
+    for (int pm = 0; pm < 2; pm++) {
+        eng_renderer_set_pipeline(ren, pm == 0 ? ENG_PIPELINE_DEFERRED : ENG_PIPELINE_FORWARD);
+        eng_renderer_begin_frame(ren);
+        eng_renderer_add_light(ren, &sun);
+        eng_renderer_add_light(ren, &lamp);
+        eng_renderer_submit_mesh(ren, &occ_wall);
+        eng_renderer_submit_mesh(ren, &inside_pillar);
+        eng_renderer_submit_mesh(ren, &crystal_near);
+        eng_renderer_submit_sprites(ren, sps_fx, 3);
+        eng_renderer_render_views(ren, sc, portals, views, 4, NULL);
+        assert(eng_renderer_stats(ren).portal_views >= 2);
+    }
+
     uint8_t *fb = (uint8_t *)malloc(256 * 192 * 4);
     assert(eng_renderer_read_pixels(ren, fb, 256, 192));
     if (verify_real_gl_pixels) {

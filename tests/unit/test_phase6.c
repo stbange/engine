@@ -1,5 +1,6 @@
 #include "engine/engine.h"
 
+#include <SDL3/SDL_timer.h>
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -101,6 +102,17 @@ static void test_audio_spatial_synth_wav_and_portals(eng_vfs_t *vfs) {
     }
     assert(sum_l > sum_r && sum_l > 1.0f);
 
+    /* Multi-listener 3D audio across 2 different pockets (split-screen players in separate spaces!) */
+    eng_audio_listener_t l2[2] = {
+        { p_out, eng_v3(0.0f, 0.0f, 0.0f), eng_v3(0, 0, 0), eng_quat_identity() },
+        { p_in,  eng_v3(-3.0f, 0.0f, 52.0f), eng_v3(0, 0, 0), eng_quat_identity() }
+    };
+    eng_audio_set_listeners(aud, l2, 2);
+    eng_audio_mix_frames(aud, sc, NULL, stereo, 256);
+    sum_l = 0.0f; sum_r = 0.0f;
+    for (int i = 0; i < 256; i++) { sum_l += fabsf(stereo[i * 2]); sum_r += fabsf(stereo[i * 2 + 1]); }
+    assert(sum_r > sum_l && sum_r > 1.0f); /* Listener 2 hears source at +3m on its right even without portals! */
+
     eng_audio_update(aud, sc, ps, 1.0f / 60.0f);
     eng_audio_stop(aud, vid_in);
     eng_portal_sys_destroy(ps);
@@ -197,10 +209,22 @@ static void test_ai_portal_astar_and_bt(void) {
 }
 
 static void test_net_loopback_udp_and_replication(void) {
-    /* 1. Loopback reliable scene replication (including pocket_id!) */
-    eng_net_peer_t *srv = eng_net_create(ENG_NET_LOOPBACK, 0);
+    /* 1. Multi-client Loopback reliable scene replication (including pocket_id!) */
+    eng_net_peer_t *srv = eng_net_host(ENG_NET_LOOPBACK, NULL, 0);
     eng_net_peer_t *cli = eng_net_create(ENG_NET_LOOPBACK, 0);
+    eng_net_peer_t *cli2 = eng_net_create(ENG_NET_LOOPBACK, 0);
+    assert(eng_net_is_server(srv) && !eng_net_is_server(cli));
     assert(eng_net_connect_loopback(srv, cli));
+    assert(eng_net_connect_loopback(srv, cli2));
+    assert(eng_net_client_count(srv) == 2 && eng_net_is_connected(srv) && eng_net_is_connected(cli));
+    uint32_t cids[4] = {0};
+    assert(eng_net_client_ids(srv, cids, 4) == 2 && cids[0] == 1 && cids[1] == 2);
+
+    /* Drain connect events */
+    eng_net_event_t ev;
+    uint8_t ev_buf[2048];
+    assert(eng_net_poll_event(srv, &ev, ev_buf, sizeof(ev_buf)) && ev.type == ENG_NET_EVT_CONNECT && ev.client_id == 1);
+    assert(eng_net_poll_event(srv, &ev, ev_buf, sizeof(ev_buf)) && ev.type == ENG_NET_EVT_CONNECT && ev.client_id == 2);
 
     eng_scene_t *s_srv = eng_scene_create(64);
     uint16_t p_vault = eng_scene_register_pocket(s_srv, "vault");
@@ -211,14 +235,18 @@ static void test_net_loopback_udp_and_replication(void) {
 
     assert(eng_net_send_scene_snapshot(srv, s_srv));
 
-    uint8_t buf[1400];
+    uint8_t buf[2048];
     eng_net_channel_t chan = ENG_CHAN_UNRELIABLE;
     size_t rlen = eng_net_poll(cli, buf, sizeof(buf), &chan);
     assert(rlen > 0 && chan == ENG_CHAN_RELIABLE);
+    assert(eng_net_poll(cli2, buf, sizeof(buf), NULL) == rlen);
 
-    /* Poll server to process client's automatic ACK */
-    uint8_t dummy[64];
-    assert(eng_net_poll(srv, dummy, sizeof(dummy), NULL) == 0);
+    /* Targeted send_to + kick disconnect */
+    assert(eng_net_send_to(srv, 2, ENG_CHAN_RELIABLE, "ONLY_C2", 7));
+    assert(eng_net_poll(cli, ev_buf, sizeof(ev_buf), NULL) == 0);
+    assert(eng_net_poll(cli2, ev_buf, sizeof(ev_buf), NULL) == 7);
+    assert(eng_net_disconnect_client(srv, 2) && eng_net_client_count(srv) == 1);
+    assert(eng_net_poll_event(cli2, &ev, ev_buf, sizeof(ev_buf)) && ev.type == ENG_NET_EVT_DISCONNECT);
 
     eng_scene_t *s_cli = eng_scene_create(64);
     assert(eng_net_apply_scene_snapshot(s_cli, buf, rlen));
@@ -229,24 +257,87 @@ static void test_net_loopback_udp_and_replication(void) {
 
     eng_scene_destroy(s_srv);
     eng_scene_destroy(s_cli);
+    eng_net_destroy(cli2);
     eng_net_destroy(srv);
     eng_net_destroy(cli);
 
-    /* 2. Real non-blocking UDP socket round-trip on 127.0.0.1 ephemeral ports */
-    eng_net_peer_t *u_srv = eng_net_create(ENG_NET_UDP, 0);
+    /* 2. Real non-blocking UDP multi-client round-trip via SDL3_net on 127.0.0.1 */
+    eng_net_peer_t *u_srv = eng_net_host(ENG_NET_UDP, "127.0.0.1", 0);
     eng_net_peer_t *u_cli = eng_net_create(ENG_NET_UDP, 0);
     if (u_srv && u_cli && eng_net_bound_port(u_srv) > 0) {
         assert(eng_net_connect_remote(u_cli, "127.0.0.1", eng_net_bound_port(u_srv)));
         const char *ping = "PING_UDP";
-        assert(eng_net_send(u_cli, ENG_CHAN_UNRELIABLE, ping, strlen(ping) + 1));
+        assert(eng_net_send(u_cli, ENG_CHAN_RELIABLE, ping, strlen(ping) + 1));
         char recv_msg[64] = {0};
-        for (int spin = 0; spin < 1000; spin++) {
-            if (eng_net_poll(u_srv, recv_msg, sizeof(recv_msg), NULL) > 0) break;
+        for (int spin = 0; spin < 2000; spin++) {
+            if (eng_net_poll_event(u_srv, &ev, recv_msg, sizeof(recv_msg)) && ev.type == ENG_NET_EVT_MESSAGE) break;
         }
-        assert(strcmp(recv_msg, "PING_UDP") == 0);
+        assert(strcmp(recv_msg, "PING_UDP") == 0 && eng_net_client_count(u_srv) == 1);
+        assert(eng_net_send_to(u_srv, ev.client_id, ENG_CHAN_UNRELIABLE, "PONG_UDP", 9));
+        char pong[64] = {0};
+        for (int spin = 0; spin < 2000; spin++) {
+            if (eng_net_poll(u_cli, pong, sizeof(pong), NULL) > 0) break;
+        }
+        assert(strcmp(pong, "PONG_UDP") == 0);
     }
     eng_net_destroy(u_srv);
     eng_net_destroy(u_cli);
+
+    /* 3. Live RFC 6455 Binary WebSocket Server + 2 Simultaneous Clients over SDL3_net! */
+    eng_net_peer_t *ws_srv = eng_net_host(ENG_NET_WEBSOCKET, "127.0.0.1", 0);
+    assert(ws_srv != NULL && eng_net_bound_port(ws_srv) > 0);
+    char ws_url[64];
+    snprintf(ws_url, sizeof(ws_url), "ws://127.0.0.1:%u/", (unsigned)eng_net_bound_port(ws_srv));
+
+    eng_net_peer_t *ws_c1 = eng_net_create(ENG_NET_WEBSOCKET, 0);
+    eng_net_peer_t *ws_c2 = eng_net_create(ENG_NET_WEBSOCKET, 0);
+    assert(eng_net_connect_remote(ws_c1, ws_url, 0));
+    assert(eng_net_connect_remote(ws_c2, ws_url, 0));
+
+    int ws_joins = 0, c1_open = 0, c2_open = 0;
+    for (int spin = 0; spin < 4000 && (ws_joins < 2 || !c1_open || !c2_open); spin++) {
+        while (eng_net_poll_event(ws_srv, &ev, ev_buf, sizeof(ev_buf))) {
+            if (ev.type == ENG_NET_EVT_CONNECT) ws_joins++;
+        }
+        while (eng_net_poll_event(ws_c1, &ev, ev_buf, sizeof(ev_buf))) {
+            if (ev.type == ENG_NET_EVT_CONNECT) c1_open = 1;
+        }
+        while (eng_net_poll_event(ws_c2, &ev, ev_buf, sizeof(ev_buf))) {
+            if (ev.type == ENG_NET_EVT_CONNECT) c2_open = 1;
+        }
+        SDL_Delay(1);
+    }
+    assert(ws_joins == 2 && c1_open && c2_open && eng_net_client_count(ws_srv) == 2);
+
+    /* Client 1 sends a large (>126 byte) masked binary frame exercising 16-bit extended WS length */
+    char big_msg[260];
+    memset(big_msg, 'W', sizeof(big_msg) - 1);
+    big_msg[sizeof(big_msg) - 1] = '\0';
+    assert(eng_net_send(ws_c1, ENG_CHAN_RELIABLE, big_msg, sizeof(big_msg) - 1));
+    bool got_big = false;
+    for (int spin = 0; spin < 2000 && !got_big; spin++) {
+        if (eng_net_poll_event(ws_srv, &ev, ev_buf, sizeof(ev_buf)) && ev.type == ENG_NET_EVT_MESSAGE) {
+            assert(ev.len == sizeof(big_msg) - 1 && ev_buf[0] == 'W' && ev_buf[258] == 'W');
+            got_big = true;
+        }
+        SDL_Delay(1);
+    }
+    assert(got_big);
+
+    /* Server broadcasts to both WS clients, then kicks client 2 */
+    assert(eng_net_send_to(ws_srv, 0, ENG_CHAN_UNRELIABLE, "ALL_WS", 6));
+    bool r1 = false, r2 = false;
+    for (int spin = 0; spin < 2000 && !(r1 && r2); spin++) {
+        if (!r1 && eng_net_poll(ws_c1, ev_buf, sizeof(ev_buf), NULL) == 6 && memcmp(ev_buf, "ALL_WS", 6) == 0) r1 = true;
+        if (!r2 && eng_net_poll(ws_c2, ev_buf, sizeof(ev_buf), NULL) == 6 && memcmp(ev_buf, "ALL_WS", 6) == 0) r2 = true;
+        SDL_Delay(1);
+    }
+    assert(r1 && r2);
+    assert(eng_net_disconnect_client(ws_srv, 2) && eng_net_client_count(ws_srv) == 1);
+
+    eng_net_destroy(ws_c1);
+    eng_net_destroy(ws_c2);
+    eng_net_destroy(ws_srv);
 }
 
 int main(void) {

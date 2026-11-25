@@ -54,8 +54,13 @@ Always pass explicit integer seeds derived from run/level seeds (never use `math
 - **Fire, Smoke, Sparks & Dust**: Omit `tex` on `eng.particles.create` to use the built-in soft radial puff texture, and pass `additive = true`, `color_start/end`, `size_start/end`, `gravity`, `drag`, or use 1-call `eng.fx.spawn(eng, "fire"|"smoke"|"sparks"|"dust", x, y, z, pocket?, opts?)`. Reposition live emitters with `eng.particles.set_pos(id, x, y, z, pocket?)` and `eng.particles.set_rate(id, rate)`.
 - **Movable Lights & Height Fog**: Capture the 1-based handle returned by `local lid = eng.render.add_light({...})` and animate it each frame with `eng.render.set_light(lid, { pos=..., color=..., range=... })`. Tune colored distance + ground-mist fog and bloom via `eng.render.set_retro({ fog_density=0.03, fog_color={r,g,b}, fog_height=2.8, bloom=0.5 })`.
 
+## 4c. Split-Screen, Per-Player Gamepads & Cross-Platform Networking
+- **1–4 Player Split-Screen**: Call `eng.camera.set_split(2|3|4, "vertical"|"horizontal"|"top2_bot1"|"grid4")` (automatically enables 4-zone non-overlapping split keyboard: P1 `WASD`, P2 `Arrows`, P3 `IJKL`, P4 `TFGH`/`Numpad`). Aim each camera independently with `eng.camera.set_view(i, x, y, z, pitch, yaw, roll, pocket)` or `eng.camera.look_at_view(i, ...)` (works across different pockets and in both Forward & Deferred pipelines, with multi-listener 3D audio). Anchor per-player HUD inside each quadrant with `eng.ui.viewport_anchor(eng.camera.get_view_rect(i), "top_left", ox, oy, w, h)`.
+- **Per-Player Gamepads & Split Input**: Use `eng.input.player_move(i)`, `eng.input.player_look(i)`, `eng.input.player_down(i, action)`, `eng.input.player_pressed(i, action)`, `eng.camera.fps_steer_player(i, yaw, pitch, speed, dt)`, `eng.input.gamepad_count()`, `eng.input.set_player_device(i, "auto"|"keyboard"|"gamepad", pad_slot?)`, and `eng.input.inject_player(i, action, down)` for deterministic playtests.
+- **Cross-Platform Online Multiplayer**: Use `eng.mp.create_server` / `eng.mp.create_client` (`lua/eng/mp.lua`) with `--server --port 7777` and `--connect ws://...` (Desktop) or `?server=wss://...` (Browser). See `.agents/skills/engine-server/SKILL.md` for dedicated server architecture, loopback playtests, and Docker + Caddy `wss://` deployment.
+
 ## 5. Closed-Loop Agent Workflow
-1. **Scaffold**: `./build/engine --new games/<slug> --template <fps|voxel|pocket_house|procgen_roguelike|planet_explorer|xr>`
+1. **Scaffold**: `./build/engine --new games/<slug> --template <fps|voxel|pocket_house|procgen_roguelike|planet_explorer|multiplayer|xr>`
 2. **Spatial & Multi-Seed Lint**: `./build/engine --headless --doctor --fuzz-seeds 10 --game games/<slug>`
 3. **Visual Check**: `./build/engine --headless --game games/<slug> --capture-sheet /tmp/sheet.png --frames 30`
 4. **Automated Playtest**: `./build/engine --headless --game games/<slug> --test tests/playtest.lua --seed 42 --max-frames 600`
