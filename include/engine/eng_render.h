@@ -187,6 +187,9 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
                                const eng_portal_sys_t *portals,
                                const eng_camera_t *cam, const eng_xr_t *xr);
 
+bool eng_renderer_set_capture_target(eng_renderer_t *r, int width, int height);
+GLuint eng_renderer_output_fbo(const eng_renderer_t *r);
+void eng_renderer_get_size(const eng_renderer_t *r, int *out_w, int *out_h);
 bool eng_renderer_read_pixels(const eng_renderer_t *r, uint8_t *out_rgba_bottom_up, int w, int h);
 eng_render_stats_t eng_renderer_stats(const eng_renderer_t *r);
 bool eng_renderer_reload_shaders(eng_renderer_t *r);

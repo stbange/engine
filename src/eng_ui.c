@@ -37,6 +37,7 @@ struct eng_ui_s {
     int win_h;
     int fb_w;
     int fb_h;
+    GLuint target_fbo;
 
     bool console_open;
     bool help_open;
@@ -259,6 +260,10 @@ void eng_ui_set_fb_size(eng_ui_t *ui, int fb_w, int fb_h) {
     if (!ui) return;
     if (fb_w > 0) ui->fb_w = fb_w;
     if (fb_h > 0) ui->fb_h = fb_h;
+}
+
+void eng_ui_set_target_fbo(eng_ui_t *ui, GLuint fbo) {
+    if (ui) ui->target_fbo = fbo;
 }
 
 void eng_ui_hud_label(eng_ui_t *ui, const char *id, eng_ui_anchor_t anchor,
@@ -542,7 +547,7 @@ uint32_t eng_ui_render(eng_ui_t *ui) {
             0.0f, 0.0f, -1.0f, 0.0f,
             -1.0f, 1.0f, 0.0f, 1.0f
         };
-        gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, 0);
+        gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, ui->target_fbo);
         gl->Viewport(0, 0, fbw, fbh);
         gl->Enable(ENG_GL_BLEND);
         gl->BlendFunc(ENG_GL_SRC_ALPHA, ENG_GL_ONE_MINUS_SRC_ALPHA);

@@ -44,6 +44,7 @@ void eng_ui_begin_frame(eng_ui_t *ui, int win_w, int win_h,
                         float mouse_x, float mouse_y, bool mouse_down, float wheel);
 /* Set physical GL framebuffer dimensions when HiDPI scale != 1 (defaults to win_w x win_h). */
 void eng_ui_set_fb_size(eng_ui_t *ui, int fb_w, int fb_h);
+void eng_ui_set_target_fbo(eng_ui_t *ui, GLuint fbo);
 
 /* Immediate-mode anchored In-Game HUD widgets */
 void eng_ui_hud_label(eng_ui_t *ui, const char *id, eng_ui_anchor_t anchor,

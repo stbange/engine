@@ -454,3 +454,27 @@ function eng.mod.on(event: string, fn: function) end
 --- Emit event to active mods
 function eng.mod.emit(event: string, payload?: any) end
 
+---@class eng.capture
+eng.capture = {}
+
+--- Save PNG screenshot inside captures/ directory
+function eng.capture.screenshot(rel_path?: string): boolean end
+
+--- Start synchronized video + 48kHz 3D audio recording
+function eng.capture.start_video(rel_path?: string, opts?: table): boolean end
+
+--- Finalize and mux active video + audio recording
+function eng.capture.stop_video(): boolean end
+
+--- Drop a highlight bookmark on the active .engrep recording
+function eng.capture.bookmark(label?: string): boolean end
+
+--- Hide or show HUD/help overlays during media capture
+function eng.capture.set_clean_feed(enabled: boolean) end
+
+--- True when video or replay recording is active
+function eng.capture.is_recording(): boolean end
+
+--- True when deterministic .engrep playback is active
+function eng.capture.is_replaying(): boolean end
+

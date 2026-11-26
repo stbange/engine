@@ -107,6 +107,14 @@ struct eng_runtime_s {
     uint32_t seen_inputs;
 
     float sim_time;
+    eng_replay_t *rec_replay;
+    eng_replay_t *play_replay;
+    eng_capture_t **live_cap_ptr;
+    eng_capture_t *owned_cap;
+    bool *clean_feed_ptr;
+    bool local_clean_feed;
+    uint32_t shot_seq;
+    bool has_director;
     bool kinematics_synced;
     bool cov_enabled;
     lua_cov_file_t cov_files[16];
@@ -1885,6 +1893,100 @@ static int l_net_sync_scene(lua_State *L) {
     return 1;
 }
 
+static bool build_safe_capture_path(const char *rel, const char *def_ext, uint32_t seq, char *out, size_t cap) {
+    if (!rel || !rel[0]) {
+        snprintf(out, cap, "captures/cap_%04u.%s", (unsigned)seq, def_ext);
+        return true;
+    }
+    if (rel[0] == '/' || rel[0] == '\\' || strstr(rel, "..") != NULL || strchr(rel, ':') != NULL) return false;
+    if (strncmp(rel, "captures/", 9) == 0) snprintf(out, cap, "%s", rel);
+    else snprintf(out, cap, "captures/%s", rel);
+    return true;
+}
+
+static eng_capture_t **active_cap_slot(eng_runtime_t *rt) {
+    return rt->live_cap_ptr ? rt->live_cap_ptr : &rt->owned_cap;
+}
+
+static int l_capture_screenshot(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    const char *rel = luaL_optstring(L, 1, NULL);
+    char path[384];
+    if (!build_safe_capture_path(rel, "png", ++rt->shot_seq, path, sizeof(path))) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    lua_pushboolean(L, eng_capture_screenshot(rt->renderer, path));
+    return 1;
+}
+
+static int l_capture_start_video(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_capture_t **slot = active_cap_slot(rt);
+    if (*slot) { lua_pushboolean(L, 0); return 1; }
+    const char *rel = luaL_optstring(L, 1, NULL);
+    char path[384];
+    if (!build_safe_capture_path(rel, "mp4", ++rt->shot_seq, path, sizeof(path))) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+    int w = 0, h = 0, fps = 60;
+    eng_renderer_get_size(rt->renderer, &w, &h);
+    eng_capture_cfg_t cfg = eng_capture_default_cfg(path, w > 0 ? w : 640, h > 0 ? h : 480, fps);
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "preset");
+        if (lua_isstring(L, -1)) eng_capture_resolve_preset(lua_tostring(L, -1), &cfg.width, &cfg.height, &cfg.fps);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "width"); if (lua_isnumber(L, -1)) cfg.width = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "height"); if (lua_isnumber(L, -1)) cfg.height = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "fps"); if (lua_isnumber(L, -1)) cfg.fps = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "speed"); if (lua_isnumber(L, -1)) cfg.speed = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "fallback"); if (!lua_isnil(L, -1)) cfg.force_fallback = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+    }
+    *slot = eng_capture_start(&cfg);
+    if (*slot) eng_audio_set_capture_cb(rt->audio, eng_capture_push_audio, *slot);
+    lua_pushboolean(L, *slot != NULL);
+    return 1;
+}
+
+static int l_capture_stop_video(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_capture_t **slot = active_cap_slot(rt);
+    if (!*slot) { lua_pushboolean(L, 0); return 1; }
+    eng_audio_set_capture_cb(rt->audio, NULL, NULL);
+    bool ok = eng_capture_stop(*slot);
+    *slot = NULL;
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+static int l_capture_bookmark(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    const char *label = luaL_optstring(L, 1, "highlight");
+    lua_pushboolean(L, rt->rec_replay ? eng_replay_add_bookmark(rt->rec_replay, label) : false);
+    return 1;
+}
+
+static int l_capture_set_clean_feed(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    bool on = lua_toboolean(L, 1) != 0;
+    rt->local_clean_feed = on;
+    if (rt->clean_feed_ptr) *rt->clean_feed_ptr = on;
+    return 0;
+}
+
+static int l_capture_is_recording(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_capture_t **slot = active_cap_slot(rt);
+    lua_pushboolean(L, (*slot != NULL) || (rt->rec_replay != NULL));
+    return 1;
+}
+
+static int l_capture_is_replaying(lua_State *L) {
+    lua_pushboolean(L, get_rt(L)->play_replay != NULL);
+    return 1;
+}
+
 /* Master single-source C API registration table (drives BOTH runtime bindings AND lua/eng_api.lua!) */
 static const lua_fn_desc_t k_api_table[] = {
     {"log",       "info",             l_log_info,              "(msg: string)", "Log informational message (deduplicated)"},
@@ -2016,7 +2118,14 @@ static const lua_fn_desc_t k_api_table[] = {
     {"i18n",      "set_lang",         l_i18n_set,              "(lang: string): boolean", "Switch active localization language"},
     {"i18n",      "t",                l_i18n_t,                "(key: string): string", "Translate UTF-8 key with fallback"},
     {"mod",       "on",               l_mod_on,                "(event: string, fn: function)", "Register sandboxed mod event hook"},
-    {"mod",       "emit",             l_mod_emit,              "(event: string, payload?: any)", "Emit event to active mods"}
+    {"mod",       "emit",             l_mod_emit,              "(event: string, payload?: any)", "Emit event to active mods"},
+    {"capture",   "screenshot",       l_capture_screenshot,    "(rel_path?: string): boolean", "Save PNG screenshot inside captures/ directory"},
+    {"capture",   "start_video",      l_capture_start_video,   "(rel_path?: string, opts?: table): boolean", "Start synchronized video + 48kHz 3D audio recording"},
+    {"capture",   "stop_video",       l_capture_stop_video,    "(): boolean", "Finalize and mux active video + audio recording"},
+    {"capture",   "bookmark",         l_capture_bookmark,      "(label?: string): boolean", "Drop a highlight bookmark on the active .engrep recording"},
+    {"capture",   "set_clean_feed",   l_capture_set_clean_feed,"(enabled: boolean)", "Hide or show HUD/help overlays during media capture"},
+    {"capture",   "is_recording",     l_capture_is_recording,  "(): boolean", "True when video or replay recording is active"},
+    {"capture",   "is_replaying",     l_capture_is_replaying,  "(): boolean", "True when deterministic .engrep playback is active"}
 };
 
 /* Strict __index metatable suggesting closest valid function via Levenshtein distance! */
@@ -2270,6 +2379,18 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     lua_State *L = luaL_newstate();
     rt->L = L;
     luaL_openlibs(L);
+    /* Seed Lua stdlib math.random alongside eng.math so .engrep replays stay 100% deterministic */
+    lua_getglobal(L, "math");
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "randomseed");
+        if (lua_isfunction(L, -1)) {
+            lua_pushnumber(L, (lua_Number)(c.seed ? c.seed : 42u));
+            lua_pcall(L, 1, 0, 0);
+        } else {
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
 #ifdef ENG_USING_LUAJIT
     /* Keep LuaJIT assembly interpreter deterministic for LUA_MASKCOUNT watchdog & LUA_MASKLINE coverage */
     luaJIT_setmode(L, 0, LUAJIT_MODE_ENGINE | LUAJIT_MODE_OFF);
@@ -2341,6 +2462,11 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
 
 void eng_runtime_destroy(eng_runtime_t *rt) {
     if (!rt) return;
+    if (rt->owned_cap) {
+        eng_audio_set_capture_cb(rt->audio, NULL, NULL);
+        eng_capture_stop(rt->owned_cap);
+        rt->owned_cap = NULL;
+    }
     flush_lua_cov(rt);
     if (rt->L) lua_close(rt->L);
     for (size_t i = 0; i < rt->terrain_count; i++) eng_terrain_free(&rt->terrains[i]);
@@ -2372,7 +2498,64 @@ eng_asset_cache_t *eng_runtime_assets(eng_runtime_t *rt){ return rt ? rt->assets
 eng_input_t *eng_runtime_input(eng_runtime_t *rt)       { return rt ? rt->input : NULL; }
 eng_xr_t *eng_runtime_xr(eng_runtime_t *rt)             { return rt ? rt->xr : NULL; }
 eng_platform_t *eng_runtime_platform(eng_runtime_t *rt) { return rt ? rt->plat : NULL; }
+eng_audio_t *eng_runtime_audio(eng_runtime_t *rt)       { return rt ? rt->audio : NULL; }
 eng_camera_t *eng_runtime_camera(eng_runtime_t *rt)     { return rt ? &rt->cam : NULL; }
+
+void eng_runtime_attach_media(eng_runtime_t *rt, eng_replay_t *rec_replay, eng_replay_t *play_replay,
+                              eng_capture_t **live_cap_ptr, bool *clean_feed_ptr) {
+    if (!rt) return;
+    rt->rec_replay = rec_replay;
+    rt->play_replay = play_replay;
+    rt->live_cap_ptr = live_cap_ptr;
+    rt->clean_feed_ptr = clean_feed_ptr;
+}
+
+bool eng_runtime_load_director(eng_runtime_t *rt, const char *script_path, char *err_buf, size_t err_cap) {
+    if (!rt || !script_path || !script_path[0]) return false;
+    size_t sz = 0;
+    char *code = (char *)eng_vfs_read_all(rt->vfs, script_path, &sz);
+    if (!code) {
+        FILE *fp = fopen(script_path, "rb");
+        if (!fp) {
+            if (err_buf && err_cap > 0) snprintf(err_buf, err_cap, "Director script not found: %s", script_path);
+            return false;
+        }
+        fseek(fp, 0, SEEK_END);
+        long lsz = ftell(fp);
+        rewind(fp);
+        if (lsz <= 0 || lsz > 2 * 1024 * 1024) { fclose(fp); return false; }
+        code = (char *)malloc((size_t)lsz + 1u);
+        if (!code) { fclose(fp); return false; }
+        sz = fread(code, 1u, (size_t)lsz, fp);
+        code[sz] = '\0';
+        fclose(fp);
+    }
+    bool ok = eng_runtime_exec_lua(rt, script_path, code, err_buf, err_cap);
+    free(code);
+    if (ok) rt->has_director = true;
+    return ok;
+}
+
+void eng_runtime_apply_director(eng_runtime_t *rt, uint32_t frame_idx) {
+    if (!rt || !rt->has_director || !rt->L) return;
+    lua_State *L = rt->L;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, rt->sandbox_ref);
+    lua_getfield(L, -1, "director_camera");
+    if (lua_isfunction(L, -1)) {
+        lua_pushnumber(L, (lua_Number)rt->sim_time);
+        lua_pushinteger(L, (lua_Integer)frame_idx);
+        lua_newtable(L);
+        lua_pushnumber(L, rt->cam.pos.x); lua_setfield(L, -2, "x");
+        lua_pushnumber(L, rt->cam.pos.y); lua_setfield(L, -2, "y");
+        lua_pushnumber(L, rt->cam.pos.z); lua_setfield(L, -2, "z");
+        lua_pushinteger(L, rt->cam.pocket_id); lua_setfield(L, -2, "pocket");
+        arm_watchdog(rt);
+        if (lua_pcall(L, 3, 0, 0) != 0) lua_pop(L, 1);
+        lua_pop(L, 1);
+    } else {
+        lua_pop(L, 2);
+    }
+}
 uint32_t eng_runtime_light_count(const eng_runtime_t *rt) { return rt ? (uint32_t)rt->persist_light_count : 0; }
 bool eng_runtime_is_server(const eng_runtime_t *rt)       { return rt ? rt->is_server : false; }
 
@@ -2680,6 +2863,7 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
 
     rt->views[0].cam = rt->cam;
     eng_renderer_render_views(rt->renderer, rt->scene, rt->portals, rt->views, rt->view_count, rt->xr);
+    if (rt->owned_cap) eng_capture_push_video_frame(rt->owned_cap, rt->renderer);
     return true;
 }
 
@@ -2738,6 +2922,7 @@ bool eng_runtime_run_playtest(eng_runtime_t *rt, const char *test_vpath, int max
     for (int f = 1; f <= limit; f++) {
         eng_input_begin_frame(rt->input, 1.0f / 60.0f);
         if (!call_sandbox_fn(rt, "playtest_frame", 1, (float)f, err_buf, err_cap)) return false;
+        if (rt->rec_replay) eng_replay_record_frame(rt->rec_replay, rt->input, 1.0f / 60.0f);
         if (!eng_runtime_step(rt, 1.0f / 60.0f, err_buf, err_cap)) return false;
         if (!eng_runtime_render(rt, err_buf, err_cap)) return false;
 

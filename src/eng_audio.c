@@ -45,6 +45,9 @@ struct eng_audio_s {
     audio_voice_t voices[ENG_MAX_VOICES];
     uint32_t next_voice_id;
     eng_rng_t noise_rng;
+
+    eng_audio_capture_fn cap_cb;
+    void *cap_ud;
 };
 
 eng_synth_desc_t eng_synth_default_desc(eng_synth_wave_t wave, float freq_hz, float duration_sec) {
@@ -389,6 +392,12 @@ void eng_audio_mix_frames(eng_audio_t *aud, const eng_scene_t *scene,
     }
 }
 
+void eng_audio_set_capture_cb(eng_audio_t *aud, eng_audio_capture_fn cb, void *user_data) {
+    if (!aud) return;
+    aud->cap_cb = cb;
+    aud->cap_ud = user_data;
+}
+
 void eng_audio_update(eng_audio_t *aud, const eng_scene_t *scene,
                       const eng_portal_sys_t *portals, float dt) {
     if (!aud || dt <= 0.0f) return;
@@ -397,6 +406,9 @@ void eng_audio_update(eng_audio_t *aud, const eng_scene_t *scene,
     float scratch[4800 * 2];
     if (frames > 4800) frames = 4800;
     eng_audio_mix_frames(aud, scene, portals, scratch, frames);
+    if (aud->cap_cb) {
+        aud->cap_cb(scratch, frames, ENG_SAMPLE_RATE, aud->cap_ud);
+    }
     if (aud->stream) {
         SDL_PutAudioStreamData(aud->stream, scratch, (int)(frames * 2u * sizeof(float)));
     }

@@ -86,6 +86,10 @@ struct eng_input_s {
     size_t action_count;
     eng_axis_slot_t axes[ENG_MAX_AXES];
     size_t axis_count;
+
+    bool replay_override;
+    eng_vec2_t replay_move[ENG_MAX_PLAYERS];
+    eng_vec2_t replay_look[ENG_MAX_PLAYERS];
 };
 
 static int player_action_bit(const char *action) {
@@ -237,13 +241,15 @@ static void refresh_actions(eng_input_t *inp) {
     for (size_t i = 0; i < inp->action_count; i++) {
         eng_action_slot_t *a = &inp->actions[i];
         bool d = a->injected_down;
-        if (a->key != SDL_SCANCODE_UNKNOWN && a->key < SDL_SCANCODE_COUNT && inp->keys[a->key]) d = true;
-        if (a->alt_key != SDL_SCANCODE_UNKNOWN && a->alt_key < SDL_SCANCODE_COUNT && inp->keys[a->alt_key]) d = true;
-        if (a->mouse_btn > 0 && a->mouse_btn < 8 && inp->mouse_btns[a->mouse_btn]) d = true;
-        if (a->gamepad_btn >= 0 && a->gamepad_btn < SDL_GAMEPAD_BUTTON_COUNT && inp->gp_btns[a->gamepad_btn]) d = true;
-        if (inp->touch_active) {
-            if (strcmp(a->name, "jump") == 0 && inp->touch_btn_jump) d = true;
-            if (strcmp(a->name, "fire") == 0 && inp->touch_btn_fire) d = true;
+        if (!inp->replay_override || a->name[0] == '_') {
+            if (a->key != SDL_SCANCODE_UNKNOWN && a->key < SDL_SCANCODE_COUNT && inp->keys[a->key]) d = true;
+            if (a->alt_key != SDL_SCANCODE_UNKNOWN && a->alt_key < SDL_SCANCODE_COUNT && inp->keys[a->alt_key]) d = true;
+            if (a->mouse_btn > 0 && a->mouse_btn < 8 && inp->mouse_btns[a->mouse_btn]) d = true;
+            if (a->gamepad_btn >= 0 && a->gamepad_btn < SDL_GAMEPAD_BUTTON_COUNT && inp->gp_btns[a->gamepad_btn]) d = true;
+            if (inp->touch_active) {
+                if (strcmp(a->name, "jump") == 0 && inp->touch_btn_jump) d = true;
+                if (strcmp(a->name, "fire") == 0 && inp->touch_btn_fire) d = true;
+            }
         }
         if (d && !a->curr_down && !a->prev_down) {
             a->time_since_pressed = 0.0f;
@@ -253,8 +259,10 @@ static void refresh_actions(eng_input_t *inp) {
     for (int p = 0; p < ENG_MAX_PLAYERS; p++) {
         eng_player_slot_t *ps = &inp->players[p];
         uint8_t m = ps->inj_mask;
-        if (ps->dev_mode != ENG_PDEV_GAMEPAD) m |= eval_player_kb_mask(inp, p);
-        if (ps->dev_mode != ENG_PDEV_KEYBOARD) m |= eval_player_gp_mask(inp, ps->pad_slot);
+        if (!inp->replay_override) {
+            if (ps->dev_mode != ENG_PDEV_GAMEPAD) m |= eval_player_kb_mask(inp, p);
+            if (ps->dev_mode != ENG_PDEV_KEYBOARD) m |= eval_player_gp_mask(inp, ps->pad_slot);
+        }
         ps->curr_mask = m;
     }
 }
@@ -589,6 +597,7 @@ bool eng_input_player_pressed(const eng_input_t *inp, int player_idx, const char
 
 eng_vec2_t eng_input_player_move(const eng_input_t *inp, int player_idx) {
     if (!inp || player_idx < 0 || player_idx >= ENG_MAX_PLAYERS) return (eng_vec2_t){0, 0};
+    if (inp->replay_override) return inp->replay_move[player_idx];
     const eng_player_slot_t *ps = &inp->players[player_idx];
     float x = ((ps->curr_mask & (1u << 3)) ? 1.0f : 0.0f) - ((ps->curr_mask & (1u << 2)) ? 1.0f : 0.0f);
     float y = ((ps->curr_mask & (1u << 0)) ? 1.0f : 0.0f) - ((ps->curr_mask & (1u << 1)) ? 1.0f : 0.0f);
@@ -606,6 +615,7 @@ eng_vec2_t eng_input_player_move(const eng_input_t *inp, int player_idx) {
 
 eng_vec2_t eng_input_player_look(const eng_input_t *inp, int player_idx) {
     if (!inp || player_idx < 0 || player_idx >= ENG_MAX_PLAYERS) return (eng_vec2_t){0, 0};
+    if (inp->replay_override) return inp->replay_look[player_idx];
     const eng_player_slot_t *ps = &inp->players[player_idx];
     float lx = 0.0f, ly = 0.0f;
     if (ps->dev_mode != ENG_PDEV_KEYBOARD && ps->pad_slot >= 0 && ps->pad_slot < ENG_MAX_PLAYERS &&
@@ -627,6 +637,90 @@ void eng_input_inject_player_action(eng_input_t *inp, int player_idx, const char
     if (!inp || player_idx < 0 || player_idx >= ENG_MAX_PLAYERS || bit < 0) return;
     if (down) inp->players[player_idx].inj_mask |= (uint8_t)(1u << bit);
     else inp->players[player_idx].inj_mask &= (uint8_t)~(1u << bit);
+    refresh_actions(inp);
+}
+
+size_t eng_input_action_count(const eng_input_t *inp) { return inp ? inp->action_count : 0; }
+const char *eng_input_action_name(const eng_input_t *inp, size_t idx) {
+    return (inp && idx < inp->action_count) ? inp->actions[idx].name : NULL;
+}
+size_t eng_input_axis_count(const eng_input_t *inp) { return inp ? inp->axis_count : 0; }
+const char *eng_input_axis_name(const eng_input_t *inp, size_t idx) {
+    return (inp && idx < inp->axis_count) ? inp->axes[idx].name : NULL;
+}
+
+void eng_input_capture_frame(const eng_input_t *inp, float dt, eng_input_frame_t *out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->dt = dt;
+    if (!inp) return;
+    for (size_t i = 0; i < inp->action_count && i < 64u; i++) {
+        if (inp->actions[i].name[0] != '_' && inp->actions[i].curr_down) {
+            out->action_mask |= (1ull << i);
+        }
+    }
+    for (size_t i = 0; i < inp->axis_count && out->axis_count < ENG_INPUT_MAX_SNAP_AXES; i++) {
+        float v = eng_input_axis(inp, inp->axes[i].name);
+        if (fabsf(v) > 1e-5f) {
+            out->axis_idx[out->axis_count] = (uint8_t)i;
+            out->axis_val[out->axis_count] = v;
+            out->axis_count++;
+        }
+    }
+    out->mouse_pos = inp->mouse_pos;
+    out->mouse_delta = inp->mouse_delta;
+    out->wheel_y = inp->wheel_y;
+    for (int p = 0; p < ENG_MAX_PLAYERS; p++) {
+        out->player_mask[p] = inp->players[p].curr_mask;
+        out->player_move[p] = eng_input_player_move(inp, p);
+        out->player_look[p] = eng_input_player_look(inp, p);
+    }
+}
+
+void eng_input_apply_frame(eng_input_t *inp, const eng_input_frame_t *frame,
+                           const char *const *action_names, size_t action_count,
+                           const char *const *axis_names, size_t axis_count) {
+    if (!inp || !frame) return;
+    inp->replay_override = true;
+    for (size_t i = 0; i < inp->action_count; i++) {
+        if (inp->actions[i].name[0] != '_') inp->actions[i].injected_down = false;
+    }
+    for (size_t i = 0; i < action_count && i < 64u; i++) {
+        if ((frame->action_mask & (1ull << i)) != 0 && action_names && action_names[i] && action_names[i][0] != '_') {
+            eng_action_slot_t *a = get_or_add_action(inp, action_names[i]);
+            if (a) a->injected_down = true;
+        }
+    }
+    for (size_t i = 0; i < inp->axis_count; i++) {
+        inp->axes[i].injected_val = 0.0f;
+        inp->axes[i].has_injected = true;
+    }
+    for (uint8_t k = 0; k < frame->axis_count && k < ENG_INPUT_MAX_SNAP_AXES; k++) {
+        size_t idx = frame->axis_idx[k];
+        if (idx < axis_count && axis_names && axis_names[idx]) {
+            eng_axis_slot_t *ax = get_or_add_axis(inp, axis_names[idx]);
+            if (ax) { ax->injected_val = frame->axis_val[k]; ax->has_injected = true; }
+        }
+    }
+    inp->mouse_pos = frame->mouse_pos;
+    inp->mouse_delta = frame->mouse_delta;
+    inp->wheel_y = frame->wheel_y;
+    for (int p = 0; p < ENG_MAX_PLAYERS; p++) {
+        inp->players[p].inj_mask = frame->player_mask[p];
+        inp->replay_move[p] = frame->player_move[p];
+        inp->replay_look[p] = frame->player_look[p];
+    }
+    refresh_actions(inp);
+}
+
+void eng_input_clear_replay_override(eng_input_t *inp) {
+    if (!inp) return;
+    inp->replay_override = false;
+    for (size_t i = 0; i < inp->action_count; i++) {
+        if (inp->actions[i].name[0] != '_') inp->actions[i].injected_down = false;
+    }
+    for (size_t i = 0; i < inp->axis_count; i++) inp->axes[i].has_injected = false;
+    for (int p = 0; p < ENG_MAX_PLAYERS; p++) inp->players[p].inj_mask = 0;
     refresh_actions(inp);
 }
 

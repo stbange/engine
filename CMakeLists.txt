@@ -199,6 +199,8 @@ set(ENG_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_profiler.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_ui.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_editor.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_replay.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_capture.c"
 )
 
 add_library(libengine STATIC ${ENG_CORE_SOURCES})
@@ -246,7 +248,7 @@ if(ENG_BUILD_RUNNER)
             "-sFORCE_FILESYSTEM=1"
             "-sSTACK_SIZE=2097152"
             "-sINITIAL_MEMORY=33554432"
-            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_eng_web_toggle_help','_eng_web_wants_mouse_lock','_eng_web_set_mouse_lock_state','_eng_web_inject_action','_eng_web_inject_axis','_eng_web_submit_xr_frame','_eng_web_end_xr']"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_eng_web_toggle_help','_eng_web_wants_mouse_lock','_eng_web_set_mouse_lock_state','_eng_web_inject_action','_eng_web_inject_axis','_eng_web_submit_xr_frame','_eng_web_end_xr','_eng_web_request_screenshot']"
             "-sEXPORTED_RUNTIME_METHODS=['callMain','FS','IDBFS','ccall','cwrap','HEAPF32','HEAP32','GL']"
         )
     endif()
@@ -338,4 +340,14 @@ if(ENG_BUILD_TESTS AND NOT EMSCRIPTEN)
     )
     target_link_libraries(test_phase8 PRIVATE libengine)
     add_test(NAME phase8_unit_tests COMMAND test_phase8)
+
+    add_executable(test_phase9
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/test_phase9.c"
+    )
+    target_compile_definitions(test_phase9 PRIVATE
+        ENG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        ENG_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}"
+    )
+    target_link_libraries(test_phase9 PRIVATE libengine)
+    add_test(NAME phase9_unit_tests COMMAND test_phase9)
 endif()

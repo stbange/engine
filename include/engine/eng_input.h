@@ -82,6 +82,33 @@ eng_vec2_t eng_input_player_move(const eng_input_t *inp, int player_idx);
 eng_vec2_t eng_input_player_look(const eng_input_t *inp, int player_idx);
 void eng_input_inject_player_action(eng_input_t *inp, int player_idx, const char *action, bool down);
 
+/* Deterministic frame snapshot & replay playback injection */
+#define ENG_INPUT_MAX_SNAP_AXES 32
+
+typedef struct {
+    float dt;
+    uint64_t action_mask;
+    uint8_t axis_count;
+    uint8_t axis_idx[ENG_INPUT_MAX_SNAP_AXES];
+    float axis_val[ENG_INPUT_MAX_SNAP_AXES];
+    eng_vec2_t mouse_pos;
+    eng_vec2_t mouse_delta;
+    float wheel_y;
+    uint8_t player_mask[ENG_MAX_PLAYERS];
+    eng_vec2_t player_move[ENG_MAX_PLAYERS];
+    eng_vec2_t player_look[ENG_MAX_PLAYERS];
+} eng_input_frame_t;
+
+size_t eng_input_action_count(const eng_input_t *inp);
+const char *eng_input_action_name(const eng_input_t *inp, size_t idx);
+size_t eng_input_axis_count(const eng_input_t *inp);
+const char *eng_input_axis_name(const eng_input_t *inp, size_t idx);
+void eng_input_capture_frame(const eng_input_t *inp, float dt, eng_input_frame_t *out);
+void eng_input_apply_frame(eng_input_t *inp, const eng_input_frame_t *frame,
+                           const char *const *action_names, size_t action_count,
+                           const char *const *axis_names, size_t axis_count);
+void eng_input_clear_replay_override(eng_input_t *inp);
+
 /* JSON serialization for rebindable controls */
 size_t eng_input_save_bindings_json(const eng_input_t *inp, char *out_buf, size_t out_cap);
 bool eng_input_load_bindings_json(eng_input_t *inp, const char *json_src, char *err_buf, size_t err_cap);

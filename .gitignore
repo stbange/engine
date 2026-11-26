@@ -27,4 +27,5 @@ compile_commands.json
 *.tmp.png
 user_saves/
 saves/
+captures/
 *.engsave

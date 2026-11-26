@@ -17,6 +17,7 @@
     button.btn { background:#1e2636; color:var(--text); border:1px solid #33415c; border-radius:4px; padding:4px 9px; font-family:inherit; font-size:12px; cursor:pointer; white-space:nowrap; }
     button.btn:hover { border-color:var(--accent); color:var(--accent); }
     button.btn.xr-ready { border-color:var(--accent); background:#13332b; color:var(--accent); font-weight:700; }
+    button.btn.rec-active { border-color:#ff5566; background:#3b141c; color:#ff6b7a; font-weight:700; }
     #canvas-wrap { position:relative; flex:1 1 auto; min-height:0; width:100%; overflow:hidden; display:flex; align-items:center; justify-content:center; }
     canvas#canvas { width:100%; height:100%; display:block; outline:none; touch-action:none; }
     #status { position:absolute; top:12px; left:50%; transform:translateX(-50%); background:rgba(15,20,28,0.88); border:1px solid #2d3a4f; padding:6px 14px; border-radius:20px; font-size:12px; color:var(--muted); z-index:15; pointer-events:none; max-width:92%; text-align:center; }
@@ -59,6 +60,8 @@
       <span id="game-title">Loading...</span>
     </div>
     <div class="controls">
+      <button id="btn-shot" class="btn" title="Save PNG Screenshot (F12)">Shot</button>
+      <button id="btn-rec" class="btn" title="Record WebM Video + Audio">Rec</button>
       <button id="btn-help" class="btn" title="Toggle On-Screen Help (H)">Help</button>
       <button id="btn-touch" class="btn" title="Toggle Touch Controls">Touch</button>
       <button id="btn-xr" class="btn" disabled>VR...</button>
@@ -86,6 +89,25 @@
   </div>
 
   <script>
+    // Tap WebAudio output into a MediaStreamDestination before SDL3 initializes AudioContext
+    (function() {
+      if (typeof AudioNode === 'undefined' || !AudioNode.prototype.connect) return;
+      const origConnect = AudioNode.prototype.connect;
+      AudioNode.prototype.connect = function(dest) {
+        const res = origConnect.apply(this, arguments);
+        try {
+          if (dest && this.context && dest === this.context.destination && this.context.createMediaStreamDestination) {
+            if (!this.context._engCapDest) {
+              this.context._engCapDest = this.context.createMediaStreamDestination();
+              window._engAudioDest = this.context._engCapDest;
+            }
+            if (this !== this.context._engCapDest) origConnect.call(this, this.context._engCapDest);
+          }
+        } catch (_) {}
+        return res;
+      };
+    })();
+
     const params = new URLSearchParams(location.search);
     const gameSlug = (params.get('game') || '001_catacomb_blitz').replace(/[^a-zA-Z0-9_-]/g, '');
     const modSlug  = (params.get('mod') || '').replace(/[^a-zA-Z0-9_-]/g, '');
@@ -94,6 +116,68 @@
     titleEl.title = gameSlug;
     const statusEl = document.getElementById('status');
     const lockHintEl = document.getElementById('lock-hint');
+
+    function downloadBlob(blob, filename) {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }
+    function mediaStamp() {
+      return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    }
+
+    const shotBtn = document.getElementById('btn-shot');
+    window._engOnWebScreenshot = () => {
+      Module.canvas.toBlob((blob) => {
+        downloadBlob(blob, gameSlug + '_' + mediaStamp() + '.png');
+        shotBtn.textContent = 'Saved';
+        setTimeout(() => { shotBtn.textContent = 'Shot'; }, 900);
+      }, 'image/png');
+    };
+    shotBtn.onclick = () => {
+      if (Module._eng_web_request_screenshot) Module._eng_web_request_screenshot();
+      else window._engOnWebScreenshot();
+      Module.canvas.focus();
+    };
+
+    const recBtn = document.getElementById('btn-rec');
+    let mediaRec = null, recChunks = [];
+    recBtn.onclick = () => {
+      if (mediaRec && mediaRec.state === 'recording') {
+        mediaRec.stop();
+        Module.canvas.focus();
+        return;
+      }
+      if (typeof MediaRecorder === 'undefined' || !Module.canvas.captureStream) {
+        recBtn.textContent = 'No Rec';
+        return;
+      }
+      try {
+        const stream = Module.canvas.captureStream(60);
+        if (window._engAudioDest && window._engAudioDest.stream) {
+          for (const t of window._engAudioDest.stream.getAudioTracks()) stream.addTrack(t);
+        }
+        const mimes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/webm'];
+        const mime = mimes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+        recChunks = [];
+        mediaRec = mime ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }) : new MediaRecorder(stream);
+        mediaRec.ondataavailable = (e) => { if (e.data && e.data.size > 0) recChunks.push(e.data); };
+        mediaRec.onstop = () => {
+          downloadBlob(new Blob(recChunks, { type: mime || 'video/webm' }), gameSlug + '_' + mediaStamp() + '.webm');
+          recChunks = []; mediaRec = null;
+          recBtn.textContent = 'Rec'; recBtn.classList.remove('rec-active');
+        };
+        mediaRec.start(250);
+        recBtn.textContent = 'Stop';
+        recBtn.classList.add('rec-active');
+      } catch (e) {
+        console.warn('[Capture]', e);
+      }
+      Module.canvas.focus();
+    };
 
     // Auto-enable touch controls on mobile/tablet devices (or ?touch=1)
     const isMobile = (navigator.maxTouchPoints > 0) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -104,6 +188,7 @@
     document.getElementById('btn-fs').onclick = () => document.getElementById('canvas-wrap').requestFullscreen?.();
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') e.preventDefault();
+      if (e.key === 'F12') { e.preventDefault(); shotBtn.click(); }
       if ((e.key === 'F1' || e.key === '`' || e.key === '~') && document.pointerLockElement) {
         document.exitPointerLock?.();
       }

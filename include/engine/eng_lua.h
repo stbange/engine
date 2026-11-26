@@ -5,6 +5,7 @@
 #include "eng_anim.h"
 #include "eng_asset.h"
 #include "eng_audio.h"
+#include "eng_capture.h"
 #include "eng_i18n.h"
 #include "eng_input.h"
 #include "eng_math.h"
@@ -15,6 +16,7 @@
 #include "eng_portal.h"
 #include "eng_procgen.h"
 #include "eng_render.h"
+#include "eng_replay.h"
 #include "eng_scene.h"
 #include "eng_terrain.h"
 #include "eng_text.h"
@@ -63,7 +65,12 @@ eng_asset_cache_t *eng_runtime_assets(eng_runtime_t *rt);
 eng_input_t *eng_runtime_input(eng_runtime_t *rt);
 eng_xr_t *eng_runtime_xr(eng_runtime_t *rt);
 eng_platform_t *eng_runtime_platform(eng_runtime_t *rt);
+eng_audio_t *eng_runtime_audio(eng_runtime_t *rt);
 eng_camera_t *eng_runtime_camera(eng_runtime_t *rt);
+void eng_runtime_attach_media(eng_runtime_t *rt, eng_replay_t *rec_replay, eng_replay_t *play_replay,
+                              eng_capture_t **live_cap_ptr, bool *clean_feed_ptr);
+bool eng_runtime_load_director(eng_runtime_t *rt, const char *script_path, char *err_buf, size_t err_cap);
+void eng_runtime_apply_director(eng_runtime_t *rt, uint32_t frame_idx);
 uint32_t eng_runtime_light_count(const eng_runtime_t *rt);
 size_t eng_runtime_hud_text_count(const eng_runtime_t *rt);
 const char *eng_runtime_hud_text_get(const eng_runtime_t *rt, size_t idx, float *out_x, float *out_y);

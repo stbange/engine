@@ -93,7 +93,11 @@ void eng_audio_mix_frames(eng_audio_t *aud, const eng_scene_t *scene,
                           const eng_portal_sys_t *portals,
                           float *out_stereo_lr, size_t frames);
 
-/* Pump SDL3 audio stream for frame dt (no-op in headless mode). */
+/* Optional stereo float32 PCM tap invoked by eng_audio_update (including headless mode) for video/WAV capture. */
+typedef void (*eng_audio_capture_fn)(const float *stereo_lr, size_t frames, int sample_rate, void *user_data);
+void eng_audio_set_capture_cb(eng_audio_t *aud, eng_audio_capture_fn cb, void *user_data);
+
+/* Pump SDL3 audio stream for frame dt (no-op for hardware playback in headless mode, still mixes PCM tap). */
 void eng_audio_update(eng_audio_t *aud, const eng_scene_t *scene,
                       const eng_portal_sys_t *portals, float dt);
 

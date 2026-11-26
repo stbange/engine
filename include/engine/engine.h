@@ -37,5 +37,7 @@
 #include "eng_profiler.h"
 #include "eng_ui.h"
 #include "eng_editor.h"
+#include "eng_replay.h"
+#include "eng_capture.h"
 
 #endif /* ENGINE_H */

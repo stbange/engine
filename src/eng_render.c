@@ -67,6 +67,8 @@ struct eng_renderer_s {
     GLuint gb_pos_tex;
     GLuint shadow_fbo;
     GLuint shadow_tex;
+    GLuint cap_fbo;
+    GLuint cap_color_tex;
 
     eng_draw_item_t *items;
     size_t item_count;
@@ -358,6 +360,8 @@ void eng_renderer_destroy(eng_renderer_t *r) {
     eng_shader_destroy(&r->sh_post);
     if (r->fallback_white_tex) gl->DeleteTextures(1, &r->fallback_white_tex);
     if (r->fallback_cube_tex) gl->DeleteTextures(1, &r->fallback_cube_tex);
+    if (r->cap_fbo) gl->DeleteFramebuffers(1, &r->cap_fbo);
+    if (r->cap_color_tex) gl->DeleteTextures(1, &r->cap_color_tex);
     if (r->fs_vbo) gl->DeleteBuffers(1, &r->fs_vbo);
     if (r->fs_vao) gl->DeleteVertexArrays(1, &r->fs_vao);
     if (r->sp_vbo) gl->DeleteBuffers(1, &r->sp_vbo);
@@ -1110,7 +1114,7 @@ void eng_renderer_render_views(eng_renderer_t *r, const eng_scene_t *scene,
 
     bool xr_on = (xr != NULL && eng_xr_is_active(xr));
     int pass_count = xr_on ? 2 : view_count;
-    GLuint dst_fbo = xr_on ? eng_xr_framebuffer(xr) : 0u;
+    GLuint dst_fbo = xr_on ? eng_xr_framebuffer(xr) : r->cap_fbo;
 
     eng_mat4_t light_vp;
     bool has_shadow = false;
@@ -1236,11 +1240,39 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
     eng_renderer_render_views(r, scene, portals, &v, 1, xr);
 }
 
+bool eng_renderer_set_capture_target(eng_renderer_t *r, int width, int height) {
+    if (!r) return false;
+    const eng_gl_api_t *gl = eng_gl();
+    if (r->cap_fbo) { gl->DeleteFramebuffers(1, &r->cap_fbo); r->cap_fbo = 0; }
+    if (r->cap_color_tex) { gl->DeleteTextures(1, &r->cap_color_tex); r->cap_color_tex = 0; }
+    if (width <= 0 || height <= 0) return true;
+    if (!eng_renderer_resize(r, width, height)) return false;
+    r->cap_color_tex = make_tex2d(r->width, r->height, ENG_GL_RGBA8, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, ENG_GL_LINEAR);
+    gl->GenFramebuffers(1, &r->cap_fbo);
+    gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->cap_fbo);
+    gl->FramebufferTexture2D(ENG_GL_FRAMEBUFFER, ENG_GL_COLOR_ATTACHMENT0, ENG_GL_TEXTURE_2D, r->cap_color_tex, 0);
+    bool ok = (gl->CheckFramebufferStatus(ENG_GL_FRAMEBUFFER) == ENG_GL_FRAMEBUFFER_COMPLETE);
+    gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, 0);
+    if (!ok) {
+        gl->DeleteFramebuffers(1, &r->cap_fbo); r->cap_fbo = 0;
+        gl->DeleteTextures(1, &r->cap_color_tex); r->cap_color_tex = 0;
+    }
+    return ok;
+}
+
+GLuint eng_renderer_output_fbo(const eng_renderer_t *r) { return r ? r->cap_fbo : 0u; }
+
+void eng_renderer_get_size(const eng_renderer_t *r, int *out_w, int *out_h) {
+    if (out_w) *out_w = r ? r->width : 0;
+    if (out_h) *out_h = r ? r->height : 0;
+}
+
 bool eng_renderer_read_pixels(const eng_renderer_t *r, uint8_t *out_rgba_bottom_up, int w, int h) {
     if (!r || !out_rgba_bottom_up || w <= 0 || h <= 0 || w > r->width || h > r->height) return false;
     const eng_gl_api_t *gl = eng_gl();
-    gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, 0);
+    gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->cap_fbo);
     gl->ReadPixels(0, 0, w, h, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, out_rgba_bottom_up);
+    gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, 0);
     return true;
 }
 
