@@ -181,8 +181,17 @@ function eng.render.set_pipeline(mode: string) end
 --- Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT
 function eng.render.set_retro(ps1_or_table: boolean|table) end
 
---- Set procedural skybox gradient
-function eng.render.set_sky(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number) end
+--- Set procedural skybox gradient (global or per-pocket)
+function eng.render.set_sky(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number, gx?: number, gy?: number, gz?: number, pocket?: string|integer) end
+
+--- Configure skybox texture/cubemap, sun/moon, clouds, stars, pixel_snap, parallax layers & per-pocket override
+function eng.render.set_sky_fx(opts: table) end
+
+--- Remove per-pocket skybox override so pocket falls back to global sky
+function eng.render.clear_pocket_sky(pocket: string|integer) end
+
+--- Configure up to 4 retro multi-layer parallax horizon bands (procedural or alpha textures)
+function eng.render.set_parallax(layers: table, pocket?: string|integer) end
 
 --- Add directional, point, or spot light to pocket (returns 1-based handle)
 function eng.render.add_light(desc: table): integer end
@@ -216,6 +225,9 @@ function eng.asset.load_mesh(vpath: string): integer end
 
 --- Load PNG/JPG texture from VFS
 function eng.asset.load_texture(vpath: string, nearest?: boolean): integer end
+
+--- Load 6-face skybox cubemap {px,nx,py,ny,pz,nz} from VFS
+function eng.asset.load_cubemap(faces: table, nearest?: boolean): integer end
 
 ---@class eng.portal
 eng.portal = {}

@@ -106,6 +106,7 @@ struct eng_runtime_s {
     char game_desc[256];
     uint32_t seen_inputs;
 
+    float sim_time;
     bool kinematics_synced;
     bool cov_enabled;
     lua_cov_file_t cov_files[16];
@@ -754,13 +755,148 @@ static int l_render_retro(lua_State *L) {
     eng_renderer_set_retro(rt->renderer, &cfg);
     return 0;
 }
+static eng_parallax_style_t parse_parallax_style(const char *s) {
+    if (!s || !s[0]) return ENG_PARALLAX_MOUNTAINS;
+    if (strcmp(s, "texture") == 0) return ENG_PARALLAX_TEXTURE;
+    if (strcmp(s, "mountains") == 0) return ENG_PARALLAX_MOUNTAINS;
+    if (strcmp(s, "hills") == 0) return ENG_PARALLAX_HILLS;
+    if (strcmp(s, "city") == 0) return ENG_PARALLAX_CITY;
+    if (strcmp(s, "trees") == 0) return ENG_PARALLAX_TREES;
+    if (strcmp(s, "dunes") == 0) return ENG_PARALLAX_DUNES;
+    if (strcmp(s, "clouds") == 0) return ENG_PARALLAX_CLOUDS;
+    return ENG_PARALLAX_NONE;
+}
+
+static int parse_parallax_layers(lua_State *L, int tbl_idx, eng_parallax_layer_t out[ENG_MAX_PARALLAX_LAYERS]) {
+    if (!lua_istable(L, tbl_idx)) return 0;
+    int n = (int)lua_objlen(L, tbl_idx);
+    if (n > ENG_MAX_PARALLAX_LAYERS) n = ENG_MAX_PARALLAX_LAYERS;
+    int count = 0;
+    for (int i = 0; i < n; i++) {
+        lua_rawgeti(L, tbl_idx, i + 1);
+        if (lua_istable(L, -1)) {
+            int lt = lua_gettop(L);
+            eng_parallax_layer_t pl;
+            memset(&pl, 0, sizeof(pl));
+            pl.style = ENG_PARALLAX_MOUNTAINS;
+            pl.parallax = 0.6f + 0.25f * (float)i;
+            pl.move_parallax = 0.25f + 0.35f * (float)i;
+            pl.height = 0.22f;
+            pl.offset = -0.02f;
+            pl.scale = 2.0f;
+            pl.tint = (eng_vec4_t){0.20f, 0.24f, 0.36f, 1.0f};
+            pl.accent = eng_v3(0.85f, 0.88f, 0.95f);
+            pl.fog_blend = 0.25f;
+
+            lua_getfield(L, lt, "tex");
+            if (lua_isnumber(L, -1)) {
+                pl.tex_id = (uint32_t)lua_tointeger(L, -1);
+                if (pl.tex_id > 0) pl.style = ENG_PARALLAX_TEXTURE;
+            }
+            lua_pop(L, 1);
+            lua_getfield(L, lt, "style");
+            if (lua_isstring(L, -1)) pl.style = parse_parallax_style(lua_tostring(L, -1));
+            lua_pop(L, 1);
+            lua_getfield(L, lt, "parallax"); if (lua_isnumber(L, -1)) pl.parallax = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, lt, "move_parallax"); if (lua_isnumber(L, -1)) pl.move_parallax = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, lt, "scroll_speed"); if (lua_isnumber(L, -1)) pl.scroll_speed = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, lt, "height"); if (lua_isnumber(L, -1)) pl.height = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, lt, "offset"); if (lua_isnumber(L, -1)) pl.offset = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, lt, "scale"); if (lua_isnumber(L, -1)) pl.scale = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, lt, "tint"); pl.tint = opt_tbl_v4(L, lua_gettop(L), pl.tint); lua_pop(L, 1);
+            lua_getfield(L, lt, "color"); pl.tint = opt_tbl_v4(L, lua_gettop(L), pl.tint); lua_pop(L, 1);
+            lua_getfield(L, lt, "accent"); pl.accent = opt_tbl_v3(L, lua_gettop(L), pl.accent); lua_pop(L, 1);
+            lua_getfield(L, lt, "fog_blend"); if (lua_isnumber(L, -1)) pl.fog_blend = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            out[count++] = pl;
+        }
+        lua_pop(L, 1);
+    }
+    return count;
+}
+
+static bool opt_pocket_arg(lua_State *L, eng_runtime_t *rt, int idx, uint16_t *out_pk) {
+    if (lua_isstring(L, idx)) { *out_pk = eng_scene_register_pocket(rt->scene, lua_tostring(L, idx)); return true; }
+    if (lua_isnumber(L, idx)) { *out_pk = (uint16_t)lua_tointeger(L, idx); return true; }
+    return false;
+}
+
 static int l_render_sky(lua_State *L) {
-    eng_renderer_set_sky(get_rt(L)->renderer,
-                         eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3)),
-                         eng_v3(chk_f(L, 4), chk_f(L, 5), chk_f(L, 6)),
-                         eng_v3(opt_f(L, 7, 0.12f), opt_f(L, 8, 0.11f), opt_f(L, 9, 0.10f)));
+    eng_runtime_t *rt = get_rt(L);
+    eng_vec3_t z = eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3));
+    eng_vec3_t h = eng_v3(chk_f(L, 4), chk_f(L, 5), chk_f(L, 6));
+    eng_vec3_t g = eng_v3(opt_f(L, 7, 0.12f), opt_f(L, 8, 0.11f), opt_f(L, 9, 0.10f));
+    uint16_t pk = 0;
+    if (opt_pocket_arg(L, rt, 10, &pk)) {
+        eng_sky_config_t cfg = eng_renderer_get_pocket_sky(rt->renderer, pk);
+        cfg.zenith = z; cfg.horizon = h; cfg.ground = g;
+        eng_renderer_set_pocket_sky(rt->renderer, pk, &cfg);
+    } else {
+        eng_renderer_set_sky(rt->renderer, z, h, g);
+    }
     return 0;
 }
+
+static int l_render_sky_fx(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    luaL_checktype(L, 1, LUA_TTABLE);
+    uint16_t pk = 0;
+    lua_getfield(L, 1, "pocket");
+    bool per_pocket = opt_pocket_arg(L, rt, lua_gettop(L), &pk);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "reset");
+    bool do_reset = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+
+    eng_sky_config_t cfg = do_reset ? eng_sky_default()
+                                    : (per_pocket ? eng_renderer_get_pocket_sky(rt->renderer, pk)
+                                                  : eng_renderer_get_sky_fx(rt->renderer));
+    lua_getfield(L, 1, "zenith"); cfg.zenith = opt_tbl_v3(L, lua_gettop(L), cfg.zenith); lua_pop(L, 1);
+    lua_getfield(L, 1, "horizon"); cfg.horizon = opt_tbl_v3(L, lua_gettop(L), cfg.horizon); lua_pop(L, 1);
+    lua_getfield(L, 1, "ground"); cfg.ground = opt_tbl_v3(L, lua_gettop(L), cfg.ground); lua_pop(L, 1);
+    lua_getfield(L, 1, "tex"); if (lua_isnumber(L, -1)) cfg.panorama_tex = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "panorama"); if (lua_isnumber(L, -1)) cfg.panorama_tex = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "cubemap"); if (lua_isnumber(L, -1)) cfg.cubemap_tex = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "sun_dir"); cfg.sun_dir = opt_tbl_v3(L, lua_gettop(L), cfg.sun_dir); lua_pop(L, 1);
+    lua_getfield(L, 1, "sun_color"); cfg.sun_color = opt_tbl_v3(L, lua_gettop(L), cfg.sun_color); lua_pop(L, 1);
+    lua_getfield(L, 1, "sun_size"); if (lua_isnumber(L, -1)) cfg.sun_size = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "sun_glow"); if (lua_isnumber(L, -1)) cfg.sun_glow = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "sun_banded"); if (!lua_isnil(L, -1)) cfg.sun_banded = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+    lua_getfield(L, 1, "clouds"); if (lua_isnumber(L, -1)) cfg.clouds = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "cloud_speed"); if (lua_isnumber(L, -1)) cfg.cloud_speed = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "cloud_scale"); if (lua_isnumber(L, -1)) cfg.cloud_scale = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "cloud_color"); cfg.cloud_color = opt_tbl_v3(L, lua_gettop(L), cfg.cloud_color); lua_pop(L, 1);
+    lua_getfield(L, 1, "stars"); if (lua_isnumber(L, -1)) cfg.stars = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "star_scale"); if (lua_isnumber(L, -1)) cfg.star_scale = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "pixel_snap"); if (lua_isnumber(L, -1)) cfg.pixel_snap = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "parallax");
+    if (lua_istable(L, -1)) {
+        cfg.parallax_count = parse_parallax_layers(L, lua_gettop(L), cfg.parallax);
+    }
+    lua_pop(L, 1);
+
+    if (per_pocket) eng_renderer_set_pocket_sky(rt->renderer, pk, &cfg);
+    else eng_renderer_set_sky_fx(rt->renderer, &cfg);
+    return 0;
+}
+
+static int l_render_clear_pocket_sky(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    if (opt_pocket_arg(L, rt, 1, &pk)) eng_renderer_clear_pocket_sky(rt->renderer, pk);
+    return 0;
+}
+
+static int l_render_set_parallax(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_parallax_layer_t layers[ENG_MAX_PARALLAX_LAYERS];
+    int n = lua_istable(L, 1) ? parse_parallax_layers(L, 1, layers) : 0;
+    uint16_t pk = 0;
+    bool per_pocket = opt_pocket_arg(L, rt, 2, &pk);
+    eng_renderer_set_parallax(rt->renderer, pk, per_pocket, layers, n);
+    return 0;
+}
+
 static int l_render_add_light(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
     if (!lua_istable(L, 1) || rt->persist_light_count >= ENG_MAX_PERSIST_LIGHTS) { lua_pushinteger(L, 0); return 1; }
@@ -887,6 +1023,29 @@ static int l_asset_load_mesh(lua_State *L) {
 }
 static int l_asset_load_tex(lua_State *L) {
     lua_pushinteger(L, eng_asset_load_texture(get_rt(L)->assets, luaL_checkstring(L, 1), lua_toboolean(L, 2)));
+    return 1;
+}
+static int l_asset_load_cubemap(lua_State *L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    static const char *const k_keys[6] = {"px", "nx", "py", "ny", "pz", "nz"};
+    static const char *const k_alt[6]  = {"right", "left", "top", "bottom", "front", "back"};
+    const char *paths[6] = {0};
+    for (int i = 0; i < 6; i++) {
+        lua_rawgeti(L, 1, i + 1);
+        if (lua_isstring(L, -1)) paths[i] = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        if (!paths[i]) {
+            lua_getfield(L, 1, k_keys[i]);
+            if (lua_isstring(L, -1)) paths[i] = lua_tostring(L, -1);
+            lua_pop(L, 1);
+        }
+        if (!paths[i]) {
+            lua_getfield(L, 1, k_alt[i]);
+            if (lua_isstring(L, -1)) paths[i] = lua_tostring(L, -1);
+            lua_pop(L, 1);
+        }
+    }
+    lua_pushinteger(L, eng_asset_load_cubemap(get_rt(L)->assets, paths, lua_toboolean(L, 2) != 0));
     return 1;
 }
 
@@ -1780,7 +1939,10 @@ static const lua_fn_desc_t k_api_table[] = {
     {"camera",    "fps_steer_player", l_cam_fps_steer_player,  "(player: integer, yaw: number, pitch: number, speed: number, dt: number, turn_speed?: number): number, number, number, number, number, number", "Per-player (1..4) gamepad/split-keyboard yaw/pitch look + camera-relative move step"},
     {"render",    "set_pipeline",     l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
     {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT"},
-    {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number)", "Set procedural skybox gradient"},
+    {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number, gx?: number, gy?: number, gz?: number, pocket?: string|integer)", "Set procedural skybox gradient (global or per-pocket)"},
+    {"render",    "set_sky_fx",       l_render_sky_fx,         "(opts: table)", "Configure skybox texture/cubemap, sun/moon, clouds, stars, pixel_snap, parallax layers & per-pocket override"},
+    {"render",    "clear_pocket_sky", l_render_clear_pocket_sky, "(pocket: string|integer)", "Remove per-pocket skybox override so pocket falls back to global sky"},
+    {"render",    "set_parallax",     l_render_set_parallax,   "(layers: table, pocket?: string|integer)", "Configure up to 4 retro multi-layer parallax horizon bands (procedural or alpha textures)"},
     {"render",    "add_light",        l_render_add_light,      "(desc: table): integer", "Add directional, point, or spot light to pocket (returns 1-based handle)"},
     {"render",    "set_light",        l_render_set_light,      "(light_id: integer, desc: table)", "Update dynamic light position, direction, color, range, or pocket"},
     {"render",    "draw_sprite",      l_render_draw_sprite,    "(x: number, y: number, z: number, w?: number, h?: number, tex?: integer)", "Submit billboard sprite"},
@@ -1791,6 +1953,7 @@ static const lua_fn_desc_t k_api_table[] = {
     {"asset",     "voxel_ascii",      l_asset_voxel_ascii,     "(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer", "Build greedy-meshed AO voxel chunk from ASCII layers"},
     {"asset",     "load_mesh",        l_asset_load_mesh,       "(vpath: string): integer", "Load .gltf/.glb/.obj mesh from VFS"},
     {"asset",     "load_texture",     l_asset_load_tex,        "(vpath: string, nearest?: boolean): integer", "Load PNG/JPG texture from VFS"},
+    {"asset",     "load_cubemap",     l_asset_load_cubemap,    "(faces: table, nearest?: boolean): integer", "Load 6-face skybox cubemap {px,nx,py,ny,pz,nz} from VFS"},
     {"portal",    "link",             l_portal_link,           "(src_ent: number, dst_ent: number, w: number, h: number, scale_ratio?: number, passable?: boolean, bidir?: boolean): integer", "Link portals across pockets"},
     {"portal",    "check_crossing",   l_portal_check_crossing, "(pocket: integer, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, vx?: number, vy?: number, vz?: number): integer|nil, number, number, number, number, number, number", "Test moving-portal threshold crossing and Galilean velocity warp"},
     {"portal",    "sync_kinematics",  l_portal_sync_kinematics,"(dt: number)", "Step moving-vehicle portal world transforms and frame velocities"},
@@ -2415,6 +2578,9 @@ bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap
         return false;
     }
     lua_pop(L, 2);
+
+    rt->sim_time += dt;
+    eng_renderer_set_time(rt->renderer, rt->sim_time);
 
     if (!call_sandbox_fn(rt, "update", 1, dt, err_buf, err_cap)) return false;
 

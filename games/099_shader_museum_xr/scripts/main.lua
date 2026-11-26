@@ -4,8 +4,8 @@ local S = game.state
 function init()
     eng.render.set_pipeline("deferred")
     eng.xr.set_mode("first_person")
-    eng.render.set_retro({ bloom = 0.45, fog_density = 0.008, fog_color = {0.16, 0.22, 0.34}, fog_height = 4.0 })
-    eng.render.set_sky(0.10, 0.16, 0.28, 0.42, 0.50, 0.62)
+    eng.render.set_retro({ bloom = 0.45, fog_density = 0.008, fog_color = {0.36, 0.24, 0.28}, fog_height = 4.0 })
+    eng.fx.sky(eng, "sunset_mountains")
     eng.render.add_light({ type = "dir", dir = {-0.3, -1.0, -0.45}, color = {2.0, 1.95, 1.85}, shadow = true })
 
     S.box_mesh = eng.asset.box(1, 1, 1)
@@ -121,8 +121,9 @@ function init()
     eng.fx.spawn(eng, "fire", 4.6, 1.08, 2.5, S.hall_id)
     eng.fx.spawn(eng, "smoke", 4.6, 1.55, 2.5, S.hall_id)
 
-    -- Exhibit 5: Secondary Pocket Portal Alcove peering into an Infinity Light Vault
+    -- Exhibit 5: Secondary Pocket Portal Alcove peering into an Infinity Light Vault with a Synthwave City sky!
     local vault_id = eng.scene.register_pocket("infinity_vault")
+    eng.fx.sky(eng, "synthwave_city", { pocket = vault_id })
     eng.render.add_light({ type = "point", pocket = "infinity_vault", pos = {0.0, 3.0, 0.0}, color = {2.8, 1.8, 0.6}, range = 16.0 })
     local vf = eng.scene.spawn("vault_floor")
     eng.scene.set_pocket(vf, vault_id)

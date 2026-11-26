@@ -87,10 +87,61 @@ typedef struct {
     uint32_t lod_counts[4];
 } eng_render_stats_t;
 
+#define ENG_MAX_PARALLAX_LAYERS 4
+#define ENG_MAX_POCKET_SKIES 16
+
+typedef enum {
+    ENG_PARALLAX_NONE = 0,
+    ENG_PARALLAX_TEXTURE = 1,
+    ENG_PARALLAX_MOUNTAINS = 2,
+    ENG_PARALLAX_HILLS = 3,
+    ENG_PARALLAX_CITY = 4,
+    ENG_PARALLAX_TREES = 5,
+    ENG_PARALLAX_DUNES = 6,
+    ENG_PARALLAX_CLOUDS = 7
+} eng_parallax_style_t;
+
+typedef struct {
+    eng_parallax_style_t style;
+    uint32_t tex_id;       /* Optional alpha panoramic strip for ENG_PARALLAX_TEXTURE */
+    float parallax;        /* Angular yaw multiplier (smaller = farther) */
+    float move_parallax;   /* Camera XZ translation parallax factor */
+    float scroll_speed;    /* Constant horizontal drift (cycles/sec) */
+    float height;          /* Vertical elevation span above baseline (radians, e.g. 0.12..0.45) */
+    float offset;          /* Horizon baseline elevation offset (radians, e.g. -0.05..0.25) */
+    float scale;           /* Horizontal repeat / feature frequency */
+    eng_vec4_t tint;       /* RGBA silhouette or texture tint */
+    eng_vec3_t accent;     /* Retro highlight: snow caps, lit city windows, sunlit ridge */
+    float fog_blend;       /* 0..1 atmospheric haze blend toward sky horizon */
+} eng_parallax_layer_t;
+
+typedef struct {
+    eng_vec3_t zenith;
+    eng_vec3_t horizon;
+    eng_vec3_t ground;
+    uint32_t panorama_tex; /* Optional 2D equirectangular skybox texture (0 = procedural) */
+    uint32_t cubemap_tex;  /* Optional 6-face cubemap texture (takes precedence over panorama_tex) */
+    eng_vec3_t sun_dir;    /* Light travel dir FROM sky; {0,0,0} auto-tracks pocket dir light */
+    eng_vec3_t sun_color;  /* Linear HDR sun/moon tint */
+    float sun_size;        /* Angular disc radius in radians (0 = soft glow only) */
+    float sun_glow;        /* Sun halo intensity */
+    bool sun_banded;       /* Retro horizontal-cut OutRun/synthwave sun disc */
+    float clouds;          /* Procedural cloud deck opacity (0 = off, 0..1) */
+    float cloud_speed;     /* Cloud drift speed */
+    float cloud_scale;     /* Cloud pattern scale */
+    eng_vec3_t cloud_color;
+    float stars;           /* Procedural twinkling starfield intensity (0 = off, 0..1) */
+    float star_scale;      /* Star grid density */
+    float pixel_snap;      /* 0 = smooth; >0 = retro spherical pixel quantization steps */
+    eng_parallax_layer_t parallax[ENG_MAX_PARALLAX_LAYERS];
+    int parallax_count;
+} eng_sky_config_t;
+
 typedef struct eng_renderer_s eng_renderer_t;
 
 eng_retro_cfg_t eng_retro_default(void);
 eng_retro_cfg_t eng_retro_ps1_preset(void);
+eng_sky_config_t eng_sky_default(void);
 eng_camera_t eng_camera_default(void);
 
 eng_renderer_t *eng_renderer_create(eng_vfs_t *vfs, eng_asset_cache_t *assets, int width, int height);
@@ -104,6 +155,14 @@ void eng_renderer_set_retro(eng_renderer_t *r, const eng_retro_cfg_t *cfg);
 eng_retro_cfg_t eng_renderer_get_retro(const eng_renderer_t *r);
 
 void eng_renderer_set_sky(eng_renderer_t *r, eng_vec3_t zenith, eng_vec3_t horizon, eng_vec3_t ground);
+void eng_renderer_set_sky_fx(eng_renderer_t *r, const eng_sky_config_t *cfg);
+eng_sky_config_t eng_renderer_get_sky_fx(const eng_renderer_t *r);
+bool eng_renderer_set_pocket_sky(eng_renderer_t *r, uint16_t pocket_id, const eng_sky_config_t *cfg);
+eng_sky_config_t eng_renderer_get_pocket_sky(const eng_renderer_t *r, uint16_t pocket_id);
+void eng_renderer_clear_pocket_sky(eng_renderer_t *r, uint16_t pocket_id);
+void eng_renderer_set_parallax(eng_renderer_t *r, uint16_t pocket_id, bool per_pocket,
+                               const eng_parallax_layer_t *layers, int count);
+void eng_renderer_set_time(eng_renderer_t *r, float time_sec);
 void eng_renderer_set_ambient(eng_renderer_t *r, eng_vec3_t ambient);
 void eng_renderer_set_max_portal_depth(eng_renderer_t *r, int max_depth);
 

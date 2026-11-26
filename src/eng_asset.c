@@ -516,7 +516,7 @@ uint32_t eng_asset_create_texture_rgba(eng_asset_cache_t *cache, const char *key
         gl->TexParameteri(ENG_GL_TEXTURE_2D, ENG_GL_TEXTURE_MIN_FILTER, ENG_GL_LINEAR_MIPMAP_LINEAR);
         gl->TexParameteri(ENG_GL_TEXTURE_2D, ENG_GL_TEXTURE_MAG_FILTER, ENG_GL_LINEAR);
     }
-    ct->gpu = (eng_gpu_tex_t){tid, w, h, nearest, true};
+    ct->gpu = (eng_gpu_tex_t){tid, w, h, nearest, true, false};
     return slot + 1u;
 }
 
@@ -536,6 +536,68 @@ uint32_t eng_asset_load_texture(eng_asset_cache_t *cache, const char *vpath, boo
     if (!px) return 0;
     uint32_t id = eng_asset_create_texture_rgba(cache, vpath, w, h, px, nearest);
     stbi_image_free(px);
+    return id;
+}
+
+uint32_t eng_asset_create_cubemap_rgba(eng_asset_cache_t *cache, const char *key, int size,
+                                       const uint8_t *const faces_rgba[6], bool nearest) {
+    if (!cache || size <= 0 || !faces_rgba || cache->tex_count >= ENG_MAX_CACHED_TEX) return 0;
+    for (int i = 0; i < 6; i++) {
+        if (!faces_rgba[i]) return 0;
+    }
+    const eng_gl_api_t *gl = eng_gl();
+    uint32_t slot = cache->tex_count++;
+    cached_tex_t *ct = &cache->texs[slot];
+    snprintf(ct->key, sizeof(ct->key), "%s", key ? key : "proc_cube");
+
+    GLuint tid = 0;
+    gl->GenTextures(1, &tid);
+    gl->BindTexture(ENG_GL_TEXTURE_CUBE_MAP, tid);
+    for (int i = 0; i < 6; i++) {
+        gl->TexImage2D(ENG_GL_TEXTURE_CUBE_MAP_POSITIVE_X + (GLenum)i, 0, ENG_GL_RGBA8,
+                       size, size, 0, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, faces_rgba[i]);
+    }
+    GLint filt = nearest ? (GLint)ENG_GL_NEAREST : (GLint)ENG_GL_LINEAR;
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_MIN_FILTER, filt);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_MAG_FILTER, filt);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_S, ENG_GL_CLAMP_TO_EDGE);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_T, ENG_GL_CLAMP_TO_EDGE);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_R, ENG_GL_CLAMP_TO_EDGE);
+    ct->gpu = (eng_gpu_tex_t){tid, size, size, nearest, true, true};
+    return slot + 1u;
+}
+
+uint32_t eng_asset_load_cubemap(eng_asset_cache_t *cache, const char *const face_vpaths[6], bool nearest) {
+    if (!cache || !cache->vfs || !face_vpaths) return 0;
+    for (int i = 0; i < 6; i++) {
+        if (!face_vpaths[i] || !face_vpaths[i][0]) return 0;
+    }
+    char key[128];
+    snprintf(key, sizeof(key), "cube:%s|%s", face_vpaths[0], face_vpaths[5]);
+    for (uint32_t i = 0; i < cache->tex_count; i++) {
+        if (strcmp(cache->texs[i].key, key) == 0 && cache->texs[i].gpu.is_cubemap) return i + 1u;
+    }
+    stbi_uc *px[6] = {0};
+    int size = 0;
+    bool ok = true;
+    for (int i = 0; i < 6; i++) {
+        size_t sz = 0;
+        void *raw = eng_vfs_read_all(cache->vfs, face_vpaths[i], &sz);
+        if (!raw) { ok = false; break; }
+        int w = 0, h = 0, ch = 0;
+        px[i] = stbi_load_from_memory((const stbi_uc *)raw, (int)sz, &w, &h, &ch, 4);
+        free(raw);
+        if (!px[i] || w <= 0 || w != h || (size > 0 && w != size)) { ok = false; break; }
+        size = w;
+    }
+    uint32_t id = 0;
+    if (ok) {
+        const uint8_t *faces[6] = {px[0], px[1], px[2], px[3], px[4], px[5]};
+        id = eng_asset_create_cubemap_rgba(cache, key, size, faces, nearest);
+    }
+    for (int i = 0; i < 6; i++) {
+        if (px[i]) stbi_image_free(px[i]);
+    }
     return id;
 }
 

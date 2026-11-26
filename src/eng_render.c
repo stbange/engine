@@ -17,6 +17,12 @@ typedef struct {
     float cam_dist;
 } vis_draw_t;
 
+typedef struct {
+    bool active;
+    uint16_t pocket_id;
+    eng_sky_config_t cfg;
+} pocket_sky_entry_t;
+
 struct eng_renderer_s {
     eng_vfs_t *vfs;
     eng_asset_cache_t *assets;
@@ -25,9 +31,9 @@ struct eng_renderer_s {
 
     eng_pipeline_mode_t pipeline;
     eng_retro_cfg_t retro;
-    eng_vec3_t sky_zenith;
-    eng_vec3_t sky_horizon;
-    eng_vec3_t sky_ground;
+    eng_sky_config_t sky;
+    pocket_sky_entry_t pocket_skies[ENG_MAX_POCKET_SKIES];
+    float time;
     eng_vec3_t ambient;
     int max_portal_depth;
 
@@ -47,6 +53,8 @@ struct eng_renderer_s {
     uint32_t portal_cap_mesh;
     uint32_t portal_quad_mesh;
     uint32_t soft_particle_tex;
+    GLuint fallback_white_tex;
+    GLuint fallback_cube_tex;
 
     GLuint hdr_fbo;
     GLuint hdr_color_tex;
@@ -76,6 +84,21 @@ struct eng_renderer_s {
 
     eng_render_stats_t stats;
 };
+
+eng_sky_config_t eng_sky_default(void) {
+    eng_sky_config_t s;
+    memset(&s, 0, sizeof(s));
+    s.zenith = eng_v3(0.14f, 0.34f, 0.72f);
+    s.horizon = eng_v3(0.62f, 0.76f, 0.92f);
+    s.ground = eng_v3(0.18f, 0.16f, 0.14f);
+    s.sun_color = eng_v3(1.0f, 0.92f, 0.72f);
+    s.sun_glow = 1.5f;
+    s.cloud_speed = 0.04f;
+    s.cloud_scale = 2.4f;
+    s.cloud_color = eng_v3(0.98f, 0.98f, 1.0f);
+    s.star_scale = 140.0f;
+    return s;
+}
 
 eng_retro_cfg_t eng_retro_default(void) {
     return (eng_retro_cfg_t){
@@ -225,9 +248,7 @@ eng_renderer_t *eng_renderer_create(eng_vfs_t *vfs, eng_asset_cache_t *assets, i
     r->assets = assets;
     r->pipeline = ENG_PIPELINE_FORWARD;
     r->retro = eng_retro_default();
-    r->sky_zenith = eng_v3(0.14f, 0.34f, 0.72f);
-    r->sky_horizon = eng_v3(0.62f, 0.76f, 0.92f);
-    r->sky_ground = eng_v3(0.18f, 0.16f, 0.14f);
+    r->sky = eng_sky_default();
     r->ambient = eng_v3(0.16f, 0.18f, 0.22f);
     r->max_portal_depth = 2;
 
@@ -237,6 +258,26 @@ eng_renderer_t *eng_renderer_create(eng_vfs_t *vfs, eng_asset_cache_t *assets, i
     }
 
     const eng_gl_api_t *gl = eng_gl();
+    static const uint8_t px_white[4] = {255, 255, 255, 255};
+    gl->GenTextures(1, &r->fallback_white_tex);
+    gl->BindTexture(ENG_GL_TEXTURE_2D, r->fallback_white_tex);
+    gl->TexImage2D(ENG_GL_TEXTURE_2D, 0, ENG_GL_RGBA8, 1, 1, 0, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, px_white);
+    gl->TexParameteri(ENG_GL_TEXTURE_2D, ENG_GL_TEXTURE_MIN_FILTER, ENG_GL_NEAREST);
+    gl->TexParameteri(ENG_GL_TEXTURE_2D, ENG_GL_TEXTURE_MAG_FILTER, ENG_GL_NEAREST);
+
+    static const uint8_t px_black[4] = {0, 0, 0, 255};
+    gl->GenTextures(1, &r->fallback_cube_tex);
+    gl->BindTexture(ENG_GL_TEXTURE_CUBE_MAP, r->fallback_cube_tex);
+    for (int f = 0; f < 6; f++) {
+        gl->TexImage2D(ENG_GL_TEXTURE_CUBE_MAP_POSITIVE_X + (GLenum)f, 0, ENG_GL_RGBA8,
+                       1, 1, 0, ENG_GL_RGBA, ENG_GL_UNSIGNED_BYTE, px_black);
+    }
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_MIN_FILTER, ENG_GL_NEAREST);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_MAG_FILTER, ENG_GL_NEAREST);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_S, ENG_GL_CLAMP_TO_EDGE);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_T, ENG_GL_CLAMP_TO_EDGE);
+    gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_R, ENG_GL_CLAMP_TO_EDGE);
+
     static const float fs_quad[12] = {
         -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f,
         -1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f
@@ -315,6 +356,8 @@ void eng_renderer_destroy(eng_renderer_t *r) {
     eng_shader_destroy(&r->sh_shadow);
     eng_shader_destroy(&r->sh_skybox);
     eng_shader_destroy(&r->sh_post);
+    if (r->fallback_white_tex) gl->DeleteTextures(1, &r->fallback_white_tex);
+    if (r->fallback_cube_tex) gl->DeleteTextures(1, &r->fallback_cube_tex);
     if (r->fs_vbo) gl->DeleteBuffers(1, &r->fs_vbo);
     if (r->fs_vao) gl->DeleteVertexArrays(1, &r->fs_vao);
     if (r->sp_vbo) gl->DeleteBuffers(1, &r->sp_vbo);
@@ -333,13 +376,71 @@ bool eng_renderer_resize(eng_renderer_t *r, int width, int height) {
     return create_targets(r, width, height);
 }
 
+static const eng_sky_config_t *resolve_sky(const eng_renderer_t *r, uint16_t pocket_id) {
+    for (int i = 0; i < ENG_MAX_POCKET_SKIES; i++) {
+        if (r->pocket_skies[i].active && r->pocket_skies[i].pocket_id == pocket_id) {
+            return &r->pocket_skies[i].cfg;
+        }
+    }
+    return &r->sky;
+}
+
 void eng_renderer_set_pipeline(eng_renderer_t *r, eng_pipeline_mode_t mode) { if (r) r->pipeline = mode; }
 eng_pipeline_mode_t eng_renderer_get_pipeline(const eng_renderer_t *r) { return r ? r->pipeline : ENG_PIPELINE_FORWARD; }
 void eng_renderer_set_retro(eng_renderer_t *r, const eng_retro_cfg_t *cfg) { if (r && cfg) r->retro = *cfg; }
 eng_retro_cfg_t eng_renderer_get_retro(const eng_renderer_t *r) { return r ? r->retro : eng_retro_default(); }
 void eng_renderer_set_sky(eng_renderer_t *r, eng_vec3_t z, eng_vec3_t h, eng_vec3_t g) {
-    if (r) { r->sky_zenith = z; r->sky_horizon = h; r->sky_ground = g; }
+    if (r) { r->sky.zenith = z; r->sky.horizon = h; r->sky.ground = g; }
 }
+void eng_renderer_set_sky_fx(eng_renderer_t *r, const eng_sky_config_t *cfg) {
+    if (!r || !cfg) return;
+    r->sky = *cfg;
+    if (r->sky.parallax_count < 0) r->sky.parallax_count = 0;
+    if (r->sky.parallax_count > ENG_MAX_PARALLAX_LAYERS) r->sky.parallax_count = ENG_MAX_PARALLAX_LAYERS;
+}
+eng_sky_config_t eng_renderer_get_sky_fx(const eng_renderer_t *r) {
+    return r ? r->sky : eng_sky_default();
+}
+bool eng_renderer_set_pocket_sky(eng_renderer_t *r, uint16_t pocket_id, const eng_sky_config_t *cfg) {
+    if (!r || !cfg) return false;
+    int slot = -1;
+    for (int i = 0; i < ENG_MAX_POCKET_SKIES; i++) {
+        if (r->pocket_skies[i].active && r->pocket_skies[i].pocket_id == pocket_id) { slot = i; break; }
+        if (!r->pocket_skies[i].active && slot < 0) slot = i;
+    }
+    if (slot < 0) return false;
+    r->pocket_skies[slot].active = true;
+    r->pocket_skies[slot].pocket_id = pocket_id;
+    r->pocket_skies[slot].cfg = *cfg;
+    if (r->pocket_skies[slot].cfg.parallax_count < 0) r->pocket_skies[slot].cfg.parallax_count = 0;
+    if (r->pocket_skies[slot].cfg.parallax_count > ENG_MAX_PARALLAX_LAYERS) {
+        r->pocket_skies[slot].cfg.parallax_count = ENG_MAX_PARALLAX_LAYERS;
+    }
+    return true;
+}
+eng_sky_config_t eng_renderer_get_pocket_sky(const eng_renderer_t *r, uint16_t pocket_id) {
+    return r ? *resolve_sky(r, pocket_id) : eng_sky_default();
+}
+void eng_renderer_clear_pocket_sky(eng_renderer_t *r, uint16_t pocket_id) {
+    if (!r) return;
+    for (int i = 0; i < ENG_MAX_POCKET_SKIES; i++) {
+        if (r->pocket_skies[i].active && r->pocket_skies[i].pocket_id == pocket_id) {
+            r->pocket_skies[i].active = false;
+        }
+    }
+}
+void eng_renderer_set_parallax(eng_renderer_t *r, uint16_t pocket_id, bool per_pocket,
+                               const eng_parallax_layer_t *layers, int count) {
+    if (!r) return;
+    eng_sky_config_t cfg = per_pocket ? *resolve_sky(r, pocket_id) : r->sky;
+    int n = (layers && count > 0) ? (count > ENG_MAX_PARALLAX_LAYERS ? ENG_MAX_PARALLAX_LAYERS : count) : 0;
+    memset(cfg.parallax, 0, sizeof(cfg.parallax));
+    for (int i = 0; i < n; i++) cfg.parallax[i] = layers[i];
+    cfg.parallax_count = n;
+    if (per_pocket) eng_renderer_set_pocket_sky(r, pocket_id, &cfg);
+    else r->sky = cfg;
+}
+void eng_renderer_set_time(eng_renderer_t *r, float time_sec) { if (r) r->time = time_sec; }
 void eng_renderer_set_ambient(eng_renderer_t *r, eng_vec3_t a) { if (r) r->ambient = a; }
 void eng_renderer_set_max_portal_depth(eng_renderer_t *r, int d) { if (r) r->max_portal_depth = d < 0 ? 0 : (d > 4 ? 4 : d); }
 
@@ -440,11 +541,12 @@ static void upload_lights_and_env(const eng_shader_t *sh, const eng_renderer_t *
         col_cone[n] = (eng_vec4_t){l->color.x, l->color.y, l->color.z, l->spot_cos_inner};
         n++;
     }
+    const eng_sky_config_t *sky = resolve_sky(r, pocket_id);
     eng_shader_set_v3(sh, "u_cam_pos", cam_pos);
     eng_shader_set_v3(sh, "u_ambient", r->ambient);
-    eng_shader_set_v3(sh, "u_sky_zenith", r->sky_zenith);
-    eng_shader_set_v3(sh, "u_sky_horizon", r->sky_horizon);
-    eng_shader_set_v3(sh, "u_sky_ground", r->sky_ground);
+    eng_shader_set_v3(sh, "u_sky_zenith", sky->zenith);
+    eng_shader_set_v3(sh, "u_sky_horizon", sky->horizon);
+    eng_shader_set_v3(sh, "u_sky_ground", sky->ground);
     eng_shader_set_v4(sh, "u_fog", (eng_vec4_t){r->retro.fog_color.x, r->retro.fog_color.y, r->retro.fog_color.z, r->retro.fog_density});
     eng_shader_set_float(sh, "u_fog_height", r->retro.fog_height);
     eng_shader_set_mat4(sh, "u_light_vp", light_vp);
@@ -777,17 +879,95 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
         draw_pocket_meshes(r, pocket_id, &vp, cam_pos, &r->sh_forward, depth == 0, 0);
     }
 
-    /* Skybox at far plane where depth == 1.0 and stencil == depth */
+    /* Skybox + Retro Multi-Layer Parallax at far plane (depth == 1.0, stencil == depth) */
     eng_mat4_t inv_vp;
     if (eng_mat4_invert(&vp, &inv_vp)) {
+        const eng_sky_config_t *sky = resolve_sky(r, pocket_id);
+        eng_vec3_t sun_dir = sky->sun_dir;
+        if (eng_v3_len(sun_dir) < 0.001f) {
+            sun_dir = eng_v3(-0.4f, -0.8f, -0.4f);
+            for (size_t li = 0; li < r->light_count; li++) {
+                if (r->lights[li].pocket_id == pocket_id && r->lights[li].type == ENG_LIGHT_DIR) {
+                    sun_dir = r->lights[li].dir;
+                    break;
+                }
+            }
+        }
+        int tex_mode = 0;
+        GLuint sky_tex2d = r->fallback_white_tex;
+        GLuint sky_cube = r->fallback_cube_tex;
+        if (sky->cubemap_tex > 0) {
+            const eng_gpu_tex_t *gt = eng_asset_get_texture(r->assets, sky->cubemap_tex);
+            if (gt && gt->valid && gt->is_cubemap) { sky_cube = gt->tex_id; tex_mode = 2; }
+        }
+        if (tex_mode == 0 && sky->panorama_tex > 0) {
+            const eng_gpu_tex_t *gt = eng_asset_get_texture(r->assets, sky->panorama_tex);
+            if (gt && gt->valid && !gt->is_cubemap) { sky_tex2d = gt->tex_id; tex_mode = 1; }
+        }
+
         gl->DepthFunc(ENG_GL_LEQUAL);
         gl->DepthMask(ENG_GL_FALSE);
         eng_shader_bind(&r->sh_skybox);
         eng_shader_set_mat4(&r->sh_skybox, "u_inv_vp", &inv_vp);
-        eng_shader_set_v3(&r->sh_skybox, "u_sky_zenith", r->sky_zenith);
-        eng_shader_set_v3(&r->sh_skybox, "u_sky_horizon", r->sky_horizon);
-        eng_shader_set_v3(&r->sh_skybox, "u_sky_ground", r->sky_ground);
-        eng_shader_set_v3(&r->sh_skybox, "u_sun_dir", eng_v3(-0.4f, -0.8f, -0.4f));
+        eng_shader_set_v3(&r->sh_skybox, "u_sky_zenith", sky->zenith);
+        eng_shader_set_v3(&r->sh_skybox, "u_sky_horizon", sky->horizon);
+        eng_shader_set_v3(&r->sh_skybox, "u_sky_ground", sky->ground);
+        eng_shader_set_v3(&r->sh_skybox, "u_sun_dir", sun_dir);
+        eng_shader_set_v3(&r->sh_skybox, "u_sun_color", sky->sun_color);
+        eng_shader_set_v3(&r->sh_skybox, "u_cloud_color", sky->cloud_color);
+        eng_shader_set_v3(&r->sh_skybox, "u_cam_pos", cam_pos);
+        eng_shader_set_v4(&r->sh_skybox, "u_sun_params", (eng_vec4_t){
+            sky->sun_size, sky->sun_glow, sky->sun_banded ? 1.0f : 0.0f, r->time
+        });
+        eng_shader_set_v4(&r->sh_skybox, "u_sky_fx", (eng_vec4_t){
+            sky->clouds, sky->cloud_speed, sky->cloud_scale, sky->stars
+        });
+        eng_shader_set_v4(&r->sh_skybox, "u_sky_fx2", (eng_vec4_t){
+            sky->star_scale, sky->pixel_snap, (float)tex_mode, (float)sky->parallax_count
+        });
+
+        gl->ActiveTexture(ENG_GL_TEXTURE0);
+        gl->BindTexture(ENG_GL_TEXTURE_2D, sky_tex2d);
+        eng_shader_set_int(&r->sh_skybox, "u_sky_tex", 0);
+        gl->ActiveTexture(ENG_GL_TEXTURE0 + 1u);
+        gl->BindTexture(ENG_GL_TEXTURE_CUBE_MAP, sky_cube);
+        eng_shader_set_int(&r->sh_skybox, "u_sky_cube", 1);
+
+        eng_vec4_t p0[ENG_MAX_PARALLAX_LAYERS], p1[ENG_MAX_PARALLAX_LAYERS];
+        eng_vec4_t ptint[ENG_MAX_PARALLAX_LAYERS], pacc[ENG_MAX_PARALLAX_LAYERS];
+        static const char *const k_plx_names[ENG_MAX_PARALLAX_LAYERS] = {
+            "u_plx_tex0", "u_plx_tex1", "u_plx_tex2", "u_plx_tex3"
+        };
+        for (int li = 0; li < ENG_MAX_PARALLAX_LAYERS; li++) {
+            GLuint ltex = r->fallback_white_tex;
+            if (li < sky->parallax_count) {
+                const eng_parallax_layer_t *pl = &sky->parallax[li];
+                float has_tex = 0.0f;
+                if (pl->tex_id > 0) {
+                    const eng_gpu_tex_t *gt = eng_asset_get_texture(r->assets, pl->tex_id);
+                    if (gt && gt->valid && !gt->is_cubemap) { ltex = gt->tex_id; has_tex = 1.0f; }
+                }
+                p0[li] = (eng_vec4_t){(float)pl->style, pl->parallax, pl->move_parallax, pl->scroll_speed};
+                p1[li] = (eng_vec4_t){pl->height, pl->offset, pl->scale, pl->fog_blend};
+                ptint[li] = pl->tint;
+                pacc[li] = (eng_vec4_t){pl->accent.x, pl->accent.y, pl->accent.z, has_tex};
+            } else {
+                p0[li] = p1[li] = ptint[li] = pacc[li] = (eng_vec4_t){0, 0, 0, 0};
+            }
+            gl->ActiveTexture(ENG_GL_TEXTURE0 + 2u + (GLenum)li);
+            gl->BindTexture(ENG_GL_TEXTURE_2D, ltex);
+            eng_shader_set_int(&r->sh_skybox, k_plx_names[li], 2 + li);
+        }
+        GLint lp0 = gl->GetUniformLocation(r->sh_skybox.program, "u_plx_p0");
+        GLint lp1 = gl->GetUniformLocation(r->sh_skybox.program, "u_plx_p1");
+        GLint lpt = gl->GetUniformLocation(r->sh_skybox.program, "u_plx_tint");
+        GLint lpa = gl->GetUniformLocation(r->sh_skybox.program, "u_plx_acc");
+        if (lp0 >= 0) gl->Uniform4fv(lp0, ENG_MAX_PARALLAX_LAYERS, &p0[0].x);
+        if (lp1 >= 0) gl->Uniform4fv(lp1, ENG_MAX_PARALLAX_LAYERS, &p1[0].x);
+        if (lpt >= 0) gl->Uniform4fv(lpt, ENG_MAX_PARALLAX_LAYERS, &ptint[0].x);
+        if (lpa >= 0) gl->Uniform4fv(lpa, ENG_MAX_PARALLAX_LAYERS, &pacc[0].x);
+        gl->ActiveTexture(ENG_GL_TEXTURE0);
+
         gl->BindVertexArray(r->fs_vao);
         gl->DrawArrays(ENG_GL_TRIANGLES, 0, 6);
         gl->DepthMask(ENG_GL_TRUE);
@@ -872,6 +1052,8 @@ static void render_pocket_recursive(eng_renderer_t *r, const eng_scene_t *scene,
         eng_shader_bind(&r->sh_skybox);
         eng_mat4_t ident = eng_mat4_identity();
         eng_shader_set_mat4(&r->sh_skybox, "u_inv_vp", &ident);
+        eng_shader_set_v4(&r->sh_skybox, "u_sky_fx", (eng_vec4_t){0, 0, 0, 0});
+        eng_shader_set_v4(&r->sh_skybox, "u_sky_fx2", (eng_vec4_t){0, 0, 0, 0});
         gl->BindVertexArray(r->fs_vao);
         gl->DrawArrays(ENG_GL_TRIANGLES, 0, 6);
 
@@ -914,6 +1096,7 @@ void eng_renderer_render_views(eng_renderer_t *r, const eng_scene_t *scene,
     gl->Disable(ENG_GL_BLEND);
 
     /* Clear HDR + Depth + Stencil FBO once before viewport/eye loop */
+    const eng_sky_config_t *root_sky = resolve_sky(r, views[0].cam.pocket_id);
     gl->BindFramebuffer(ENG_GL_FRAMEBUFFER, r->hdr_fbo);
     gl->Viewport(0, 0, r->width, r->height);
     gl->Disable(ENG_GL_SCISSOR_TEST);
@@ -921,7 +1104,7 @@ void eng_renderer_render_views(eng_renderer_t *r, const eng_scene_t *scene,
     gl->ColorMask(ENG_GL_TRUE, ENG_GL_TRUE, ENG_GL_TRUE, ENG_GL_TRUE);
     gl->DepthMask(ENG_GL_TRUE);
     gl->StencilMask(0xFFu);
-    gl->ClearColor(r->sky_horizon.x, r->sky_horizon.y, r->sky_horizon.z, 1.0f);
+    gl->ClearColor(root_sky->horizon.x, root_sky->horizon.y, root_sky->horizon.z, 1.0f);
     gl->ClearStencil(0);
     gl->Clear(ENG_GL_COLOR_BUFFER_BIT | ENG_GL_DEPTH_BUFFER_BIT | ENG_GL_STENCIL_BUFFER_BIT);
 

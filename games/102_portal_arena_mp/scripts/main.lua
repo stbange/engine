@@ -70,7 +70,7 @@ function init()
     S.local_players = {}
     eng.math.seed(102)
 
-    eng.render.set_sky(0.08, 0.24, 0.54, 0.58, 0.72, 0.88)
+    eng.fx.sky(eng, "alpine_day")
     eng.render.add_light({ type = "dir", pocket = 0, dir = {-0.35, -1.0, -0.4}, color = {1.85, 1.78, 1.65}, shadow = true })
     eng.render.add_light({ type = "point", pocket = 0, pos = {0, 5.5, 0}, color = {1.5, 1.1, 0.6}, range = 28 })
 
@@ -118,6 +118,7 @@ function init()
         pocket = "crystal_vault"
     })
     S.vault_pk = S.vault.pocket_id
+    eng.fx.sky(eng, "starry_night", { pocket = S.vault_pk })
     eng.render.add_light({ type = "point", pocket = S.vault_pk, pos = {0, 5.2, 0}, color = {1.4, 2.2, 2.8}, range = 34 })
     eng.render.add_light({ type = "point", pocket = S.vault_pk, pos = {-5, 3.0, -4}, color = {2.4, 0.7, 1.6}, range = 22 })
 

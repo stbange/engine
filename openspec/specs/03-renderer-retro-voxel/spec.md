@@ -50,3 +50,10 @@ The engine SHALL render 1 to 4 independent camera viewports per frame (`eng_rend
 #### Scenario: Two-to-four player split-screen across different pockets
 - **WHEN** a game enables 2-way or 4-way split-screen and players view different `pocket_id` spaces
 - **THEN** each viewport renders its own camera, pocket lighting, portals, and viewport-anchored HUD cleanly clipped to its screen rectangle without bleeding across viewports
+
+### Requirement: Enhanced Skyboxes, Per-Pocket Skies, and Retro Parallax Backgrounds
+The engine SHALL render far-plane skyboxes supporting 3-color gradients, equirectangular panorama textures, 6-face cubemaps (`eng_asset_load_cubemap`), light-synced or retro banded sun/moon discs, procedural clouds and twinkling stars, retro pixel snapping, up to 4 multi-layer parallax horizon bands (procedural silhouettes or alpha textures scrolled by yaw, XZ movement, and time), and per-pocket sky overrides (`eng_renderer_set_pocket_sky`).
+
+#### Scenario: Per-pocket skybox with retro parallax visible across a portal
+- **WHEN** an exterior pocket uses a daylight mountain parallax sky and a linked interior pocket sets a per-pocket synthwave city sky override
+- **THEN** looking through the portal reveals the interior pocket's skybox, parallax layers, and matching metallic IBL without affecting the exterior sky

@@ -48,6 +48,7 @@ typedef struct {
     int height;
     bool nearest;
     bool valid;
+    bool is_cubemap;
 } eng_gpu_tex_t;
 
 typedef struct eng_asset_cache_s eng_asset_cache_t;
@@ -78,6 +79,9 @@ const eng_gpu_mesh_t *eng_asset_get_mesh(const eng_asset_cache_t *cache, uint32_
 uint32_t eng_asset_create_texture_rgba(eng_asset_cache_t *cache, const char *key,
                                        int w, int h, const uint8_t *rgba, bool nearest);
 uint32_t eng_asset_load_texture(eng_asset_cache_t *cache, const char *vpath, bool nearest);
+uint32_t eng_asset_create_cubemap_rgba(eng_asset_cache_t *cache, const char *key, int size,
+                                       const uint8_t *const faces_rgba[6], bool nearest);
+uint32_t eng_asset_load_cubemap(eng_asset_cache_t *cache, const char *const face_vpaths[6], bool nearest);
 const eng_gpu_tex_t *eng_asset_get_texture(const eng_asset_cache_t *cache, uint32_t tex_id);
 
 /* Save bottom-up OpenGL RGBA8 framebuffer pixels to a top-down PNG file. */

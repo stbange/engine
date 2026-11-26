@@ -373,6 +373,52 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
     assert(eng_renderer_stats(ren).portal_views >= 2); /* Both left & right XR eyes rendered portal */
 
     /* Test 3: 4-way split-screen across 2 different pockets in BOTH Deferred and Forward pipelines */
+    /* Exercise cubemap creation/VFS load, equirect panorama, per-pocket skybox & all 7 retro parallax styles! */
+    uint8_t cpx[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) { cpx[i*4+0] = 60; cpx[i*4+1] = 110; cpx[i*4+2] = 220; cpx[i*4+3] = 255; }
+    const uint8_t *cfaces[6] = {cpx, cpx, cpx, cpx, cpx, cpx};
+    uint32_t cube_id = eng_asset_create_cubemap_rgba(assets, "test_cube", 4, cfaces, false);
+    assert(cube_id > 0 && eng_asset_get_texture(assets, cube_id)->is_cubemap);
+    const uint8_t *bad_faces[6] = {cpx, NULL, cpx, cpx, cpx, cpx};
+    assert(eng_asset_create_cubemap_rgba(assets, "bad_cube", 4, bad_faces, false) == 0);
+
+    char face_disk[512];
+    snprintf(face_disk, sizeof(face_disk), "%s/cube_face.png", ENG_BINARY_DIR);
+    assert(eng_asset_write_png(face_disk, 4, 4, cpx));
+    const char *fvpaths[6] = {"cube_face.png", "cube_face.png", "cube_face.png", "cube_face.png", "cube_face.png", "cube_face.png"};
+    uint32_t loaded_cube = eng_asset_load_cubemap(assets, fvpaths, true);
+    assert(loaded_cube > 0 && eng_asset_load_cubemap(assets, fvpaths, true) == loaded_cube);
+    const char *missing_vpaths[6] = {"nope.png", "nope.png", "nope.png", "nope.png", "nope.png", "nope.png"};
+    assert(eng_asset_load_cubemap(assets, missing_vpaths, false) == 0);
+
+    uint32_t pano_tex = eng_asset_create_texture_rgba(assets, "test_pano", 4, 4, cpx, false);
+    assert(pano_tex > 0);
+
+    eng_renderer_set_time(ren, 3.5f);
+    eng_sky_config_t sky_ext = eng_sky_default();
+    sky_ext.sun_size = 0.10f;
+    sky_ext.sun_banded = true;
+    sky_ext.clouds = 0.6f;
+    sky_ext.stars = 0.8f;
+    sky_ext.pixel_snap = 160.0f;
+    sky_ext.parallax_count = 4;
+    sky_ext.parallax[0] = (eng_parallax_layer_t){ENG_PARALLAX_MOUNTAINS, 0, 0.5f, 0.2f, 0.0f, 0.26f, -0.02f, 1.5f, {0.2f, 0.25f, 0.4f, 1.0f}, {0.95f, 0.96f, 1.0f}, 0.3f};
+    sky_ext.parallax[1] = (eng_parallax_layer_t){ENG_PARALLAX_CITY, 0, 0.8f, 0.5f, 0.0f, 0.20f, -0.02f, 2.2f, {0.1f, 0.05f, 0.2f, 1.0f}, {0.2f, 0.9f, 1.0f}, 0.15f};
+    sky_ext.parallax[2] = (eng_parallax_layer_t){ENG_PARALLAX_TREES, 0, 1.0f, 0.7f, 0.0f, 0.14f, -0.02f, 2.8f, {0.06f, 0.18f, 0.10f, 1.0f}, {0.2f, 0.4f, 0.2f}, 0.1f};
+    sky_ext.parallax[3] = (eng_parallax_layer_t){ENG_PARALLAX_TEXTURE, pano_tex, 1.1f, 0.8f, 0.02f, 0.18f, 0.05f, 2.0f, {1, 1, 1, 0.4f}, {1, 1, 1}, 0.1f};
+    eng_renderer_set_sky_fx(ren, &sky_ext);
+    assert(eng_renderer_get_sky_fx(ren).parallax_count == 4);
+
+    /* Per-pocket cubemap sky + remaining parallax styles (hills, dunes, clouds) inside p_inside! */
+    eng_sky_config_t sky_in = eng_sky_default();
+    sky_in.cubemap_tex = loaded_cube;
+    sky_in.parallax_count = 3;
+    sky_in.parallax[0] = (eng_parallax_layer_t){ENG_PARALLAX_CLOUDS, 0, 0.3f, 0.1f, 0.02f, 0.20f, 0.12f, 1.5f, {0.8f, 0.85f, 0.95f, 0.6f}, {1, 1, 1}, 0.2f};
+    sky_in.parallax[1] = (eng_parallax_layer_t){ENG_PARALLAX_HILLS, 0, 0.6f, 0.3f, 0.0f, 0.20f, -0.02f, 1.8f, {0.2f, 0.3f, 0.2f, 1.0f}, {0.5f, 0.6f, 0.4f}, 0.2f};
+    sky_in.parallax[2] = (eng_parallax_layer_t){ENG_PARALLAX_DUNES, 0, 0.9f, 0.6f, 0.0f, 0.16f, -0.02f, 2.2f, {0.5f, 0.25f, 0.12f, 1.0f}, {0.9f, 0.55f, 0.3f}, 0.2f};
+    assert(eng_renderer_set_pocket_sky(ren, p_inside, &sky_in));
+    assert(eng_renderer_get_pocket_sky(ren, p_inside).cubemap_tex == loaded_cube);
+
     eng_viewport_t views[4];
     eng_camera_t cam_in = cam;
     cam_in.pocket_id = p_inside;
@@ -383,6 +429,12 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
     views[3] = (eng_viewport_t){ cam_in, {0.5f, 0.0f, 0.5f, 0.5f} };
     for (int pm = 0; pm < 2; pm++) {
         eng_renderer_set_pipeline(ren, pm == 0 ? ENG_PIPELINE_DEFERRED : ENG_PIPELINE_FORWARD);
+        if (pm == 1) {
+            /* Also exercise equirectangular panorama mode + standalone set_parallax & clear_pocket_sky */
+            sky_ext.panorama_tex = pano_tex;
+            eng_renderer_set_sky_fx(ren, &sky_ext);
+            eng_renderer_set_parallax(ren, p_inside, true, sky_in.parallax, 2);
+        }
         eng_renderer_begin_frame(ren);
         eng_renderer_add_light(ren, &sun);
         eng_renderer_add_light(ren, &lamp);
@@ -393,6 +445,8 @@ static void run_full_render_pipeline_check(eng_vfs_t *vfs, bool verify_real_gl_p
         eng_renderer_render_views(ren, sc, portals, views, 4, NULL);
         assert(eng_renderer_stats(ren).portal_views >= 2);
     }
+    eng_renderer_clear_pocket_sky(ren, p_inside);
+    assert(eng_renderer_get_pocket_sky(ren, p_inside).cubemap_tex == 0);
 
     uint8_t *fb = (uint8_t *)malloc(256 * 192 * 4);
     assert(eng_renderer_read_pixels(ren, fb, 256, 192));

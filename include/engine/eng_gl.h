@@ -50,6 +50,7 @@ typedef ptrdiff_t GLintptr;
 #define ENG_GL_TEXTURE_MIN_FILTER    0x2801u
 #define ENG_GL_TEXTURE_WRAP_S        0x2802u
 #define ENG_GL_TEXTURE_WRAP_T        0x2803u
+#define ENG_GL_TEXTURE_WRAP_R        0x8072u
 #define ENG_GL_REPEAT                0x2901u
 #define ENG_GL_CLAMP_TO_EDGE         0x812Fu
 #define ENG_GL_RGBA8                 0x8058u
@@ -57,6 +58,7 @@ typedef ptrdiff_t GLintptr;
 #define ENG_GL_DEPTH_COMPONENT24     0x81A6u
 #define ENG_GL_TEXTURE0              0x84C0u
 #define ENG_GL_TEXTURE_CUBE_MAP      0x8513u
+#define ENG_GL_TEXTURE_CUBE_MAP_POSITIVE_X 0x8515u
 #define ENG_GL_ARRAY_BUFFER          0x8892u
 #define ENG_GL_ELEMENT_ARRAY_BUFFER  0x8893u
 #define ENG_GL_UNIFORM_BUFFER        0x8A11u
