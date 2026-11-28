@@ -201,6 +201,7 @@ set(ENG_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_editor.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_replay.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_capture.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/eng_sim.c"
 )
 
 add_library(libengine STATIC ${ENG_CORE_SOURCES})
@@ -350,4 +351,14 @@ if(ENG_BUILD_TESTS AND NOT EMSCRIPTEN)
     )
     target_link_libraries(test_phase9 PRIVATE libengine)
     add_test(NAME phase9_unit_tests COMMAND test_phase9)
+
+    add_executable(test_phase10
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/unit/test_phase10.c"
+    )
+    target_compile_definitions(test_phase10 PRIVATE
+        ENG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        ENG_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}"
+    )
+    target_link_libraries(test_phase10 PRIVATE libengine)
+    add_test(NAME phase10_unit_tests COMMAND test_phase10)
 endif()

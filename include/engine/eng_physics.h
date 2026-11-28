@@ -56,7 +56,36 @@ typedef struct {
     uint32_t hull_vert_count;
     const eng_voxel_chunk_t *voxel_chunk;
     const eng_terrain_t *terrain;
+
+    /* 6-DOF rotational dynamics, material density & sleeping */
+    float density;         /* kg/m^3; if > 0 on dynamic body, auto-computes mass = density * volume */
+    float linear_damping;  /* linear drag (1/s) */
+    float angular_damping; /* rotational drag (1/s) */
+    bool freeze_rotation;  /* locks angular velocity (default true on ENG_SHAPE_CAPSULE) */
+    bool sleeping;         /* true when body has settled below motion threshold */
 } eng_body_desc_t;
+
+typedef enum {
+    ENG_JOINT_DISTANCE = 0,
+    ENG_JOINT_BALL = 1,
+    ENG_JOINT_HINGE = 2,
+    ENG_JOINT_SPRING = 3
+} eng_joint_type_t;
+
+typedef struct {
+    eng_joint_type_t type;
+    uint32_t body_a;      /* 1-based body_id, or 0 for a fixed world-space anchor */
+    uint32_t body_b;      /* 1-based body_id */
+    eng_vec3_t anchor_a;  /* local offset on body_a (or world point when body_a == 0) */
+    eng_vec3_t anchor_b;  /* local offset on body_b */
+    eng_vec3_t axis_a;    /* local hinge axis on body_a (ENG_JOINT_HINGE) */
+    float rest_length;    /* <= 0 auto-measures initial anchor distance (DISTANCE/SPRING) */
+    float stiffness;      /* spring constant k in N/m (ENG_JOINT_SPRING) */
+    float damping;        /* spring damper c in N*s/m (ENG_JOINT_SPRING) */
+    float break_force;    /* > 0 snaps joint when constraint force exceeds threshold (Newtons) */
+} eng_joint_desc_t;
+
+typedef float (*eng_fluid_height_fn)(float x, float z, uint16_t pocket_id, void *user_data);
 
 typedef struct {
     uint32_t body_a;
@@ -80,6 +109,7 @@ typedef struct {
 typedef struct eng_physics_s eng_physics_t;
 
 eng_body_desc_t eng_body_default_desc(eng_shape_type_t shape, eng_body_motion_t motion);
+eng_joint_desc_t eng_joint_default_desc(eng_joint_type_t type, uint32_t body_a, uint32_t body_b);
 
 eng_physics_t *eng_physics_create(void);
 void eng_physics_destroy(eng_physics_t *phys);
@@ -88,10 +118,25 @@ void eng_physics_set_gravity(eng_physics_t *phys, uint16_t pocket_id, eng_vec3_t
 void eng_physics_set_planet_gravity(eng_physics_t *phys, uint16_t pocket_id,
                                     eng_vec3_t planet_center, float surface_g,
                                     const eng_planet_cfg_t *planet_surface_opt);
+void eng_physics_set_fluid(eng_physics_t *phys, uint16_t pocket_id, bool enabled,
+                           float level_y, float fluid_density, float drag_coeff,
+                           eng_vec2_t flow_xz);
+void eng_physics_set_fluid_sampler(eng_physics_t *phys, eng_fluid_height_fn fn, void *user_data);
+void eng_physics_set_wind(eng_physics_t *phys, uint16_t pocket_id, eng_vec3_t wind_vel);
 
 uint32_t eng_physics_add_body(eng_physics_t *phys, const eng_body_desc_t *desc);
 bool eng_physics_remove_body(eng_physics_t *phys, uint32_t body_id);
 eng_body_desc_t *eng_physics_get_body(eng_physics_t *phys, uint32_t body_id);
+void eng_physics_wake_body(eng_physics_t *phys, uint32_t body_id);
+
+bool eng_physics_apply_impulse_at(eng_physics_t *phys, uint32_t body_id,
+                                  eng_vec3_t impulse, eng_vec3_t world_point);
+size_t eng_physics_radial_blast(eng_physics_t *phys, uint16_t pocket_id,
+                                eng_vec3_t center, float radius, float max_impulse);
+
+uint32_t eng_physics_add_joint(eng_physics_t *phys, const eng_joint_desc_t *desc);
+bool eng_physics_remove_joint(eng_physics_t *phys, uint32_t joint_id);
+bool eng_physics_joint_is_active(const eng_physics_t *phys, uint32_t joint_id);
 
 /* Deterministic fixed-step simulation + cross-portal threshold teleportation & ghost proxy contacts. */
 void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,

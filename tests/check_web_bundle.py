@@ -16,6 +16,7 @@ SMOKE_SLUGS = [
     "009_voxel_rail_tycoon",
     "101_giant_cleaner_mech",
     "102_portal_arena_mp",
+    "103_living_wilds",
 ]
 
 FATAL_MARKERS = (

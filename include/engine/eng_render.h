@@ -50,6 +50,12 @@ typedef struct {
     float crt_scanlines;   /* 0.0 .. 1.0 */
     float bloom_intensity; /* 0.0 .. 2.0 */
     float fog_height;      /* 0 = pure distance fog; >0 = exponential ground-mist height falloff (meters) */
+    float render_scale;    /* 0 or 1.0 = native; 0.15..0.99 = low-res internal HDR render scale */
+    int pixel_height;      /* >0 = exact internal vertical resolution (e.g. 360 for 640x360 lens) */
+    int sharp_upscale;     /* 0 = linear, 1 = bandlimited sharp-bilinear pixel lens, 2 = nearest */
+    float ssao_intensity;  /* 0.0 .. 1.5 depth-buffer ambient occlusion */
+    float volumetric_fog;  /* 0.0 .. 2.0 shadowed crepuscular god-rays & point-light mist */
+    float fog_sun_scatter; /* 0.0 .. 2.0 Henyey-Greenstein Mie sun forward-scattering in fog */
 } eng_retro_cfg_t;
 
 typedef struct {
@@ -74,7 +80,28 @@ typedef struct {
     const eng_mat4_t *skin_bones; /* optional array of joint matrices */
     uint32_t skin_bone_count;
     eng_vec3_t emissive;   /* linear HDR emissive RGB feeding bloom */
+    uint32_t normal_tex;   /* optional 1-based normal+roughness texture (0 = auto from albedo PBR) */
+    float wetness;         /* 0.0 .. 1.0 physical porous wetting darkening + specular coat */
 } eng_draw_item_t;
+
+typedef struct {
+    bool enabled;
+    float level_y;          /* Resting water surface elevation (meters) */
+    float size_x, size_z;   /* Horizontal extent in meters (<=0 defaults to 240x240m) */
+    float center_x, center_z;
+    bool follow_camera;     /* Snap grid around camera XZ for boundless oceans/rivers */
+    float wave_amp;         /* Gerstner peak amplitude (meters) */
+    float wave_freq;        /* Spatial frequency (rad/m) */
+    float choppiness;       /* Gerstner crest steepness (0..1.2) */
+    eng_vec2_t wind_dir;    /* Dominant wave & surface current direction */
+    float flow_speed;       /* Surface ripple / drift speed (m/s) */
+    eng_vec3_t absorb_rgb;  /* Beer-Lambert RGB extinction per meter */
+    eng_vec3_t scatter_rgb; /* Deep-water multiple-scattering tint */
+    float roughness;        /* Specular micro-roughness */
+    float foam_width;       /* Shoreline contact foam depth threshold (meters) */
+    float refract_strength; /* Screen-space UV refraction strength */
+    float caustics;         /* Shallow riverbed sun caustics intensity */
+} eng_water_cfg_t;
 
 typedef struct {
     uint32_t submitted_items;
@@ -89,6 +116,7 @@ typedef struct {
 
 #define ENG_MAX_PARALLAX_LAYERS 4
 #define ENG_MAX_POCKET_SKIES 16
+#define ENG_MAX_POCKET_WATERS 16
 
 typedef enum {
     ENG_PARALLAX_NONE = 0,
@@ -141,6 +169,8 @@ typedef struct eng_renderer_s eng_renderer_t;
 
 eng_retro_cfg_t eng_retro_default(void);
 eng_retro_cfg_t eng_retro_ps1_preset(void);
+eng_retro_cfg_t eng_retro_lowres_realism_preset(void);
+eng_water_cfg_t eng_water_default(void);
 eng_sky_config_t eng_sky_default(void);
 eng_camera_t eng_camera_default(void);
 
@@ -153,6 +183,10 @@ eng_pipeline_mode_t eng_renderer_get_pipeline(const eng_renderer_t *r);
 
 void eng_renderer_set_retro(eng_renderer_t *r, const eng_retro_cfg_t *cfg);
 eng_retro_cfg_t eng_renderer_get_retro(const eng_renderer_t *r);
+
+bool eng_renderer_set_water(eng_renderer_t *r, uint16_t pocket_id, const eng_water_cfg_t *cfg);
+eng_water_cfg_t eng_renderer_get_water(const eng_renderer_t *r, uint16_t pocket_id);
+float eng_renderer_sample_water_height(const eng_renderer_t *r, uint16_t pocket_id, float x, float z, bool *out_enabled);
 
 void eng_renderer_set_sky(eng_renderer_t *r, eng_vec3_t zenith, eng_vec3_t horizon, eng_vec3_t ground);
 void eng_renderer_set_sky_fx(eng_renderer_t *r, const eng_sky_config_t *cfg);
@@ -190,6 +224,7 @@ void eng_renderer_render_frame(eng_renderer_t *r, const eng_scene_t *scene,
 bool eng_renderer_set_capture_target(eng_renderer_t *r, int width, int height);
 GLuint eng_renderer_output_fbo(const eng_renderer_t *r);
 void eng_renderer_get_size(const eng_renderer_t *r, int *out_w, int *out_h);
+void eng_renderer_get_internal_size(const eng_renderer_t *r, int *out_w, int *out_h);
 bool eng_renderer_read_pixels(const eng_renderer_t *r, uint8_t *out_rgba_bottom_up, int w, int h);
 eng_render_stats_t eng_renderer_stats(const eng_renderer_t *r);
 bool eng_renderer_reload_shaders(eng_renderer_t *r);

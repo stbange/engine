@@ -48,6 +48,8 @@ struct eng_audio_s {
 
     eng_audio_capture_fn cap_cb;
     void *cap_ud;
+    float underwater;
+    float lp_l, lp_r;
 };
 
 eng_synth_desc_t eng_synth_default_desc(eng_synth_wave_t wave, float freq_hz, float duration_sec) {
@@ -111,6 +113,14 @@ void eng_audio_set_bus_gain(eng_audio_t *aud, eng_audio_bus_t bus, float gain) {
 
 float eng_audio_get_bus_gain(const eng_audio_t *aud, eng_audio_bus_t bus) {
     return (aud && (int)bus >= 0 && bus < ENG_BUS_COUNT) ? aud->bus_gain[bus] : 0.0f;
+}
+
+void eng_audio_set_underwater(eng_audio_t *aud, float submerge_factor) {
+    if (aud) aud->underwater = eng_clampf(submerge_factor, 0.0f, 1.0f);
+}
+
+float eng_audio_get_underwater(const eng_audio_t *aud) {
+    return aud ? aud->underwater : 0.0f;
 }
 
 void eng_audio_set_listeners(eng_audio_t *aud, const eng_audio_listener_t *listeners, int count) {
@@ -385,6 +395,22 @@ void eng_audio_mix_frames(eng_audio_t *aud, const eng_scene_t *scene,
             }
             v->cursor += step;
         }
+    }
+
+    if (aud->underwater > 0.005f) {
+        float u = aud->underwater;
+        float fc = eng_lerpf(14000.0f, 380.0f, u);
+        float alpha = 1.0f - expf(-2.0f * ENG_PI * fc / (float)ENG_SAMPLE_RATE);
+        float damp = eng_lerpf(1.0f, 0.78f, u);
+        for (size_t f = 0; f < frames; f++) {
+            aud->lp_l += alpha * (out_stereo_lr[f * 2u + 0] - aud->lp_l);
+            aud->lp_r += alpha * (out_stereo_lr[f * 2u + 1] - aud->lp_r);
+            out_stereo_lr[f * 2u + 0] = aud->lp_l * damp;
+            out_stereo_lr[f * 2u + 1] = aud->lp_r * damp;
+        }
+    } else {
+        aud->lp_l = 0.0f;
+        aud->lp_r = 0.0f;
     }
 
     for (size_t i = 0; i < frames * 2u; i++) {

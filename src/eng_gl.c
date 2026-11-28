@@ -81,6 +81,9 @@ static void mock_read_pixels(GLint x, GLint y, GLsizei w, GLsizei h, GLenum fmt,
         out[i * 4 + 3] = 255;
     }
 }
+static void mock_blit_fbo(GLint sx0, GLint sy0, GLint sx1, GLint sy1, GLint dx0, GLint dy0, GLint dx1, GLint dy1, GLbitfield m, GLenum f) {
+    (void)sx0; (void)sy0; (void)sx1; (void)sy1; (void)dx0; (void)dy0; (void)dx1; (void)dy1; (void)m; (void)f;
+}
 static void mock_draw_arrays(GLenum m, GLint f, GLsizei c) { (void)m; (void)f; (void)c; g_mock_draws++; }
 static void mock_draw_elems(GLenum m, GLsizei c, GLenum t, const void *idx) { (void)m; (void)c; (void)t; (void)idx; g_mock_draws++; }
 static void mock_draw_inst(GLenum m, GLsizei c, GLenum t, const void *idx, GLsizei inst) {
@@ -166,6 +169,7 @@ void eng_gl_init_software_mock(void) {
     g_gl.ReadBuffer = mock_enum1;
     g_gl.CheckFramebufferStatus = mock_check_fbo;
     g_gl.ReadPixels = mock_read_pixels;
+    g_gl.BlitFramebuffer = mock_blit_fbo;
 
     g_gl.DrawArrays = mock_draw_arrays;
     g_gl.DrawElements = mock_draw_elems;
@@ -266,6 +270,7 @@ bool eng_gl_load(eng_gl_load_fn loader, bool is_gles) {
     LOAD_REQ(ReadBuffer);
     LOAD_REQ(CheckFramebufferStatus);
     LOAD_REQ(ReadPixels);
+    LOAD_OPT(BlitFramebuffer);
 
     LOAD_REQ(DrawArrays);
     LOAD_REQ(DrawElements);

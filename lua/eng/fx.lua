@@ -15,10 +15,16 @@ M.materials = {
 }
 
 M.emitters = {
-    fire   = { dir = { 0, 1, 0 }, rate = 28, speed = 1.35, spread = 0.42, life = 0.65, gravity = { 0, 1.6, 0 }, drag = 0.35, size_start = 0.42, size_end = 0.08, color_start = { 1.0, 0.88, 0.32, 0.95 }, color_end = { 0.95, 0.14, 0.02, 0.0 }, additive = true },
-    smoke  = { dir = { 0, 1, 0 }, rate = 12, speed = 0.85, spread = 0.35, life = 1.90, gravity = { 0, 0.45, 0 }, drag = 0.55, size_start = 0.32, size_end = 1.15, color_start = { 0.28, 0.28, 0.30, 0.45 }, color_end = { 0.18, 0.18, 0.22, 0.0 }, additive = false },
-    sparks = { dir = { 0, 1, 0 }, rate = 18, speed = 2.60, spread = 0.85, life = 0.55, gravity = { 0, -4.5, 0 }, drag = 0.15, size_start = 0.14, size_end = 0.03, color_start = { 1.0, 0.94, 0.52, 1.0 }, color_end = { 1.0, 0.32, 0.04, 0.0 }, additive = true },
-    dust   = { dir = { 0, 1, 0 }, rate = 10, speed = 0.35, spread = 1.40, life = 2.60, gravity = { 0, 0.05, 0 }, drag = 0.80, size_start = 0.12, size_end = 0.24, color_start = { 0.88, 0.84, 0.72, 0.30 }, color_end = { 0.88, 0.84, 0.72, 0.0 }, additive = false },
+    fire   = { dir = { 0, 1, 0 }, rate = 34, speed = 1.45, spread = 0.36, life = 0.85, gravity = { 0, 1.8, 0 }, drag = 0.45, size_start = 0.36, size_end = 0.58, color_start = { 1.0, 0.92, 0.65, 0.95 }, color_end = { 0.14, 0.12, 0.12, 0.0 }, additive = true, blackbody = true, temp_start = 3400, temp_end = 520, turbulence = 2.4 },
+    smoke  = { dir = { 0, 1, 0 }, rate = 12, speed = 0.85, spread = 0.35, life = 1.90, gravity = { 0, 0.45, 0 }, drag = 0.55, size_start = 0.32, size_end = 1.15, color_start = { 0.28, 0.28, 0.30, 0.45 }, color_end = { 0.18, 0.18, 0.22, 0.0 }, additive = false, turbulence = 1.1 },
+    sparks = { dir = { 0, 1, 0 }, rate = 18, speed = 2.60, spread = 0.85, life = 0.55, gravity = { 0, -4.5, 0 }, drag = 0.15, size_start = 0.14, size_end = 0.03, color_start = { 1.0, 0.94, 0.52, 1.0 }, color_end = { 1.0, 0.32, 0.04, 0.0 }, additive = true, blackbody = true, temp_start = 3600, temp_end = 1400, turbulence = 1.6 },
+    dust   = { dir = { 0, 1, 0 }, rate = 10, speed = 0.35, spread = 1.40, life = 2.60, gravity = { 0, 0.05, 0 }, drag = 0.80, size_start = 0.12, size_end = 0.24, color_start = { 0.88, 0.84, 0.72, 0.30 }, color_end = { 0.88, 0.84, 0.72, 0.0 }, additive = false, turbulence = 0.5 },
+}
+
+M.waters = {
+    coastal_clear = { enabled = true, level = 0.0, wave_amp = 0.14, wave_freq = 0.65, choppiness = 0.55, wave_speed = 1.15, absorption = { 0.42, 0.09, 0.04 }, scatter = { 0.02, 0.14, 0.18 }, foam_width = 0.55, refraction = 0.035, caustics = 0.40 },
+    alpine_river  = { enabled = true, level = 0.0, wave_amp = 0.07, wave_freq = 1.10, choppiness = 0.45, wave_speed = 1.65, absorption = { 0.36, 0.10, 0.05 }, scatter = { 0.02, 0.12, 0.15 }, foam_width = 0.45, refraction = 0.030, caustics = 0.45, flow = { 1.2, 0.0 } },
+    murky_swamp   = { enabled = true, level = 0.0, wave_amp = 0.03, wave_freq = 0.80, choppiness = 0.20, wave_speed = 0.55, absorption = { 0.85, 0.62, 0.95 }, scatter = { 0.05, 0.09, 0.03 }, foam_width = 0.20, refraction = 0.018, caustics = 0.05 },
 }
 
 M.skies = {
@@ -114,6 +120,12 @@ end
 function M.sky(eng_root, name, overrides)
     local cfg = copy_merge(M.skies[name] or M.skies.alpine_day, overrides)
     eng_root.render.set_sky_fx(cfg)
+    return cfg
+end
+
+function M.water(eng_root, name, overrides)
+    local cfg = copy_merge(M.waters[name] or M.waters.coastal_clear, overrides)
+    eng_root.render.set_water(cfg)
     return cfg
 end
 

@@ -15,9 +15,10 @@ static char *preprocess_glsl(const eng_vfs_t *vfs, const char *src, bool is_frag
     if (gl->is_gles) {
         len += (size_t)snprintf(out + len, cap - len,
                                 "#version 300 es\nprecision highp float;\nprecision highp int;\n%s",
-                                is_frag ? "" : "");
+                                is_frag ? "#define ENG_STAGE_FRAG 1\n" : "");
     } else {
-        len += (size_t)snprintf(out + len, cap - len, "#version 330 core\n");
+        len += (size_t)snprintf(out + len, cap - len, "#version 330 core\n%s",
+                                is_frag ? "#define ENG_STAGE_FRAG 1\n" : "");
     }
 
     const char *p = src;

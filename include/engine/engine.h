@@ -39,5 +39,6 @@
 #include "eng_editor.h"
 #include "eng_replay.h"
 #include "eng_capture.h"
+#include "eng_sim.h"
 
 #endif /* ENGINE_H */

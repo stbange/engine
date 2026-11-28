@@ -66,6 +66,8 @@ void eng_audio_destroy(eng_audio_t *aud);
 
 void eng_audio_set_bus_gain(eng_audio_t *aud, eng_audio_bus_t bus, float gain);
 float eng_audio_get_bus_gain(const eng_audio_t *aud, eng_audio_bus_t bus);
+void eng_audio_set_underwater(eng_audio_t *aud, float submerge_factor);
+float eng_audio_get_underwater(const eng_audio_t *aud);
 
 #define ENG_MAX_LISTENERS 4
 

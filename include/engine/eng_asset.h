@@ -49,6 +49,7 @@ typedef struct {
     bool nearest;
     bool valid;
     bool is_cubemap;
+    uint32_t norm_rough_tex; /* optional 1-based cache ID for packed RGBA8 (Nx, Ny, Nz, Roughness) */
 } eng_gpu_tex_t;
 
 typedef struct eng_asset_cache_s eng_asset_cache_t;
@@ -73,6 +74,7 @@ void eng_asset_cache_destroy(eng_asset_cache_t *cache);
 
 uint32_t eng_asset_upload_mesh(eng_asset_cache_t *cache, const char *key, const eng_mesh_data_t *md);
 uint32_t eng_asset_upload_mesh_lods(eng_asset_cache_t *cache, const char *key, const eng_mesh_data_t *lods, int lod_count);
+bool eng_asset_update_mesh(eng_asset_cache_t *cache, uint32_t mesh_id, const eng_mesh_data_t *md);
 uint32_t eng_asset_load_mesh(eng_asset_cache_t *cache, const char *vpath);
 const eng_gpu_mesh_t *eng_asset_get_mesh(const eng_asset_cache_t *cache, uint32_t mesh_id);
 
@@ -82,6 +84,7 @@ uint32_t eng_asset_load_texture(eng_asset_cache_t *cache, const char *vpath, boo
 uint32_t eng_asset_create_cubemap_rgba(eng_asset_cache_t *cache, const char *key, int size,
                                        const uint8_t *const faces_rgba[6], bool nearest);
 uint32_t eng_asset_load_cubemap(eng_asset_cache_t *cache, const char *const face_vpaths[6], bool nearest);
+void eng_asset_set_texture_pbr(eng_asset_cache_t *cache, uint32_t albedo_tex_id, uint32_t norm_rough_tex_id);
 const eng_gpu_tex_t *eng_asset_get_texture(const eng_asset_cache_t *cache, uint32_t tex_id);
 
 /* Save bottom-up OpenGL RGBA8 framebuffer pixels to a top-down PNG file. */

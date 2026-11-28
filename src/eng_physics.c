@@ -8,11 +8,15 @@
 #define ENG_MAX_BODIES 1024
 #define ENG_MAX_POCKET_GRAV 32
 #define ENG_MAX_CONTACTS 512
+#define ENG_MAX_JOINTS 256
 
 typedef struct {
     bool active;
     eng_body_desc_t b;
     float inv_mass;
+    float volume;
+    eng_vec3_t inv_inertia_local;
+    float sleep_timer;
     eng_aabb_t world_aabb;
 } body_slot_t;
 
@@ -23,7 +27,20 @@ typedef struct {
     float surface_g;
     bool has_planet_cfg;
     eng_planet_cfg_t planet_cfg;
+
+    bool fluid_enabled;
+    float fluid_level_y;
+    float fluid_density;
+    float fluid_drag;
+    eng_vec2_t fluid_flow;
+    eng_vec3_t wind_vel;
 } pocket_grav_t;
+
+typedef struct {
+    bool active;
+    eng_joint_desc_t d;
+    eng_vec3_t local_axis_b;
+} joint_slot_t;
 
 typedef struct {
     eng_aabb_t box;
@@ -36,9 +53,37 @@ struct eng_physics_s {
     body_slot_t bodies[ENG_MAX_BODIES];
     uint32_t body_high;
     pocket_grav_t grav[ENG_MAX_POCKET_GRAV];
+    joint_slot_t joints[ENG_MAX_JOINTS];
+    uint32_t joint_high;
+    eng_fluid_height_fn fluid_fn;
+    void *fluid_ud;
     eng_contact_event_t contacts[ENG_MAX_CONTACTS];
     size_t contact_count;
 };
+
+static eng_quat_t quat_conj(eng_quat_t q) {
+    return (eng_quat_t){-q.x, -q.y, -q.z, q.w};
+}
+
+static eng_vec3_t body_com(const eng_body_desc_t *b) {
+    if (b->shape == ENG_SHAPE_VOXEL_CHUNK && b->voxel_chunk) {
+        float vs = b->voxel_chunk->voxel_size;
+        eng_vec3_t half = eng_v3(0.5f * (float)b->voxel_chunk->sx * vs,
+                                 0.5f * (float)b->voxel_chunk->sy * vs,
+                                 0.5f * (float)b->voxel_chunk->sz * vs);
+        return eng_v3_add(b->pos, eng_quat_rotate_v3(b->rot, half));
+    }
+    return b->pos;
+}
+
+static eng_vec3_t apply_world_inv_inertia(const body_slot_t *s, eng_vec3_t tau_world) {
+    if (s->b.freeze_rotation || s->inv_mass <= 0.0f) return eng_v3(0, 0, 0);
+    eng_vec3_t local_t = eng_quat_rotate_v3(quat_conj(s->b.rot), tau_world);
+    eng_vec3_t local_w = eng_v3(local_t.x * s->inv_inertia_local.x,
+                                local_t.y * s->inv_inertia_local.y,
+                                local_t.z * s->inv_inertia_local.z);
+    return eng_quat_rotate_v3(s->b.rot, local_w);
+}
 
 eng_body_desc_t eng_body_default_desc(eng_shape_type_t shape, eng_body_motion_t motion) {
     return (eng_body_desc_t){
@@ -56,7 +101,27 @@ eng_body_desc_t eng_body_default_desc(eng_shape_type_t shape, eng_body_motion_t 
         .friction = 0.5f,
         .radius = 0.5f,
         .half_height = 0.5f,
-        .half_extents = {0.5f, 0.5f, 0.5f}
+        .half_extents = {0.5f, 0.5f, 0.5f},
+        .density = 0.0f,
+        .linear_damping = 0.0f,
+        .angular_damping = 0.08f,
+        .freeze_rotation = (shape == ENG_SHAPE_CAPSULE),
+        .sleeping = false
+    };
+}
+
+eng_joint_desc_t eng_joint_default_desc(eng_joint_type_t type, uint32_t body_a, uint32_t body_b) {
+    return (eng_joint_desc_t){
+        .type = type,
+        .body_a = body_a,
+        .body_b = body_b,
+        .anchor_a = {0, 0, 0},
+        .anchor_b = {0, 0, 0},
+        .axis_a = {0, 1, 0},
+        .rest_length = -1.0f,
+        .stiffness = 120.0f,
+        .damping = 8.0f,
+        .break_force = 0.0f
     };
 }
 
@@ -65,6 +130,8 @@ eng_physics_t *eng_physics_create(void) {
     if (!p) return NULL;
     for (int i = 0; i < ENG_MAX_POCKET_GRAV; i++) {
         p->grav[i].linear = eng_v3(0.0f, -9.81f, 0.0f);
+        p->grav[i].fluid_density = 1000.0f;
+        p->grav[i].fluid_drag = 1.6f;
     }
     return p;
 }
@@ -73,10 +140,20 @@ void eng_physics_destroy(eng_physics_t *phys) {
     free(phys);
 }
 
+static void wake_pocket_bodies(eng_physics_t *phys, uint16_t pocket_id) {
+    for (uint32_t i = 0; i < phys->body_high; i++) {
+        if (phys->bodies[i].active && phys->bodies[i].b.pocket_id == pocket_id) {
+            phys->bodies[i].b.sleeping = false;
+            phys->bodies[i].sleep_timer = 0.0f;
+        }
+    }
+}
+
 void eng_physics_set_gravity(eng_physics_t *phys, uint16_t pocket_id, eng_vec3_t linear_gravity) {
     if (!phys || pocket_id >= ENG_MAX_POCKET_GRAV) return;
     phys->grav[pocket_id].radial = false;
     phys->grav[pocket_id].linear = linear_gravity;
+    wake_pocket_bodies(phys, pocket_id);
 }
 
 void eng_physics_set_planet_gravity(eng_physics_t *phys, uint16_t pocket_id,
@@ -89,6 +166,32 @@ void eng_physics_set_planet_gravity(eng_physics_t *phys, uint16_t pocket_id,
     g->surface_g = surface_g > 0.0f ? surface_g : 9.81f;
     g->has_planet_cfg = (planet_surface_opt != NULL);
     if (planet_surface_opt) g->planet_cfg = *planet_surface_opt;
+    wake_pocket_bodies(phys, pocket_id);
+}
+
+void eng_physics_set_fluid(eng_physics_t *phys, uint16_t pocket_id, bool enabled,
+                           float level_y, float fluid_density, float drag_coeff,
+                           eng_vec2_t flow_xz) {
+    if (!phys || pocket_id >= ENG_MAX_POCKET_GRAV) return;
+    pocket_grav_t *g = &phys->grav[pocket_id];
+    g->fluid_enabled = enabled;
+    g->fluid_level_y = level_y;
+    g->fluid_density = fluid_density > 1.0f ? fluid_density : 1000.0f;
+    g->fluid_drag = drag_coeff >= 0.0f ? drag_coeff : 1.5f;
+    g->fluid_flow = flow_xz;
+    wake_pocket_bodies(phys, pocket_id);
+}
+
+void eng_physics_set_fluid_sampler(eng_physics_t *phys, eng_fluid_height_fn fn, void *user_data) {
+    if (!phys) return;
+    phys->fluid_fn = fn;
+    phys->fluid_ud = user_data;
+}
+
+void eng_physics_set_wind(eng_physics_t *phys, uint16_t pocket_id, eng_vec3_t wind_vel) {
+    if (!phys || pocket_id >= ENG_MAX_POCKET_GRAV) return;
+    phys->grav[pocket_id].wind_vel = wind_vel;
+    if (eng_v3_dot(wind_vel, wind_vel) > 1e-4f) wake_pocket_bodies(phys, pocket_id);
 }
 
 static eng_aabb_t compute_body_aabb(const eng_body_desc_t *b) {
@@ -122,6 +225,16 @@ static eng_aabb_t compute_body_aabb(const eng_body_desc_t *b) {
             if (!b->voxel_chunk) return (eng_aabb_t){b->pos, b->pos};
             float vs = b->voxel_chunk->voxel_size;
             eng_vec3_t sz = eng_v3((float)b->voxel_chunk->sx * vs, (float)b->voxel_chunk->sy * vs, (float)b->voxel_chunk->sz * vs);
+            if (fabsf(b->rot.w) < 0.9999f) {
+                eng_aabb_t box = {eng_v3(FLT_MAX, FLT_MAX, FLT_MAX), eng_v3(-FLT_MAX, -FLT_MAX, -FLT_MAX)};
+                for (int k = 0; k < 8; k++) {
+                    eng_vec3_t lc = eng_v3((k & 1) ? sz.x : 0.0f, (k & 2) ? sz.y : 0.0f, (k & 4) ? sz.z : 0.0f);
+                    eng_vec3_t wp = eng_v3_add(b->pos, eng_quat_rotate_v3(b->rot, lc));
+                    box.min = eng_v3(fminf(box.min.x, wp.x), fminf(box.min.y, wp.y), fminf(box.min.z, wp.z));
+                    box.max = eng_v3(fmaxf(box.max.x, wp.x), fmaxf(box.max.y, wp.y), fmaxf(box.max.z, wp.z));
+                }
+                return box;
+            }
             return (eng_aabb_t){b->pos, eng_v3_add(b->pos, sz)};
         }
         case ENG_SHAPE_TERRAIN: {
@@ -130,9 +243,85 @@ static eng_aabb_t compute_body_aabb(const eng_body_desc_t *b) {
             float wz = (float)(b->terrain->grid_d - 1) * b->terrain->cell_size;
             return (eng_aabb_t){eng_v3(b->pos.x, -500.0f, b->pos.z), eng_v3(b->pos.x + wx, 500.0f, b->pos.z + wz)};
         }
-        default: /* ENG_SHAPE_AABB */
+        default: { /* ENG_SHAPE_AABB (supports rotated OBB bounds when rot != identity) */
+            if (fabsf(b->rot.w) < 0.9999f) {
+                eng_vec3_t ax = eng_quat_rotate_v3(b->rot, eng_v3(b->half_extents.x, 0, 0));
+                eng_vec3_t ay = eng_quat_rotate_v3(b->rot, eng_v3(0, b->half_extents.y, 0));
+                eng_vec3_t az = eng_quat_rotate_v3(b->rot, eng_v3(0, 0, b->half_extents.z));
+                eng_vec3_t ex = eng_v3(fabsf(ax.x) + fabsf(ay.x) + fabsf(az.x),
+                                       fabsf(ax.y) + fabsf(ay.y) + fabsf(az.y),
+                                       fabsf(ax.z) + fabsf(ay.z) + fabsf(az.z));
+                return (eng_aabb_t){eng_v3_sub(b->pos, ex), eng_v3_add(b->pos, ex)};
+            }
             return (eng_aabb_t){eng_v3_sub(b->pos, b->half_extents), eng_v3_add(b->pos, b->half_extents)};
+        }
     }
+}
+
+static void init_body_mass_and_inertia(body_slot_t *s) {
+    const eng_body_desc_t *b = &s->b;
+    float vol = 1.0f;
+    eng_vec3_t he = b->half_extents;
+    switch (b->shape) {
+        case ENG_SHAPE_SPHERE:
+            vol = (4.0f / 3.0f) * ENG_PI * b->radius * b->radius * b->radius;
+            break;
+        case ENG_SHAPE_CAPSULE:
+            vol = (4.0f / 3.0f) * ENG_PI * b->radius * b->radius * b->radius
+                  + 2.0f * ENG_PI * b->radius * b->radius * b->half_height;
+            break;
+        case ENG_SHAPE_VOXEL_CHUNK:
+            if (b->voxel_chunk) {
+                float vs = b->voxel_chunk->voxel_size;
+                size_t filled = 0;
+                int total = b->voxel_chunk->sx * b->voxel_chunk->sy * b->voxel_chunk->sz;
+                for (int k = 0; k < total; k++) if (b->voxel_chunk->blocks[k] != 0) filled++;
+                vol = fmaxf((float)filled * vs * vs * vs, vs * vs * vs);
+                he = eng_v3(0.5f * (float)b->voxel_chunk->sx * vs,
+                            0.5f * (float)b->voxel_chunk->sy * vs,
+                            0.5f * (float)b->voxel_chunk->sz * vs);
+            }
+            break;
+        case ENG_SHAPE_CONVEX_HULL: {
+            eng_aabb_t ab = compute_body_aabb(b);
+            he = eng_v3_scale(eng_v3_sub(ab.max, ab.min), 0.5f);
+            vol = fmaxf(4.0f * he.x * he.y * he.z, 0.02f);
+            break;
+        }
+        default:
+            vol = fmaxf(8.0f * he.x * he.y * he.z, 0.001f);
+            break;
+    }
+    s->volume = fmaxf(vol, 0.001f);
+    if (s->b.motion == ENG_BODY_DYNAMIC) {
+        if (s->b.density > 0.0f) s->b.mass = fmaxf(s->b.density * s->volume, 0.01f);
+        s->inv_mass = (s->b.mass > 1e-4f) ? (1.0f / s->b.mass) : 0.0f;
+    } else {
+        s->inv_mass = 0.0f;
+    }
+
+    if (s->inv_mass <= 0.0f || s->b.freeze_rotation) {
+        s->inv_inertia_local = eng_v3(0, 0, 0);
+        return;
+    }
+
+    float m = s->b.mass;
+    float ix, iy, iz;
+    if (b->shape == ENG_SHAPE_SPHERE) {
+        ix = iy = iz = 0.4f * m * fmaxf(b->radius * b->radius, 0.01f);
+    } else if (b->shape == ENG_SHAPE_CAPSULE) {
+        float hh = b->half_height + b->radius;
+        iy = 0.5f * m * fmaxf(b->radius * b->radius, 0.01f);
+        ix = iz = (1.0f / 3.0f) * m * fmaxf(hh * hh, 0.01f);
+    } else {
+        float ex2 = fmaxf(he.x * he.x, 0.01f);
+        float ey2 = fmaxf(he.y * he.y, 0.01f);
+        float ez2 = fmaxf(he.z * he.z, 0.01f);
+        ix = (1.0f / 3.0f) * m * (ey2 + ez2);
+        iy = (1.0f / 3.0f) * m * (ex2 + ez2);
+        iz = (1.0f / 3.0f) * m * (ex2 + ey2);
+    }
+    s->inv_inertia_local = eng_v3(1.0f / ix, 1.0f / iy, 1.0f / iz);
 }
 
 uint32_t eng_physics_add_body(eng_physics_t *phys, const eng_body_desc_t *desc) {
@@ -140,9 +329,16 @@ uint32_t eng_physics_add_body(eng_physics_t *phys, const eng_body_desc_t *desc) 
     for (uint32_t i = 0; i < ENG_MAX_BODIES; i++) {
         if (!phys->bodies[i].active) {
             body_slot_t *s = &phys->bodies[i];
+            memset(s, 0, sizeof(*s));
             s->active = true;
             s->b = *desc;
-            s->inv_mass = (desc->motion == ENG_BODY_DYNAMIC && desc->mass > 1e-4f) ? (1.0f / desc->mass) : 0.0f;
+            if (eng_v3_dot(eng_v3(s->b.rot.x, s->b.rot.y, s->b.rot.z),
+                           eng_v3(s->b.rot.x, s->b.rot.y, s->b.rot.z)) + s->b.rot.w * s->b.rot.w < 1e-6f) {
+                s->b.rot = eng_quat_identity();
+            } else {
+                s->b.rot = eng_quat_norm(s->b.rot);
+            }
+            init_body_mass_and_inertia(s);
             s->world_aabb = compute_body_aabb(&s->b);
             if (i + 1u > phys->body_high) phys->body_high = i + 1u;
             return i + 1u;
@@ -153,6 +349,11 @@ uint32_t eng_physics_add_body(eng_physics_t *phys, const eng_body_desc_t *desc) 
 
 bool eng_physics_remove_body(eng_physics_t *phys, uint32_t body_id) {
     if (!phys || body_id == 0 || body_id > ENG_MAX_BODIES || !phys->bodies[body_id - 1u].active) return false;
+    for (uint32_t j = 0; j < phys->joint_high; j++) {
+        if (phys->joints[j].active && (phys->joints[j].d.body_a == body_id || phys->joints[j].d.body_b == body_id)) {
+            phys->joints[j].active = false;
+        }
+    }
     memset(&phys->bodies[body_id - 1u], 0, sizeof(body_slot_t));
     return true;
 }
@@ -160,6 +361,97 @@ bool eng_physics_remove_body(eng_physics_t *phys, uint32_t body_id) {
 eng_body_desc_t *eng_physics_get_body(eng_physics_t *phys, uint32_t body_id) {
     if (!phys || body_id == 0 || body_id > ENG_MAX_BODIES || !phys->bodies[body_id - 1u].active) return NULL;
     return &phys->bodies[body_id - 1u].b;
+}
+
+void eng_physics_wake_body(eng_physics_t *phys, uint32_t body_id) {
+    if (!phys || body_id == 0 || body_id > ENG_MAX_BODIES || !phys->bodies[body_id - 1u].active) return;
+    phys->bodies[body_id - 1u].b.sleeping = false;
+    phys->bodies[body_id - 1u].sleep_timer = 0.0f;
+}
+
+bool eng_physics_apply_impulse_at(eng_physics_t *phys, uint32_t body_id,
+                                  eng_vec3_t impulse, eng_vec3_t world_point) {
+    if (!phys || body_id == 0 || body_id > ENG_MAX_BODIES || !phys->bodies[body_id - 1u].active) return false;
+    body_slot_t *s = &phys->bodies[body_id - 1u];
+    if (s->inv_mass <= 0.0f) return false;
+    s->b.sleeping = false;
+    s->sleep_timer = 0.0f;
+    s->b.vel = eng_v3_add(s->b.vel, eng_v3_scale(impulse, s->inv_mass));
+    if (!s->b.freeze_rotation) {
+        eng_vec3_t r = eng_v3_sub(world_point, body_com(&s->b));
+        eng_vec3_t dw = apply_world_inv_inertia(s, eng_v3_cross(r, impulse));
+        s->b.ang_vel = eng_v3_add(s->b.ang_vel, dw);
+    }
+    return true;
+}
+
+size_t eng_physics_radial_blast(eng_physics_t *phys, uint16_t pocket_id,
+                                eng_vec3_t center, float radius, float max_impulse) {
+    if (!phys || radius <= 0.01f || fabsf(max_impulse) < 1e-5f) return 0;
+    size_t hit = 0;
+    for (uint32_t i = 0; i < phys->body_high; i++) {
+        body_slot_t *s = &phys->bodies[i];
+        if (!s->active || s->b.pocket_id != pocket_id || s->inv_mass <= 0.0f) continue;
+        eng_vec3_t com = body_com(&s->b);
+        eng_vec3_t delta = eng_v3_sub(com, center);
+        float d = eng_v3_len(delta);
+        if (d > radius) continue;
+        eng_vec3_t dir = (d > 1e-4f) ? eng_v3_scale(delta, 1.0f / d) : eng_v3(0.0f, 1.0f, 0.0f);
+        float falloff = (1.0f - d / radius);
+        falloff *= falloff;
+        eng_vec3_t imp = eng_v3_scale(dir, max_impulse * falloff);
+        /* Apply slightly below/offset from COM so shockwaves impart natural tumble */
+        eng_vec3_t app = eng_v3_sub(com, eng_v3(dir.z * 0.12f, 0.12f, -dir.x * 0.12f));
+        eng_physics_apply_impulse_at(phys, i + 1u, imp, app);
+        hit++;
+    }
+    return hit;
+}
+
+static eng_vec3_t joint_world_anchor(const eng_physics_t *phys, uint32_t body_id, eng_vec3_t local_anchor) {
+    if (body_id == 0 || body_id > ENG_MAX_BODIES || !phys->bodies[body_id - 1u].active) return local_anchor;
+    const eng_body_desc_t *b = &phys->bodies[body_id - 1u].b;
+    return eng_v3_add(b->pos, eng_quat_rotate_v3(b->rot, local_anchor));
+}
+
+uint32_t eng_physics_add_joint(eng_physics_t *phys, const eng_joint_desc_t *desc) {
+    if (!phys || !desc || desc->body_b == 0 || desc->body_b > ENG_MAX_BODIES || !phys->bodies[desc->body_b - 1u].active) return 0;
+    if (desc->body_a > ENG_MAX_BODIES || (desc->body_a > 0 && !phys->bodies[desc->body_a - 1u].active)) return 0;
+
+    for (uint32_t i = 0; i < ENG_MAX_JOINTS; i++) {
+        if (!phys->joints[i].active) {
+            joint_slot_t *j = &phys->joints[i];
+            j->active = true;
+            j->d = *desc;
+            if (eng_v3_dot(j->d.axis_a, j->d.axis_a) < 1e-4f) j->d.axis_a = eng_v3(0, 1, 0);
+            j->d.axis_a = eng_v3_norm(j->d.axis_a);
+
+            eng_vec3_t world_axis = (j->d.body_a > 0)
+                                        ? eng_quat_rotate_v3(phys->bodies[j->d.body_a - 1u].b.rot, j->d.axis_a)
+                                        : j->d.axis_a;
+            j->local_axis_b = eng_quat_rotate_v3(quat_conj(phys->bodies[j->d.body_b - 1u].b.rot), world_axis);
+
+            if (j->d.rest_length < 0.0f) {
+                eng_vec3_t pa = joint_world_anchor(phys, j->d.body_a, j->d.anchor_a);
+                eng_vec3_t pb = joint_world_anchor(phys, j->d.body_b, j->d.anchor_b);
+                j->d.rest_length = eng_v3_len(eng_v3_sub(pb, pa));
+            }
+            if (j->d.type == ENG_JOINT_BALL || j->d.type == ENG_JOINT_HINGE) j->d.rest_length = 0.0f;
+            if (i + 1u > phys->joint_high) phys->joint_high = i + 1u;
+            return i + 1u;
+        }
+    }
+    return 0;
+}
+
+bool eng_physics_remove_joint(eng_physics_t *phys, uint32_t joint_id) {
+    if (!phys || joint_id == 0 || joint_id > ENG_MAX_JOINTS || !phys->joints[joint_id - 1u].active) return false;
+    phys->joints[joint_id - 1u].active = false;
+    return true;
+}
+
+bool eng_physics_joint_is_active(const eng_physics_t *phys, uint32_t joint_id) {
+    return (phys && joint_id > 0 && joint_id <= ENG_MAX_JOINTS && phys->joints[joint_id - 1u].active);
 }
 
 /* --------------------------------------------------------------------------
@@ -248,12 +540,28 @@ bool eng_physics_gjk_intersect(const eng_vec3_t *va, size_t na,
             } else if (eng_v3_dot(adb, ao) > 0.0f) {
                 s[1] = s[0]; s[0] = s[2]; s[2] = a; sn = 3; dir = adb;
             } else {
-                /* Origin enclosed inside tetrahedron -> estimate MTV along centroid axis */
-                eng_vec3_t n = eng_v3_norm(eng_v3_sub(cb, ca));
-                if (eng_v3_dot(n, n) < 0.1f) n = eng_v3(0.0f, 1.0f, 0.0f);
-                eng_vec3_t p = minkowski_sup(va, na, vb, nb, n);
-                if (out_sep_dir) *out_sep_dir = n;
-                if (out_depth) *out_depth = fmaxf(eng_v3_dot(p, n), 0.01f);
+                /* Origin enclosed inside tetrahedron -> find exact minimum-penetration MTV across candidate axes */
+                eng_vec3_t cands[11] = {
+                    {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+                    eng_v3_norm(eng_v3_sub(cb, ca)),
+                    eng_v3_norm(abc), eng_v3_norm(eng_v3_scale(abc, -1.0f)),
+                    eng_v3_norm(acd), eng_v3_norm(adb)
+                };
+                float best_pen = FLT_MAX;
+                eng_vec3_t best_n = eng_v3(0.0f, -1.0f, 0.0f);
+                for (int ci = 0; ci < 11; ci++) {
+                    eng_vec3_t u = cands[ci];
+                    if (eng_v3_dot(u, u) < 0.5f) continue;
+                    eng_vec3_t p = minkowski_sup(va, na, vb, nb, u);
+                    float pen = eng_v3_dot(p, u);
+                    if (pen > 0.0f && pen < best_pen) {
+                        best_pen = pen;
+                        best_n = u;
+                    }
+                }
+                if (best_pen == FLT_MAX) best_pen = 0.01f;
+                if (out_sep_dir) *out_sep_dir = best_n;
+                if (out_depth) *out_depth = best_pen;
                 return true;
             }
         }
@@ -299,6 +607,23 @@ static size_t body_world_hull(const eng_body_desc_t *b, eng_vec3_t out_v[16]) {
         for (size_t i = 0; i < n; i++) out_v[i] = eng_v3_add(b->pos, eng_quat_rotate_v3(b->rot, b->hull_verts[i]));
         return n;
     }
+    if (b->shape == ENG_SHAPE_AABB && fabsf(b->rot.w) < 0.9999f) {
+        eng_vec3_t he = b->half_extents;
+        for (int k = 0; k < 8; k++) {
+            eng_vec3_t lc = eng_v3((k & 1) ? he.x : -he.x, (k & 2) ? he.y : -he.y, (k & 4) ? he.z : -he.z);
+            out_v[k] = eng_v3_add(b->pos, eng_quat_rotate_v3(b->rot, lc));
+        }
+        return 8;
+    }
+    if (b->shape == ENG_SHAPE_VOXEL_CHUNK && b->voxel_chunk && fabsf(b->rot.w) < 0.9999f) {
+        float vs = b->voxel_chunk->voxel_size;
+        eng_vec3_t sz = eng_v3((float)b->voxel_chunk->sx * vs, (float)b->voxel_chunk->sy * vs, (float)b->voxel_chunk->sz * vs);
+        for (int k = 0; k < 8; k++) {
+            eng_vec3_t lc = eng_v3((k & 1) ? sz.x : 0.0f, (k & 2) ? sz.y : 0.0f, (k & 4) ? sz.z : 0.0f);
+            out_v[k] = eng_v3_add(b->pos, eng_quat_rotate_v3(b->rot, lc));
+        }
+        return 8;
+    }
     eng_aabb_t ab = compute_body_aabb(b);
     out_v[0] = eng_v3(ab.min.x, ab.min.y, ab.min.z); out_v[1] = eng_v3(ab.max.x, ab.min.y, ab.min.z);
     out_v[2] = eng_v3(ab.min.x, ab.max.y, ab.min.z); out_v[3] = eng_v3(ab.max.x, ab.max.y, ab.min.z);
@@ -332,8 +657,9 @@ static bool test_pair(const eng_body_desc_t *a, eng_aabb_t box_a,
 
     if (!eng_aabb_overlaps(box_a, box_b, NULL)) return false;
 
-    /* Voxel chunk narrowphase */
-    if (b->shape == ENG_SHAPE_VOXEL_CHUNK && b->voxel_chunk) {
+    /* Voxel chunk narrowphase (when static/unrotated) */
+    if (b->shape == ENG_SHAPE_VOXEL_CHUNK && b->voxel_chunk && fabsf(b->rot.w) >= 0.9999f &&
+        a->shape != ENG_SHAPE_VOXEL_CHUNK) {
         const eng_voxel_chunk_t *vc = b->voxel_chunk;
         float vs = vc->voxel_size;
         int x0 = (int)floorf((box_a.min.x - b->pos.x) / vs), x1 = (int)floorf((box_a.max.x - b->pos.x) / vs);
@@ -350,7 +676,7 @@ static bool test_pair(const eng_body_desc_t *a, eng_aabb_t box_a,
                         eng_v3(b->pos.x + (float)vx * vs, b->pos.y + (float)vy * vs, b->pos.z + (float)vz * vs),
                         eng_v3(b->pos.x + (float)(vx + 1) * vs, b->pos.y + (float)(vy + 1) * vs, b->pos.z + (float)(vz + 1) * vs)
                     };
-                    eng_vec3_t pa = a->pos;
+                    eng_vec3_t pa = body_com(a);
                     if (a->shape == ENG_SHAPE_CAPSULE) {
                         pa.y = eng_clampf((cell.min.y + cell.max.y) * 0.5f, a->pos.y - a->half_height, a->pos.y + a->half_height);
                     }
@@ -369,7 +695,7 @@ static bool test_pair(const eng_body_desc_t *a, eng_aabb_t box_a,
         }
         return false;
     }
-    if (a->shape == ENG_SHAPE_VOXEL_CHUNK) {
+    if (a->shape == ENG_SHAPE_VOXEL_CHUNK && fabsf(a->rot.w) >= 0.9999f && b->shape != ENG_SHAPE_VOXEL_CHUNK) {
         if (test_pair(b, box_b, a, box_a, out_n, out_pen)) {
             *out_n = eng_v3_scale(*out_n, -1.0f);
             return true;
@@ -377,8 +703,11 @@ static bool test_pair(const eng_body_desc_t *a, eng_aabb_t box_a,
         return false;
     }
 
-    /* Convex Hull GJK */
-    if (a->shape == ENG_SHAPE_CONVEX_HULL || b->shape == ENG_SHAPE_CONVEX_HULL) {
+    /* Convex Hull or Rotated OBB/Voxel GJK */
+    bool a_obb = ((a->shape == ENG_SHAPE_AABB || a->shape == ENG_SHAPE_VOXEL_CHUNK) && fabsf(a->rot.w) < 0.9999f);
+    bool b_obb = ((b->shape == ENG_SHAPE_AABB || b->shape == ENG_SHAPE_VOXEL_CHUNK) && fabsf(b->rot.w) < 0.9999f);
+    if (a->shape == ENG_SHAPE_CONVEX_HULL || b->shape == ENG_SHAPE_CONVEX_HULL || a_obb || b_obb ||
+        (a->shape == ENG_SHAPE_VOXEL_CHUNK && b->shape == ENG_SHAPE_VOXEL_CHUNK)) {
         eng_vec3_t va[16], vb[16];
         size_t na = body_world_hull(a, va), nb = body_world_hull(b, vb);
         return eng_physics_gjk_intersect(va, na, vb, nb, out_n, out_pen);
@@ -482,36 +811,306 @@ static void query_bvh_overlaps(const bvh_node_t *nodes, int node_idx, eng_aabb_t
     query_bvh_overlaps(nodes, nodes[node_idx].right, query_box, out_slots, out_n, max_n);
 }
 
+/* Average support face/edge/corner point in direction dir so flat resting contacts produce zero phantom torque */
+static eng_vec3_t support_contact_point(const eng_body_desc_t *b, eng_vec3_t dir) {
+    if (b->shape == ENG_SHAPE_SPHERE) {
+        return eng_v3_add(b->pos, eng_v3_scale(dir, b->radius));
+    }
+    if (b->shape == ENG_SHAPE_CAPSULE) {
+        eng_vec3_t up = eng_quat_rotate_v3(b->rot, eng_v3(0.0f, b->half_height, 0.0f));
+        eng_vec3_t end = (eng_v3_dot(up, dir) >= 0.0f) ? eng_v3_add(b->pos, up) : eng_v3_sub(b->pos, up);
+        return eng_v3_add(end, eng_v3_scale(dir, b->radius));
+    }
+    eng_vec3_t v[16];
+    size_t n = body_world_hull(b, v);
+    float best = -FLT_MAX;
+    for (size_t i = 0; i < n; i++) {
+        float d = eng_v3_dot(v[i], dir);
+        if (d > best) best = d;
+    }
+    eng_vec3_t sum = {0, 0, 0};
+    int cnt = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (eng_v3_dot(v[i], dir) >= best - 0.03f) {
+            sum = eng_v3_add(sum, v[i]);
+            cnt++;
+        }
+    }
+    return cnt > 0 ? eng_v3_scale(sum, 1.0f / (float)cnt) : b->pos;
+}
+
+static eng_vec3_t estimate_contact_point(const body_slot_t *sa, const body_slot_t *sb, eng_vec3_t n) {
+    if (sa->inv_mass > 0.0f && sb->inv_mass <= 0.0f) {
+        return support_contact_point(&sa->b, n);
+    }
+    if (sb->inv_mass > 0.0f && sa->inv_mass <= 0.0f) {
+        return support_contact_point(&sb->b, eng_v3_scale(n, -1.0f));
+    }
+    eng_vec3_t pa = support_contact_point(&sa->b, n);
+    eng_vec3_t pb = support_contact_point(&sb->b, eng_v3_scale(n, -1.0f));
+    return eng_v3_scale(eng_v3_add(pa, pb), 0.5f);
+}
+
+static float effective_inv_mass(const body_slot_t *sa, const body_slot_t *sb,
+                                eng_vec3_t ra, eng_vec3_t rb, eng_vec3_t dir) {
+    float k = sa->inv_mass + sb->inv_mass;
+    if (!sa->b.freeze_rotation && sa->inv_mass > 0.0f) {
+        eng_vec3_t rax = eng_v3_cross(ra, dir);
+        k += eng_v3_dot(rax, apply_world_inv_inertia(sa, rax));
+    }
+    if (!sb->b.freeze_rotation && sb->inv_mass > 0.0f) {
+        eng_vec3_t rbx = eng_v3_cross(rb, dir);
+        k += eng_v3_dot(rbx, apply_world_inv_inertia(sb, rbx));
+    }
+    return k;
+}
+
 static void resolve_impulse(body_slot_t *sa, body_slot_t *sb, eng_vec3_t n, float pen) {
     float inv_sum = sa->inv_mass + sb->inv_mass;
     if (inv_sum <= 0.0f) return;
+    if (sa->b.sleeping && sb->b.sleeping) return;
+    if (sa->inv_mass > 0.0f && sa->b.sleeping && (sb->inv_mass > 0.0f && !sb->b.sleeping)) {
+        sa->b.sleeping = false; sa->sleep_timer = 0.0f;
+    }
+    if (sb->inv_mass > 0.0f && sb->b.sleeping && (sa->inv_mass > 0.0f && !sa->b.sleeping)) {
+        sb->b.sleeping = false; sb->sleep_timer = 0.0f;
+    }
 
     /* Positional Baumgarte projection */
     float corr = fmaxf(pen - 0.002f, 0.0f) * 0.8f / inv_sum;
     sa->b.pos = eng_v3_sub(sa->b.pos, eng_v3_scale(n, corr * sa->inv_mass));
     sb->b.pos = eng_v3_add(sb->b.pos, eng_v3_scale(n, corr * sb->inv_mass));
 
-    eng_vec3_t rv = eng_v3_sub(sb->b.vel, sa->b.vel);
+    eng_vec3_t cp = estimate_contact_point(sa, sb, n);
+    eng_vec3_t ra = eng_v3_sub(cp, body_com(&sa->b));
+    eng_vec3_t rb = eng_v3_sub(cp, body_com(&sb->b));
+
+    eng_vec3_t va = eng_v3_add(sa->b.vel, eng_v3_cross(sa->b.ang_vel, ra));
+    eng_vec3_t vb = eng_v3_add(sb->b.vel, eng_v3_cross(sb->b.ang_vel, rb));
+    eng_vec3_t rv = eng_v3_sub(vb, va);
     float vn = eng_v3_dot(rv, n);
     if (vn > 0.0f) return;
 
-    float e = fminf(sa->b.restitution, sb->b.restitution);
-    float j = -(1.0f + e) * vn / inv_sum;
+    float e = (vn < -0.22f) ? fminf(sa->b.restitution, sb->b.restitution) : 0.0f;
+    float kn = effective_inv_mass(sa, sb, ra, rb, n);
+    if (kn <= 1e-8f) return;
+    float j = -(1.0f + e) * vn / kn;
     eng_vec3_t imp = eng_v3_scale(n, j);
     sa->b.vel = eng_v3_sub(sa->b.vel, eng_v3_scale(imp, sa->inv_mass));
     sb->b.vel = eng_v3_add(sb->b.vel, eng_v3_scale(imp, sb->inv_mass));
+    if (!sa->b.freeze_rotation && sa->inv_mass > 0.0f)
+        sa->b.ang_vel = eng_v3_sub(sa->b.ang_vel, apply_world_inv_inertia(sa, eng_v3_cross(ra, imp)));
+    if (!sb->b.freeze_rotation && sb->inv_mass > 0.0f)
+        sb->b.ang_vel = eng_v3_add(sb->b.ang_vel, apply_world_inv_inertia(sb, eng_v3_cross(rb, imp)));
 
-    /* Coulomb tangential friction */
-    eng_vec3_t tang = eng_v3_sub(rv, eng_v3_scale(n, vn));
+    /* Coulomb tangential friction + rolling spin coupling */
+    va = eng_v3_add(sa->b.vel, eng_v3_cross(sa->b.ang_vel, ra));
+    vb = eng_v3_add(sb->b.vel, eng_v3_cross(sb->b.ang_vel, rb));
+    rv = eng_v3_sub(vb, va);
+    eng_vec3_t tang = eng_v3_sub(rv, eng_v3_scale(n, eng_v3_dot(rv, n)));
     float tlen = eng_v3_len(tang);
     if (tlen > 1e-4f) {
         tang = eng_v3_scale(tang, 1.0f / tlen);
-        float jt = -eng_v3_dot(rv, tang) / inv_sum;
+        float kt = effective_inv_mass(sa, sb, ra, rb, tang);
+        float jt = -eng_v3_dot(rv, tang) / fmaxf(kt, 1e-6f);
         float mu = sqrtf(fmaxf(0.0f, sa->b.friction * sb->b.friction));
+        if (sa->b.shape == ENG_SHAPE_SPHERE && sb->b.shape == ENG_SHAPE_SPHERE) mu *= 0.04f;
+        else if (sa->b.restitution > 0.85f || sb->b.restitution > 0.85f) mu *= 0.12f;
         jt = eng_clampf(jt, -j * mu, j * mu);
         eng_vec3_t fimp = eng_v3_scale(tang, jt);
         sa->b.vel = eng_v3_sub(sa->b.vel, eng_v3_scale(fimp, sa->inv_mass));
         sb->b.vel = eng_v3_add(sb->b.vel, eng_v3_scale(fimp, sb->inv_mass));
+        if (!sa->b.freeze_rotation && sa->inv_mass > 0.0f)
+            sa->b.ang_vel = eng_v3_sub(sa->b.ang_vel, apply_world_inv_inertia(sa, eng_v3_cross(ra, fimp)));
+        if (!sb->b.freeze_rotation && sb->inv_mass > 0.0f)
+            sb->b.ang_vel = eng_v3_add(sb->b.ang_vel, apply_world_inv_inertia(sb, eng_v3_cross(rb, fimp)));
+    }
+    /* Rolling resistance (visco-elastic surface deformation opposing pure roll) + GJK OBB settle */
+    if (vn > -0.45f) {
+        float mu_r = sqrtf(fmaxf(0.0f, sa->b.friction * sb->b.friction)) * 0.55f;
+        if (sa->b.shape == ENG_SHAPE_SPHERE && sa->inv_mass > 0.0f && sb->inv_mass <= 0.0f) {
+            eng_vec3_t vt = eng_v3_sub(sa->b.vel, eng_v3_scale(n, eng_v3_dot(sa->b.vel, n)));
+            float vtl = eng_v3_len(vt);
+            if (vtl > 1e-4f) {
+                float dv = fminf(vtl, j * mu_r * sa->inv_mass);
+                sa->b.vel = eng_v3_sub(sa->b.vel, eng_v3_scale(vt, dv / vtl));
+                sa->b.ang_vel = eng_v3_scale(sa->b.ang_vel, (vtl - dv) / vtl);
+            }
+        } else if (sb->b.shape == ENG_SHAPE_SPHERE && sb->inv_mass > 0.0f && sa->inv_mass <= 0.0f) {
+            eng_vec3_t vt = eng_v3_sub(sb->b.vel, eng_v3_scale(n, eng_v3_dot(sb->b.vel, n)));
+            float vtl = eng_v3_len(vt);
+            if (vtl > 1e-4f) {
+                float dv = fminf(vtl, j * mu_r * sb->inv_mass);
+                sb->b.vel = eng_v3_sub(sb->b.vel, eng_v3_scale(vt, dv / vtl));
+                sb->b.ang_vel = eng_v3_scale(sb->b.ang_vel, (vtl - dv) / vtl);
+            }
+        }
+        /* shortcut: single-point GJK contact without manifold cache, upgrade if multi-contact clipping is added */
+        if (!sa->b.freeze_rotation && sa->inv_mass > 0.0f && sa->b.shape != ENG_SHAPE_SPHERE)
+            sa->b.ang_vel = eng_v3_scale(sa->b.ang_vel, 0.88f);
+        if (!sb->b.freeze_rotation && sb->inv_mass > 0.0f && sb->b.shape != ENG_SHAPE_SPHERE)
+            sb->b.ang_vel = eng_v3_scale(sb->b.ang_vel, 0.88f);
+    }
+}
+
+static float sample_pocket_fluid_y(const eng_physics_t *phys, uint16_t pid, float x, float z) {
+    if (phys->fluid_fn) return phys->fluid_fn(x, z, pid, phys->fluid_ud);
+    return phys->grav[pid].fluid_level_y;
+}
+
+static void apply_fluid_buoyancy(const eng_physics_t *phys, body_slot_t *s, uint16_t pid, float dt) {
+    const pocket_grav_t *g = &phys->grav[pid];
+    if (!g->fluid_enabled || s->inv_mass <= 0.0f) return;
+    float g_mag = g->radial ? g->surface_g : fmaxf(-g->linear.y, 0.0f);
+    eng_vec3_t flow = eng_v3(g->fluid_flow.x, 0.0f, g->fluid_flow.y);
+
+    if (s->b.shape == ENG_SHAPE_SPHERE || s->b.shape == ENG_SHAPE_CAPSULE) {
+        float wy = sample_pocket_fluid_y(phys, pid, s->b.pos.x, s->b.pos.z);
+        float r = fmaxf(s->b.radius, 0.05f);
+        float hh = (s->b.shape == ENG_SHAPE_CAPSULE) ? s->b.half_height : 0.0f;
+        float bottom = s->b.pos.y - hh - r;
+        float height = 2.0f * (hh + r);
+        if (wy <= bottom) return;
+        float sub_frac = eng_clampf((wy - bottom) / height, 0.0f, 1.0f);
+        float v_sub = s->volume * sub_frac;
+        if (s->b.shape == ENG_SHAPE_SPHERE) {
+            float d = eng_clampf(wy - bottom, 0.0f, 2.0f * r);
+            v_sub = (ENG_PI * d * d * (3.0f * r - d)) / 3.0f;
+        }
+        float fb = g->fluid_density * g_mag * v_sub;
+        eng_vec3_t vrel = eng_v3_sub(s->b.vel, flow);
+        float spd = eng_v3_len(vrel);
+        eng_vec3_t fdrag = eng_v3_scale(vrel, -g->fluid_drag * sub_frac * s->b.mass * (1.2f + 0.5f * spd));
+        eng_vec3_t f_tot = eng_v3_add(eng_v3(0.0f, fb, 0.0f), fdrag);
+        s->b.vel = eng_v3_add(s->b.vel, eng_v3_scale(f_tot, s->inv_mass * dt));
+        s->b.ang_vel = eng_v3_scale(s->b.ang_vel, expf(-2.5f * sub_frac * dt));
+        s->b.sleeping = false;
+        s->sleep_timer = 0.0f;
+        return;
+    }
+
+    /* Multi-probe 8-corner Archimedes buoyancy + righting pitch/roll torque + water drag */
+    eng_vec3_t corners[16];
+    size_t nc = body_world_hull(&s->b, corners);
+    if (nc == 0) return;
+    eng_vec3_t com = body_com(&s->b);
+    float oct_h = fmaxf((s->world_aabb.max.y - s->world_aabb.min.y) * 0.5f, 0.08f);
+    float probe_vol = s->volume / (float)nc;
+    float total_sub = 0.0f;
+    for (size_t k = 0; k < nc; k++) {
+        eng_vec3_t rk = eng_v3_scale(eng_v3_sub(corners[k], com), 0.5f);
+        eng_vec3_t pk = eng_v3_add(com, rk);
+        float oct_bot = pk.y - 0.5f * oct_h;
+        float wy = sample_pocket_fluid_y(phys, pid, pk.x, pk.z);
+        if (wy <= oct_bot) continue;
+        float fk = eng_clampf((wy - oct_bot) / oct_h, 0.0f, 1.0f);
+        total_sub += fk / (float)nc;
+        eng_vec3_t vk = eng_v3_add(s->b.vel, eng_v3_cross(s->b.ang_vel, rk));
+        eng_vec3_t vrel = eng_v3_sub(vk, flow);
+        float f_lift = g->fluid_density * g_mag * probe_vol * fk;
+        eng_vec3_t f_k = eng_v3_add(eng_v3(0.0f, f_lift, 0.0f),
+                                    eng_v3_scale(vrel, -g->fluid_drag * fk * (s->b.mass / (float)nc)));
+        eng_vec3_t imp_k = eng_v3_scale(f_k, dt);
+        s->b.vel = eng_v3_add(s->b.vel, eng_v3_scale(imp_k, s->inv_mass));
+        if (!s->b.freeze_rotation) {
+            s->b.ang_vel = eng_v3_add(s->b.ang_vel, apply_world_inv_inertia(s, eng_v3_cross(rk, imp_k)));
+        }
+    }
+    if (total_sub > 0.001f) {
+        s->b.ang_vel = eng_v3_scale(s->b.ang_vel, expf(-2.0f * total_sub * dt));
+        s->b.sleeping = false;
+        s->sleep_timer = 0.0f;
+    }
+}
+
+static void solve_joints(eng_physics_t *phys, float dt) {
+    body_slot_t dummy_world;
+    memset(&dummy_world, 0, sizeof(dummy_world));
+    dummy_world.b.rot = eng_quat_identity();
+    dummy_world.b.freeze_rotation = true;
+
+    for (uint32_t ji = 0; ji < phys->joint_high; ji++) {
+        joint_slot_t *js = &phys->joints[ji];
+        if (!js->active || js->d.type != ENG_JOINT_SPRING) continue;
+        body_slot_t *sa = (js->d.body_a > 0) ? &phys->bodies[js->d.body_a - 1u] : &dummy_world;
+        body_slot_t *sb = &phys->bodies[js->d.body_b - 1u];
+        if (!sb->active || (js->d.body_a > 0 && !sa->active)) { js->active = false; continue; }
+
+        eng_vec3_t pa = (js->d.body_a > 0) ? eng_v3_add(sa->b.pos, eng_quat_rotate_v3(sa->b.rot, js->d.anchor_a)) : js->d.anchor_a;
+        eng_vec3_t pb = eng_v3_add(sb->b.pos, eng_quat_rotate_v3(sb->b.rot, js->d.anchor_b));
+        eng_vec3_t dp = eng_v3_sub(pb, pa);
+        float len = eng_v3_len(dp);
+        eng_vec3_t dir = (len > 1e-5f) ? eng_v3_scale(dp, 1.0f / len) : eng_v3(0, -1, 0);
+        eng_vec3_t ra = eng_v3_sub(pa, body_com(&sa->b));
+        eng_vec3_t rb = eng_v3_sub(pb, body_com(&sb->b));
+        eng_vec3_t va = eng_v3_add(sa->b.vel, eng_v3_cross(sa->b.ang_vel, ra));
+        eng_vec3_t vb = eng_v3_add(sb->b.vel, eng_v3_cross(sb->b.ang_vel, rb));
+        float f_spring = js->d.stiffness * (len - js->d.rest_length) + js->d.damping * eng_v3_dot(eng_v3_sub(vb, va), dir);
+        if (js->d.break_force > 0.0f && fabsf(f_spring) > js->d.break_force) {
+            js->active = false;
+            if (js->d.body_a > 0) eng_physics_wake_body(phys, js->d.body_a);
+            eng_physics_wake_body(phys, js->d.body_b);
+            continue;
+        }
+        eng_vec3_t imp = eng_v3_scale(dir, f_spring * dt);
+        if (js->d.body_a > 0 && sa->inv_mass > 0.0f) eng_physics_apply_impulse_at(phys, js->d.body_a, imp, pa);
+        if (sb->inv_mass > 0.0f) eng_physics_apply_impulse_at(phys, js->d.body_b, eng_v3_scale(imp, -1.0f), pb);
+    }
+
+    /* 6 iterations of Sequential Impulse + positional projection for rigid joints */
+    for (int iter = 0; iter < 6; iter++) {
+        for (uint32_t ji = 0; ji < phys->joint_high; ji++) {
+            joint_slot_t *js = &phys->joints[ji];
+            if (!js->active || js->d.type == ENG_JOINT_SPRING) continue;
+            body_slot_t *sa = (js->d.body_a > 0) ? &phys->bodies[js->d.body_a - 1u] : &dummy_world;
+            body_slot_t *sb = &phys->bodies[js->d.body_b - 1u];
+            if (!sb->active || (js->d.body_a > 0 && !sa->active)) { js->active = false; continue; }
+            float inv_sum = sa->inv_mass + sb->inv_mass;
+            if (inv_sum <= 0.0f) continue;
+
+            eng_vec3_t pa = (js->d.body_a > 0) ? eng_v3_add(sa->b.pos, eng_quat_rotate_v3(sa->b.rot, js->d.anchor_a)) : js->d.anchor_a;
+            eng_vec3_t pb = eng_v3_add(sb->b.pos, eng_quat_rotate_v3(sb->b.rot, js->d.anchor_b));
+            eng_vec3_t dp = eng_v3_sub(pb, pa);
+            float len = eng_v3_len(dp);
+            float c_err = len - js->d.rest_length;
+            if (fabsf(c_err) > 1e-5f || len > 1e-5f) {
+                eng_vec3_t u = (len > 1e-5f) ? eng_v3_scale(dp, 1.0f / len) : eng_v3(0, -1, 0);
+                eng_vec3_t ra = eng_v3_sub(pa, body_com(&sa->b));
+                eng_vec3_t rb = eng_v3_sub(pb, body_com(&sb->b));
+                eng_vec3_t va = eng_v3_add(sa->b.vel, eng_v3_cross(sa->b.ang_vel, ra));
+                eng_vec3_t vb = eng_v3_add(sb->b.vel, eng_v3_cross(sb->b.ang_vel, rb));
+                float vn = eng_v3_dot(eng_v3_sub(vb, va), u);
+                float ku = effective_inv_mass(sa, sb, ra, rb, u);
+                float bias = (0.25f / dt) * c_err;
+                float lambda = -(vn + bias) / fmaxf(ku, 1e-6f);
+                if (iter == 0 && js->d.break_force > 0.0f && (fabsf(lambda) / dt) > js->d.break_force) {
+                    js->active = false;
+                    if (js->d.body_a > 0) eng_physics_wake_body(phys, js->d.body_a);
+                    eng_physics_wake_body(phys, js->d.body_b);
+                    continue;
+                }
+                eng_vec3_t imp = eng_v3_scale(u, lambda);
+                sa->b.vel = eng_v3_sub(sa->b.vel, eng_v3_scale(imp, sa->inv_mass));
+                sb->b.vel = eng_v3_add(sb->b.vel, eng_v3_scale(imp, sb->inv_mass));
+                if (!sa->b.freeze_rotation && sa->inv_mass > 0.0f)
+                    sa->b.ang_vel = eng_v3_sub(sa->b.ang_vel, apply_world_inv_inertia(sa, eng_v3_cross(ra, imp)));
+                if (!sb->b.freeze_rotation && sb->inv_mass > 0.0f)
+                    sb->b.ang_vel = eng_v3_add(sb->b.ang_vel, apply_world_inv_inertia(sb, eng_v3_cross(rb, imp)));
+                sa->b.sleeping = false;
+                sb->b.sleeping = false;
+            }
+
+            if (js->d.type == ENG_JOINT_HINGE) {
+                eng_vec3_t ha = (js->d.body_a > 0) ? eng_quat_rotate_v3(sa->b.rot, js->d.axis_a) : js->d.axis_a;
+                eng_vec3_t hb = eng_quat_rotate_v3(sb->b.rot, js->local_axis_b);
+                eng_vec3_t tilt = eng_v3_cross(hb, ha);
+                eng_vec3_t dw = eng_v3_sub(sb->b.ang_vel, sa->b.ang_vel);
+                eng_vec3_t dw_perp = eng_v3_sub(dw, eng_v3_scale(ha, eng_v3_dot(dw, ha)));
+                eng_vec3_t corr_w = eng_v3_sub(eng_v3_scale(tilt, 4.0f), eng_v3_scale(dw_perp, 0.5f));
+                if (!sb->b.freeze_rotation && sb->inv_mass > 0.0f) sb->b.ang_vel = eng_v3_add(sb->b.ang_vel, corr_w);
+                if (!sa->b.freeze_rotation && sa->inv_mass > 0.0f) sa->b.ang_vel = eng_v3_sub(sa->b.ang_vel, corr_w);
+            }
+        }
     }
 }
 
@@ -525,6 +1124,9 @@ static void warp_body_across_portal(body_slot_t *s, const eng_portal_sys_t *port
     s->b.half_height *= p->scale_ratio;
     s->b.half_extents = eng_v3_scale(s->b.half_extents, p->scale_ratio);
     s->b.pocket_id = p->dst_pocket;
+    s->b.sleeping = false;
+    s->sleep_timer = 0.0f;
+    init_body_mass_and_inertia(s);
 }
 
 void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,
@@ -532,7 +1134,7 @@ void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,
     if (!phys || dt <= 0.0f) return;
     phys->contact_count = 0;
 
-    /* 1. Integrate forces & velocities + check cross-portal threshold teleportation */
+    /* 1. Integrate forces, buoyancy, wind, linear & angular velocities + portal crossing */
     for (uint32_t i = 0; i < phys->body_high; i++) {
         body_slot_t *s = &phys->bodies[i];
         if (!s->active) continue;
@@ -541,22 +1143,46 @@ void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,
         if (s->b.motion == ENG_BODY_DYNAMIC) {
             uint16_t pid = s->b.pocket_id < ENG_MAX_POCKET_GRAV ? s->b.pocket_id : 0;
             const pocket_grav_t *g = &phys->grav[pid];
-            eng_vec3_t acc = g->radial
-                                 ? eng_v3_scale(eng_planet_gravity_up(g->center, s->b.pos), -g->surface_g)
-                                 : g->linear;
-            s->b.vel = eng_v3_add(s->b.vel, eng_v3_scale(acc, dt));
-            s->b.pos = eng_v3_add(s->b.pos, eng_v3_scale(s->b.vel, dt));
+            if (g->fluid_enabled) apply_fluid_buoyancy(phys, s, pid, dt);
 
-            /* Procedural planet spherical surface collision */
-            if (g->radial && g->has_planet_cfg) {
-                eng_vec3_t up = eng_planet_gravity_up(g->center, s->b.pos);
-                float surf_r = eng_planet_sample_radius(&g->planet_cfg, up);
-                float cur_r = eng_v3_len(eng_v3_sub(s->b.pos, g->center));
-                float min_r = surf_r + s->b.radius;
-                if (cur_r < min_r) {
-                    s->b.pos = eng_v3_add(g->center, eng_v3_scale(up, min_r));
-                    float vn = eng_v3_dot(s->b.vel, up);
-                    if (vn < 0.0f) s->b.vel = eng_v3_sub(s->b.vel, eng_v3_scale(up, (1.0f + s->b.restitution) * vn));
+            if (!s->b.sleeping) {
+                eng_vec3_t acc = g->radial
+                                     ? eng_v3_scale(eng_planet_gravity_up(g->center, s->b.pos), -g->surface_g)
+                                     : g->linear;
+                if (eng_v3_dot(g->wind_vel, g->wind_vel) > 1e-5f) {
+                    eng_vec3_t wrel = eng_v3_sub(g->wind_vel, s->b.vel);
+                    acc = eng_v3_add(acc, eng_v3_scale(wrel, 0.35f * powf(s->volume, 0.66f) * s->inv_mass));
+                }
+                s->b.vel = eng_v3_add(s->b.vel, eng_v3_scale(acc, dt));
+                if (s->b.linear_damping > 0.0f) {
+                    s->b.vel = eng_v3_scale(s->b.vel, expf(-s->b.linear_damping * dt));
+                }
+                s->b.pos = eng_v3_add(s->b.pos, eng_v3_scale(s->b.vel, dt));
+
+                if (!s->b.freeze_rotation) {
+                    if (s->b.angular_damping > 0.0f) {
+                        s->b.ang_vel = eng_v3_scale(s->b.ang_vel, expf(-s->b.angular_damping * dt));
+                    }
+                    float wlen = eng_v3_len(s->b.ang_vel);
+                    if (wlen > 1e-6f) {
+                        eng_quat_t dq = eng_quat_from_axis_angle(eng_v3_scale(s->b.ang_vel, 1.0f / wlen), wlen * dt);
+                        s->b.rot = eng_quat_norm(eng_quat_mul(dq, s->b.rot));
+                    }
+                } else {
+                    s->b.ang_vel = eng_v3(0, 0, 0);
+                }
+
+                /* Procedural planet spherical surface collision */
+                if (g->radial && g->has_planet_cfg) {
+                    eng_vec3_t up = eng_planet_gravity_up(g->center, s->b.pos);
+                    float surf_r = eng_planet_sample_radius(&g->planet_cfg, up);
+                    float cur_r = eng_v3_len(eng_v3_sub(s->b.pos, g->center));
+                    float min_r = surf_r + s->b.radius;
+                    if (cur_r < min_r) {
+                        s->b.pos = eng_v3_add(g->center, eng_v3_scale(up, min_r));
+                        float vn = eng_v3_dot(s->b.vel, up);
+                        if (vn < 0.0f) s->b.vel = eng_v3_sub(s->b.vel, eng_v3_scale(up, (1.0f + s->b.restitution) * vn));
+                    }
                 }
             }
         } else if (s->b.motion == ENG_BODY_KINEMATIC) {
@@ -571,7 +1197,12 @@ void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,
         s->world_aabb = compute_body_aabb(&s->b);
     }
 
-    /* 2. Build per-pocket BVHs and solve contacts + cross-portal ghost proxy contacts */
+    /* 2. Solve joints */
+    if (phys->joint_high > 0) {
+        solve_joints(phys, dt);
+    }
+
+    /* 3. Build per-pocket BVHs and solve contacts + cross-portal ghost proxy contacts */
     bvh_node_t *nodes = (bvh_node_t *)malloc(2u * ENG_MAX_BODIES * sizeof(bvh_node_t));
     int *slot_buf = (int *)malloc(ENG_MAX_BODIES * sizeof(int));
     if (!nodes || !slot_buf) { free(nodes); free(slot_buf); return; }
@@ -649,6 +1280,26 @@ void eng_physics_step(eng_physics_t *phys, const eng_scene_t *scene,
                     }
                 }
             }
+        }
+    }
+
+    /* 4. Update sleep timers for settled dynamic bodies */
+    for (uint32_t i = 0; i < phys->body_high; i++) {
+        body_slot_t *s = &phys->bodies[i];
+        if (!s->active || s->b.motion != ENG_BODY_DYNAMIC || s->b.sleeping) continue;
+        uint16_t pid = s->b.pocket_id < ENG_MAX_POCKET_GRAV ? s->b.pocket_id : 0;
+        if (phys->grav[pid].fluid_enabled) continue;
+        float v2 = eng_v3_dot(s->b.vel, s->b.vel);
+        float w2 = eng_v3_dot(s->b.ang_vel, s->b.ang_vel);
+        if (v2 < 0.015f && w2 < 0.04f) {
+            s->sleep_timer += dt;
+            if (s->sleep_timer >= 0.45f) {
+                s->b.sleeping = true;
+                s->b.vel = eng_v3(0, 0, 0);
+                s->b.ang_vel = eng_v3(0, 0, 0);
+            }
+        } else {
+            s->sleep_timer = 0.0f;
         }
     }
 

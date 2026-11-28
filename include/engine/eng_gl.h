@@ -69,6 +69,8 @@ typedef ptrdiff_t GLintptr;
 #define ENG_GL_COMPILE_STATUS        0x8B81u
 #define ENG_GL_LINK_STATUS           0x8B82u
 #define ENG_GL_FRAMEBUFFER           0x8D40u
+#define ENG_GL_READ_FRAMEBUFFER      0x8CA8u
+#define ENG_GL_DRAW_FRAMEBUFFER      0x8CA9u
 #define ENG_GL_COLOR_ATTACHMENT0     0x8CE0u
 #define ENG_GL_DEPTH_ATTACHMENT      0x8D00u
 #define ENG_GL_FRAMEBUFFER_COMPLETE  0x8CD5u
@@ -166,6 +168,7 @@ typedef struct {
     void (*ReadBuffer)(GLenum src);
     GLenum (*CheckFramebufferStatus)(GLenum target);
     void (*ReadPixels)(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels);
+    void (*BlitFramebuffer)(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
 
     void (*DrawArrays)(GLenum mode, GLint first, GLsizei count);
     void (*DrawElements)(GLenum mode, GLsizei count, GLenum type, const void *indices);

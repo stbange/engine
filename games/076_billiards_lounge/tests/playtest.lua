@@ -25,6 +25,9 @@ function playtest_frame(f)
     local best_yaw = 0.0
     local best_score = -999.0
 
+    local fallback_yaw = 0.0
+    local fallback_score = -999.0
+
     for i = 1, #S.balls do
         local b = S.balls[i]
         if not b.sunk then
@@ -45,6 +48,9 @@ function playtest_frame(f)
                         if cut_cos > 0.25 and rank > best_score then
                             best_score = rank
                             best_yaw = math.deg(math.atan2(-cdx, -cdz))
+                        elseif rank > fallback_score then
+                            fallback_score = rank
+                            fallback_yaw = math.deg(math.atan2(-(bx - cx), -(bz - cz)))
                         end
                     end
                 end
@@ -52,8 +58,8 @@ function playtest_frame(f)
         end
     end
 
-    S.aim_yaw = best_yaw
-    S.shot_power = 0.82
+    S.aim_yaw = (best_score > -900.0) and best_yaw or fallback_yaw
+    S.shot_power = 0.94
     eng.input.inject("fire", true)
 end
 

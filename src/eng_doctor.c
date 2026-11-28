@@ -283,10 +283,8 @@ bool eng_scaffold_game(const char *target_dir, const char *template_name, char *
              "  \"pipeline\": \"forward\",\n"
              "  \"xr_mode\": \"%s\",\n"
              "  \"retro\": {\n"
-             "    \"vertex_snap\": 240,\n"
-             "    \"nearest_textures\": true,\n"
-             "    \"dither_bayer\": true,\n"
-             "    \"color_bits\": 5\n"
+             "    \"preset\": \"lowres_realism\",\n"
+             "    \"pixel_height\": 360\n"
              "  }\n"
              "}\n",
              slug, tmpl, tmpl, tmpl, ENG_VERSION_STRING, strcmp(tmpl, "xr") == 0 ? "6dof" : "diorama");

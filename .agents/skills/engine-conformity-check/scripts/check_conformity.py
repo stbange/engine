@@ -14,17 +14,24 @@ import re
 import sys
 
 DEFAULT_OPT_KEYS = {
-    "eng.render.set_retro": {"vertex_snap", "dither", "color_bits", "fog_density", "fog_color", "fog_height", "bloom", "crt"},
-    "eng.scene.set_mesh": {"color", "emissive", "tex", "metallic", "roughness", "cast_shadow", "occluder"},
-    "eng.render.add_light": {"type", "pocket", "pos", "dir", "color", "range", "shadow"},
-    "eng.render.set_light": {"pos", "dir", "color", "range", "pocket"},
+    "eng.render.set_retro": {
+        "preset", "render_scale", "pixel_height", "sharp_upscale", "ssao", "volumetric_fog", "fog_sun_scatter",
+        "vertex_snap", "dither", "color_bits", "fog_density", "fog_color", "fog_height", "bloom", "crt",
+    },
+    "eng.scene.set_mesh": {
+        "color", "emissive", "tex", "normal_tex", "wetness", "metallic", "roughness", "cast_shadow", "occluder",
+    },
+    "eng.render.add_light": {"type", "pocket", "pos", "dir", "color", "range", "shadow", "cone"},
+    "eng.render.set_light": {"pos", "dir", "color", "range", "pocket", "cone"},
     "eng.physics.add_body": {
         "shape", "motion", "pocket", "radius", "half_height",
         "half_extents", "vel", "restitution", "trigger", "voxel_id",
+        "mass", "density", "friction", "linear_damping", "angular_damping", "freeze_rot",
     },
     "eng.particles.create": {
         "pos", "dir", "rate", "pocket", "tex", "seed", "spread", "speed", "life",
         "color_start", "color_end", "size_start", "size_end", "gravity", "drag", "additive", "cap",
+        "blackbody", "temp_start", "temp_end", "turbulence", "wind",
     },
 }
 DEFAULT_TEX_RECIPES = {
@@ -47,6 +54,7 @@ VALID_PIPELINES = {"forward", "deferred"}
 VALID_SPLIT_LAYOUTS = {"vertical", "horizontal", "top2_bot1", "grid4"}
 VALID_PDEV_MODES = {"auto", "keyboard", "gamepad"}
 VALID_GAME_RETRO_KEYS = {
+    "preset", "render_scale", "pixel_height", "sharp_upscale", "ssao", "volumetric_fog", "fog_sun_scatter",
     "vertex_snap", "nearest_textures", "dither_bayer",
     "color_bits", "crt_scanlines", "fog_density", "fog_color", "fog_height", "bloom",
 }

@@ -18,6 +18,7 @@
 #include "eng_render.h"
 #include "eng_replay.h"
 #include "eng_scene.h"
+#include "eng_sim.h"
 #include "eng_terrain.h"
 #include "eng_text.h"
 #include "eng_vfs.h"

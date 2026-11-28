@@ -133,8 +133,11 @@ function eng.scene.set_pocket(ent: number, pocket: integer|string) end
 --- Return entity pocket_id
 function eng.scene.get_pocket(ent: number): integer end
 
---- Attach mesh & PBR/retro material to entity
+--- Attach mesh & PBR/normal/wetness material to entity
 function eng.scene.set_mesh(ent: number, mesh_id: integer, opts?: table) end
+
+--- Set physical porous wetting darkening and gloss (0..1)
+function eng.scene.set_wetness(ent: number, wetness: number) end
 
 --- Compact JSON entity snapshot for diagnostics
 function eng.scene.dump_json(): string end
@@ -178,8 +181,14 @@ eng.render = {}
 --- Switch forward or deferred pipeline
 function eng.render.set_pipeline(mode: string) end
 
---- Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT
-function eng.render.set_retro(ps1_or_table: boolean|table) end
+--- Configure lowres_realism/ps1 lens, pixel_height, SSAO, volumetric fog, Mie scatter & bloom
+function eng.render.set_retro(preset_or_table: string|boolean|table) end
+
+--- Configure Gerstner wave water, Beer-Lambert absorption, refraction, shore foam & physics buoyancy
+function eng.render.set_water(opts: boolean|table) end
+
+--- Sample live Gerstner water surface height and enabled flag
+function eng.render.water_height(x: number, z: number, pocket?: string|integer): number, boolean end
 
 --- Set procedural skybox gradient (global or per-pocket)
 function eng.render.set_sky(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number, gx?: number, gy?: number, gz?: number, pocket?: string|integer) end
@@ -217,8 +226,8 @@ function eng.asset.sphere(radius?: number, rings?: integer, sectors?: integer): 
 --- Create cylinder/cone GPU mesh
 function eng.asset.cylinder(r_bot?: number, r_top?: number, height?: number, slices?: integer): integer end
 
---- Build greedy-meshed AO voxel chunk from ASCII layers
-function eng.asset.voxel_ascii(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer end
+--- Build greedy-meshed AO voxel chunk and return mesh_id, voxel_id
+function eng.asset.voxel_ascii(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer, integer end
 
 --- Load .gltf/.glb/.obj mesh from VFS
 function eng.asset.load_mesh(vpath: string): integer end
@@ -256,7 +265,7 @@ function eng.physics.set_gravity(pocket: integer, gx: number, gy: number, gz: nu
 --- Enable radial spherical planet gravity
 function eng.physics.set_planet_gravity(pocket: integer, cx: number, cy: number, cz: number, g?: number, seed?: integer, radius?: number) end
 
---- Attach rigid/static/kinematic collider to entity
+--- Attach 6-DOF rigid/static/kinematic collider to entity
 function eng.physics.add_body(ent: number, desc: table): integer end
 
 --- Set linear body velocity
@@ -264,6 +273,30 @@ function eng.physics.set_vel(body_id: integer, vx: number, vy: number, vz: numbe
 
 --- Get linear body velocity
 function eng.physics.get_vel(body_id: integer): number, number, number end
+
+--- Configure Archimedes fluid buoyancy & drag
+function eng.physics.set_fluid(pocket: integer|string, level_y: number, density?: number, drag?: number, flow_x?: number, flow_z?: number, enabled?: boolean) end
+
+--- Set pocket aerodynamic wind velocity
+function eng.physics.set_wind(pocket: integer|string, wx: number, wy: number, wz: number) end
+
+--- Apply linear + off-center torque impulse
+function eng.physics.apply_impulse(body_id: integer, ix: number, iy: number, iz: number, px?: number, py?: number, pz?: number): boolean end
+
+--- Apply radial shockwave blast impulse to dynamic bodies
+function eng.physics.blast(pocket: integer|string, cx: number, cy: number, cz: number, radius: number, impulse: number): integer end
+
+--- Create distance, ball, hinge, or spring joint with optional break_force
+function eng.physics.add_joint(desc: table): integer end
+
+--- Remove joint constraint
+function eng.physics.remove_joint(joint_id: integer): boolean end
+
+--- True if joint has not been removed or snapped by break_force
+function eng.physics.joint_active(joint_id: integer): boolean end
+
+--- Carve CSG sphere and spawn disconnected floating voxel islands as 6-DOF bodies
+function eng.physics.fracture_voxel(ent: number, voxel_id: integer, lx: number, ly: number, lz: number, radius: number): table end
 
 --- Stair-stepping & portal-aware character move
 function eng.physics.move_character(body_id: integer, dx: number, dy: number, dz: number, step_h?: number): boolean end
@@ -295,7 +328,7 @@ function eng.procgen.ridged3d(x: number, y: number, z: number, seed?: integer, o
 --- Seeded 3D domain-warped noise
 function eng.procgen.warp3d(x: number, y: number, z: number, seed?: integer, warp_amp?: number): number end
 
---- Synthesize tileable PBR/retro texture
+--- Synthesize tileable PBR albedo + normal + roughness texture
 function eng.procgen.texture(recipe: string, seed?: integer, size?: integer): integer end
 
 --- Generate solvable BSP/cave/WFC dungeon
@@ -331,7 +364,7 @@ function eng.terrain.height(terrain_id: integer, world_x: number, world_z: numbe
 ---@class eng.particles
 eng.particles = {}
 
---- Create instanced 3D particle emitter
+--- Create instanced 3D particle emitter (supports Planck blackbody & curl turbulence)
 function eng.particles.create(opts?: table): integer end
 
 --- Emit instant burst of particles
@@ -477,4 +510,73 @@ function eng.capture.is_recording(): boolean end
 
 --- True when deterministic .engrep playback is active
 function eng.capture.is_replaying(): boolean end
+
+---@class eng.sim
+eng.sim = {}
+
+--- Initialize systemic chemistry & biology cellular grid
+function eng.sim.init(opts_or_gx?: table|integer, gy?: integer, gz?: integer, cell_size?: number, pocket?: string|integer): boolean end
+
+--- Lookup material ID by name
+function eng.sim.mat_id(name: string, pocket?: string|integer): integer end
+
+--- Set cellular material at grid coordinate
+function eng.sim.set_cell(x: integer, y: integer, z: integer, mat: string|integer, pocket?: string|integer): boolean end
+
+--- Fill grid box with material
+function eng.sim.fill_box(x0: integer, y0: integer, z0: integer, x1: integer, y1: integer, z1: integer, mat: string|integer, pocket?: string|integer) end
+
+--- Inspect cell material, temperature, wetness, voltage, O2, moisture & fertility
+function eng.sim.get_cell(x: integer, y: integer, z: integer, pocket?: string|integer): table|nil end
+
+--- Set cell temperature in Celsius
+function eng.sim.set_temp(x: integer, y: integer, z: integer, temp_c: number, pocket?: string|integer): boolean end
+
+--- Ignite flammable or explosive cell
+function eng.sim.ignite(x: integer, y: integer, z: integer, pocket?: string|integer): boolean end
+
+--- Set persistent electrical voltage terminal
+function eng.sim.set_voltage(x: integer, y: integer, z: integer, volts: number, pocket?: string|integer): boolean end
+
+--- Set wind vector for scent plumes and physics
+function eng.sim.set_wind(wx: number, wy: number, wz: number, pocket?: string|integer) end
+
+--- Set sun direction vector for photosynthetic shadow raymarching
+function eng.sim.set_sun_dir(dx: number, dy: number, dz: number, pocket?: string|integer) end
+
+--- Apply rainfall wetting surfaces, quenching fires & moistening soil
+function eng.sim.rain(intensity: number, dt?: number, pocket?: string|integer) end
+
+--- Register flora instance on soil cell
+function eng.sim.add_plant(x: integer, y: integer, z: integer, ent?: number, pocket?: string|integer): integer end
+
+--- Inspect flora growth stage, health & sun exposure
+function eng.sim.get_plant(plant_id: integer, pocket?: string|integer): table|nil end
+
+--- Register organism homeostasis body
+function eng.sim.add_bio(x: number, y: number, z: number, aquatic?: boolean, scent?: number, ent?: number, pocket?: string|integer): integer end
+
+--- Update organism world position
+function eng.sim.set_bio_pos(bio_id: integer, x: number, y: number, z: number, pocket?: string|integer) end
+
+--- Inspect organism core_temp_c, wetness, o2_level, hydration, energy & health
+function eng.sim.get_bio(bio_id: integer, pocket?: string|integer): table|nil end
+
+--- Apply physical, thermal, or chemical damage to organism
+function eng.sim.apply_trauma(bio_id: integer, kinetic?: number, thermal?: number, chemical?: number, pocket?: string|integer) end
+
+--- Sample wind-advected olfactory scent concentration at world pos
+function eng.sim.sample_scent(x: number, y: number, z: number, pocket?: string|integer): number end
+
+--- Check physical visibility occluded by solids, smoke, darkness & fog
+function eng.sim.can_see(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, light?: number, fog?: number, pocket?: string|integer): number end
+
+--- Advance chemistry, thermodynamics, electricity, flora & homeostasis
+function eng.sim.step(dt: number, pocket?: string|integer) end
+
+--- Export cellular simulation grid to greedy-meshed voxel GPU mesh
+function eng.sim.build_mesh(include_liquids?: boolean, pocket?: string|integer): integer end
+
+--- Return burning cell count and average world flame position
+function eng.sim.active_fires(pocket?: string|integer): integer, number, number, number end
 

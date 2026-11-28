@@ -28,11 +28,17 @@ typedef struct {
     uint16_t pocket_id;
     bool active;
     bool additive;
+    bool blackbody;
+    float temp_start_k;
+    float temp_end_k;
+    float turbulence;
+    eng_vec3_t wind;
 } eng_emitter_cfg_t;
 
 typedef struct eng_emitter_s eng_emitter_t;
 
 eng_emitter_cfg_t eng_emitter_default_cfg(void);
+eng_vec3_t eng_particles_blackbody_color(float temp_k);
 eng_emitter_t *eng_emitter_create(size_t capacity, uint64_t seed, const eng_emitter_cfg_t *cfg);
 void eng_emitter_destroy(eng_emitter_t *em);
 

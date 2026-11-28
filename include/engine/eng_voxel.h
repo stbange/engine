@@ -57,6 +57,12 @@ bool eng_voxel_build_mesh(eng_voxel_chunk_t *chunk, eng_mesh_data_t *out_mesh);
 /* Fast 3D Amanatides-Woo DDA voxel raycast in chunk local space */
 eng_voxel_hit_t eng_voxel_raycast(const eng_voxel_chunk_t *chunk, eng_vec3_t local_origin, eng_vec3_t local_dir, float max_dist);
 
+/* Carve ungrounded (y > 0 disconnected) 6-connected voxel components out of src_chunk into compact islands. */
+size_t eng_voxel_extract_floating_islands(eng_voxel_chunk_t *src_chunk,
+                                          eng_voxel_chunk_t *out_islands,
+                                          eng_vec3_t *out_local_origins,
+                                          size_t max_islands);
+
 #ifdef __cplusplus
 }
 #endif

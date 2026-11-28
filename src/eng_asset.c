@@ -11,8 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ENG_MAX_CACHED_MESHES 256
-#define ENG_MAX_CACHED_TEX 256
+#define ENG_MAX_CACHED_MESHES 512
+#define ENG_MAX_CACHED_TEX 512
 
 typedef struct {
     char key[128];
@@ -461,6 +461,37 @@ uint32_t eng_asset_upload_mesh(eng_asset_cache_t *cache, const char *key, const 
     return eng_asset_upload_mesh_lods(cache, key, md, 1);
 }
 
+bool eng_asset_update_mesh(eng_asset_cache_t *cache, uint32_t mesh_id, const eng_mesh_data_t *md) {
+    if (!cache || mesh_id == 0 || mesh_id > cache->mesh_count || !md) return false;
+    eng_gpu_mesh_t *gm = &cache->meshes[mesh_id - 1u].gpu;
+    if (!gm->valid) return false;
+    const eng_gl_api_t *gl = eng_gl();
+    gm->local_aabb = (eng_aabb_t){eng_v3(0, 0, 0), eng_v3(0, 0, 0)};
+    if (md->vert_count > 0) {
+        gm->local_aabb = (eng_aabb_t){eng_v3(FLT_MAX, FLT_MAX, FLT_MAX), eng_v3(-FLT_MAX, -FLT_MAX, -FLT_MAX)};
+        for (size_t i = 0; i < md->vert_count; i++) {
+            const float *p = md->verts[i].pos;
+            if (p[0] < gm->local_aabb.min.x) gm->local_aabb.min.x = p[0];
+            if (p[1] < gm->local_aabb.min.y) gm->local_aabb.min.y = p[1];
+            if (p[2] < gm->local_aabb.min.z) gm->local_aabb.min.z = p[2];
+            if (p[0] > gm->local_aabb.max.x) gm->local_aabb.max.x = p[0];
+            if (p[1] > gm->local_aabb.max.y) gm->local_aabb.max.y = p[1];
+            if (p[2] > gm->local_aabb.max.z) gm->local_aabb.max.z = p[2];
+        }
+    }
+    gl->BindVertexArray(gm->vao);
+    gl->BindBuffer(ENG_GL_ARRAY_BUFFER, gm->vbo);
+    gl->BufferData(ENG_GL_ARRAY_BUFFER, (GLsizeiptr)(md->vert_count * sizeof(eng_vertex_t)), md->verts, ENG_GL_DYNAMIC_DRAW);
+    gl->BindBuffer(ENG_GL_ELEMENT_ARRAY_BUFFER, gm->ebo);
+    gl->BufferData(ENG_GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(md->idx_count * sizeof(uint32_t)), md->indices, ENG_GL_DYNAMIC_DRAW);
+    gl->BindVertexArray(0);
+    for (int l = 0; l < 4; l++) {
+        gm->lod_index_offsets[l] = 0;
+        gm->lod_index_counts[l] = (uint32_t)md->idx_count;
+    }
+    return true;
+}
+
 uint32_t eng_asset_load_mesh(eng_asset_cache_t *cache, const char *vpath) {
     if (!cache || !vpath) return 0;
     for (uint32_t i = 0; i < cache->mesh_count; i++) {
@@ -516,7 +547,7 @@ uint32_t eng_asset_create_texture_rgba(eng_asset_cache_t *cache, const char *key
         gl->TexParameteri(ENG_GL_TEXTURE_2D, ENG_GL_TEXTURE_MIN_FILTER, ENG_GL_LINEAR_MIPMAP_LINEAR);
         gl->TexParameteri(ENG_GL_TEXTURE_2D, ENG_GL_TEXTURE_MAG_FILTER, ENG_GL_LINEAR);
     }
-    ct->gpu = (eng_gpu_tex_t){tid, w, h, nearest, true, false};
+    ct->gpu = (eng_gpu_tex_t){tid, w, h, nearest, true, false, 0u};
     return slot + 1u;
 }
 
@@ -563,7 +594,7 @@ uint32_t eng_asset_create_cubemap_rgba(eng_asset_cache_t *cache, const char *key
     gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_S, ENG_GL_CLAMP_TO_EDGE);
     gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_T, ENG_GL_CLAMP_TO_EDGE);
     gl->TexParameteri(ENG_GL_TEXTURE_CUBE_MAP, ENG_GL_TEXTURE_WRAP_R, ENG_GL_CLAMP_TO_EDGE);
-    ct->gpu = (eng_gpu_tex_t){tid, size, size, nearest, true, true};
+    ct->gpu = (eng_gpu_tex_t){tid, size, size, nearest, true, true, 0u};
     return slot + 1u;
 }
 
@@ -599,6 +630,11 @@ uint32_t eng_asset_load_cubemap(eng_asset_cache_t *cache, const char *const face
         if (px[i]) stbi_image_free(px[i]);
     }
     return id;
+}
+
+void eng_asset_set_texture_pbr(eng_asset_cache_t *cache, uint32_t albedo_tex_id, uint32_t norm_rough_tex_id) {
+    if (!cache || albedo_tex_id == 0 || albedo_tex_id > cache->tex_count) return;
+    cache->texs[albedo_tex_id - 1u].gpu.norm_rough_tex = norm_rough_tex_id;
 }
 
 const eng_gpu_tex_t *eng_asset_get_texture(const eng_asset_cache_t *cache, uint32_t tex_id) {

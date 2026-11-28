@@ -21,16 +21,20 @@ int luaopen_bit(lua_State *L);
 
 #define ENG_MAX_ENT_VISUALS 512
 #define ENG_MAX_PERSIST_LIGHTS 16
+#define ENG_MAX_RT_VOXELS 32
+#define ENG_MAX_RT_POCKETS 32
 #define ENG_LUA_WATCHDOG_STEPS 400000
 
 typedef struct {
     eng_entity_t ent;
     uint32_t mesh_id;
     uint32_t tex_id;
+    uint32_t normal_tex;
     eng_vec4_t color;
     eng_vec3_t emissive;
     float metallic;
     float roughness;
+    float wetness;
     bool cast_shadow;
     bool occluder;
     bool has_rig;
@@ -90,11 +94,14 @@ struct eng_runtime_s {
     size_t persist_light_count;
     eng_terrain_t terrains[8];
     size_t terrain_count;
-    eng_voxel_chunk_t dungeon_chunks[8];
-    bool dungeon_chunk_valid[8];
+    eng_voxel_chunk_t dungeon_chunks[ENG_MAX_RT_VOXELS];
+    uint32_t voxel_meshes[ENG_MAX_RT_VOXELS];
+    bool dungeon_chunk_valid[ENG_MAX_RT_VOXELS];
     size_t dungeon_chunk_cursor;
     eng_emitter_t *emitters[16];
     size_t emitter_count;
+    eng_sim_t *sims[ENG_MAX_RT_POCKETS];
+    uint32_t sim_meshes[ENG_MAX_RT_POCKETS];
 
     lua_State *L;
     int sandbox_ref;
@@ -489,8 +496,15 @@ static int l_scene_get_pos(lua_State *L) {
     return 3;
 }
 static int l_scene_set_rot_deg(lua_State *L) {
-    eng_scene_set_local_rot(get_rt(L)->scene, (eng_entity_t)luaL_checknumber(L, 1),
-                            eng_quat_from_euler_deg(eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4))));
+    eng_runtime_t *rt = get_rt(L);
+    eng_entity_t e = (eng_entity_t)luaL_checknumber(L, 1);
+    eng_quat_t q = eng_quat_from_euler_deg(eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4)));
+    eng_scene_set_local_rot(rt->scene, e, q);
+    uint32_t bid = find_ent_body(rt, e);
+    if (bid) {
+        eng_body_desc_t *bd = eng_physics_get_body(rt->physics, bid);
+        if (bd) bd->rot = q;
+    }
     return 0;
 }
 static int l_scene_set_scale(lua_State *L) {
@@ -538,11 +552,18 @@ static int l_scene_set_mesh(lua_State *L) {
         else if (lua_isnumber(L, -1)) { float s = (float)lua_tonumber(L, -1); v->emissive = eng_v3(v->color.x * s, v->color.y * s, v->color.z * s); }
         lua_pop(L, 1);
         lua_getfield(L, 3, "tex"); if (lua_isnumber(L, -1)) v->tex_id = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "normal_tex"); if (lua_isnumber(L, -1)) v->normal_tex = (uint32_t)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 3, "metallic"); if (lua_isnumber(L, -1)) v->metallic = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 3, "roughness"); if (lua_isnumber(L, -1)) v->roughness = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 3, "wetness"); if (lua_isnumber(L, -1)) v->wetness = eng_clampf((float)lua_tonumber(L, -1), 0.0f, 1.0f); lua_pop(L, 1);
         lua_getfield(L, 3, "cast_shadow"); if (!lua_isnil(L, -1)) v->cast_shadow = lua_toboolean(L, -1); lua_pop(L, 1);
         lua_getfield(L, 3, "occluder"); if (!lua_isnil(L, -1)) v->occluder = lua_toboolean(L, -1); lua_pop(L, 1);
     }
+    return 0;
+}
+static int l_scene_set_wetness(lua_State *L) {
+    ent_visual_t *v = find_or_alloc_visual(get_rt(L), (eng_entity_t)luaL_checknumber(L, 1));
+    if (v) v->wetness = eng_clampf(chk_f(L, 2), 0.0f, 1.0f);
     return 0;
 }
 static int l_scene_dump_json(lua_State *L) {
@@ -748,10 +769,25 @@ static int l_render_pipeline(lua_State *L) {
 }
 static int l_render_retro(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
-    eng_retro_cfg_t cfg = lua_toboolean(L, 1) ? eng_retro_ps1_preset() : eng_retro_default();
-    if (lua_istable(L, 1)) {
+    eng_retro_cfg_t cfg = eng_retro_default();
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        const char *pr = lua_tostring(L, 1);
+        if (strcmp(pr, "lowres_realism") == 0 || strcmp(pr, "realism") == 0) cfg = eng_retro_lowres_realism_preset();
+        else if (strcmp(pr, "ps1") == 0) cfg = eng_retro_ps1_preset();
+    } else if (lua_type(L, 1) == LUA_TBOOLEAN) {
+        cfg = lua_toboolean(L, 1) ? eng_retro_ps1_preset() : eng_retro_default();
+    } else if (lua_istable(L, 1)) {
         cfg = eng_renderer_get_retro(rt->renderer);
+        lua_getfield(L, 1, "preset");
+        if (lua_isstring(L, -1)) {
+            const char *pr = lua_tostring(L, -1);
+            if (strcmp(pr, "lowres_realism") == 0 || strcmp(pr, "realism") == 0) cfg = eng_retro_lowres_realism_preset();
+            else if (strcmp(pr, "ps1") == 0) cfg = eng_retro_ps1_preset();
+            else if (strcmp(pr, "off") == 0 || strcmp(pr, "default") == 0) cfg = eng_retro_default();
+        }
+        lua_pop(L, 1);
         lua_getfield(L, 1, "vertex_snap"); if (lua_isnumber(L, -1)) cfg.vertex_snap_res = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "nearest_textures"); if (!lua_isnil(L, -1)) cfg.nearest_textures = lua_toboolean(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "dither"); if (!lua_isnil(L, -1)) cfg.dither_bayer = lua_toboolean(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "color_bits"); if (lua_isnumber(L, -1)) cfg.color_bits = (int)lua_tointeger(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "fog_density"); if (lua_isnumber(L, -1)) cfg.fog_density = (float)lua_tonumber(L, -1); lua_pop(L, 1);
@@ -759,6 +795,21 @@ static int l_render_retro(lua_State *L) {
         lua_getfield(L, 1, "fog_height"); if (lua_isnumber(L, -1)) cfg.fog_height = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "bloom"); if (lua_isnumber(L, -1)) cfg.bloom_intensity = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "crt"); if (lua_isnumber(L, -1)) cfg.crt_scanlines = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "render_scale"); if (lua_isnumber(L, -1)) cfg.render_scale = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "pixel_height"); if (lua_isnumber(L, -1)) cfg.pixel_height = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "sharp_upscale");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            const char *su = lua_tostring(L, -1);
+            cfg.sharp_upscale = (strcmp(su, "nearest") == 0) ? 2 : (strcmp(su, "linear") == 0 ? 0 : 1);
+        } else if (lua_type(L, -1) == LUA_TNUMBER) {
+            cfg.sharp_upscale = (int)lua_tointeger(L, -1);
+        } else if (lua_isboolean(L, -1)) {
+            cfg.sharp_upscale = lua_toboolean(L, -1) ? 1 : 0;
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "ssao"); if (lua_isnumber(L, -1)) cfg.ssao_intensity = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "volumetric_fog"); if (lua_isnumber(L, -1)) cfg.volumetric_fog = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "fog_sun_scatter"); if (lua_isnumber(L, -1)) cfg.fog_sun_scatter = (float)lua_tonumber(L, -1); lua_pop(L, 1);
     }
     eng_renderer_set_retro(rt->renderer, &cfg);
     return 0;
@@ -823,8 +874,8 @@ static int parse_parallax_layers(lua_State *L, int tbl_idx, eng_parallax_layer_t
 }
 
 static bool opt_pocket_arg(lua_State *L, eng_runtime_t *rt, int idx, uint16_t *out_pk) {
-    if (lua_isstring(L, idx)) { *out_pk = eng_scene_register_pocket(rt->scene, lua_tostring(L, idx)); return true; }
-    if (lua_isnumber(L, idx)) { *out_pk = (uint16_t)lua_tointeger(L, idx); return true; }
+    if (lua_type(L, idx) == LUA_TNUMBER) { *out_pk = (uint16_t)lua_tointeger(L, idx); return true; }
+    if (lua_type(L, idx) == LUA_TSTRING) { *out_pk = eng_scene_register_pocket(rt->scene, lua_tostring(L, idx)); return true; }
     return false;
 }
 
@@ -905,6 +956,75 @@ static int l_render_set_parallax(lua_State *L) {
     return 0;
 }
 
+static float rt_sample_water_fluid_cb(float x, float z, uint16_t pocket_id, void *user_data) {
+    eng_runtime_t *rt = (eng_runtime_t *)user_data;
+    bool en = false;
+    float wy = eng_renderer_sample_water_height(rt->renderer, pocket_id, x, z, &en);
+    if (en) return wy;
+    return -1e6f;
+}
+
+static int l_render_set_water(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    eng_water_cfg_t w = eng_water_default();
+    float density = 1000.0f, drag = 1.6f;
+    eng_vec2_t flow = {0.0f, 0.0f};
+    if (lua_type(L, 1) == LUA_TBOOLEAN) {
+        w.enabled = lua_toboolean(L, 1) != 0;
+    } else if (lua_istable(L, 1)) {
+        lua_getfield(L, 1, "pocket"); opt_pocket_arg(L, rt, lua_gettop(L), &pk); lua_pop(L, 1);
+        w = eng_renderer_get_water(rt->renderer, pk);
+        w.enabled = true;
+        lua_getfield(L, 1, "enabled"); if (!lua_isnil(L, -1)) w.enabled = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+        lua_getfield(L, 1, "level"); if (lua_isnumber(L, -1)) w.level_y = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "size_x"); if (lua_isnumber(L, -1)) w.size_x = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "size_z"); if (lua_isnumber(L, -1)) w.size_z = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "center_x"); if (lua_isnumber(L, -1)) w.center_x = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "center_z"); if (lua_isnumber(L, -1)) w.center_z = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "follow_camera"); if (!lua_isnil(L, -1)) w.follow_camera = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+        lua_getfield(L, 1, "wave_amp"); if (lua_isnumber(L, -1)) w.wave_amp = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "wave_freq"); if (lua_isnumber(L, -1)) w.wave_freq = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "choppiness"); if (lua_isnumber(L, -1)) w.choppiness = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "wave_speed"); if (lua_isnumber(L, -1)) w.flow_speed = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "wind_dir");
+        if (lua_istable(L, -1)) {
+            lua_rawgeti(L, -1, 1); if (lua_isnumber(L, -1)) w.wind_dir.x = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_rawgeti(L, -1, 2); if (lua_isnumber(L, -1)) w.wind_dir.y = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "flow");
+        if (lua_istable(L, -1)) {
+            lua_rawgeti(L, -1, 1); if (lua_isnumber(L, -1)) flow.x = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_rawgeti(L, -1, 2); if (lua_isnumber(L, -1)) flow.y = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, 1, "absorption"); w.absorb_rgb = opt_tbl_v3(L, lua_gettop(L), w.absorb_rgb); lua_pop(L, 1);
+        lua_getfield(L, 1, "scatter"); w.scatter_rgb = opt_tbl_v3(L, lua_gettop(L), w.scatter_rgb); lua_pop(L, 1);
+        lua_getfield(L, 1, "roughness"); if (lua_isnumber(L, -1)) w.roughness = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "foam_width"); if (lua_isnumber(L, -1)) w.foam_width = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "refraction"); if (lua_isnumber(L, -1)) w.refract_strength = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "caustics"); if (lua_isnumber(L, -1)) w.caustics = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "density"); if (lua_isnumber(L, -1)) density = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "drag"); if (lua_isnumber(L, -1)) drag = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    }
+    eng_renderer_set_water(rt->renderer, pk, &w);
+    eng_physics_set_fluid(rt->physics, pk, w.enabled, w.level_y, density, drag, flow);
+    return 0;
+}
+
+static int l_render_water_height(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    float x = chk_f(L, 1), z = chk_f(L, 2);
+    uint16_t pk = rt->cam.pocket_id;
+    opt_pocket_arg(L, rt, 3, &pk);
+    bool en = false;
+    float h = eng_renderer_sample_water_height(rt->renderer, pk, x, z, &en);
+    lua_pushnumber(L, h);
+    lua_pushboolean(L, en);
+    return 2;
+}
+
 static int l_render_add_light(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
     if (!lua_istable(L, 1) || rt->persist_light_count >= ENG_MAX_PERSIST_LIGHTS) { lua_pushinteger(L, 0); return 1; }
@@ -914,16 +1034,14 @@ static int l_render_add_light(lua_State *L) {
     const char *tp = lua_isstring(L, -1) ? lua_tostring(L, -1) : "dir";
     l.type = (strcmp(tp, "point") == 0) ? ENG_LIGHT_POINT : (strcmp(tp, "spot") == 0 ? ENG_LIGHT_SPOT : ENG_LIGHT_DIR);
     lua_pop(L, 1);
-    lua_getfield(L, 1, "pocket");
-    if (lua_isstring(L, -1)) l.pocket_id = eng_scene_register_pocket(rt->scene, lua_tostring(L, -1));
-    else if (lua_isnumber(L, -1)) l.pocket_id = (uint16_t)lua_tointeger(L, -1);
-    lua_pop(L, 1);
+    lua_getfield(L, 1, "pocket"); opt_pocket_arg(L, rt, lua_gettop(L), &l.pocket_id); lua_pop(L, 1);
     lua_getfield(L, 1, "pos"); l.pos = opt_tbl_v3(L, lua_gettop(L), eng_v3(0, 10, 0)); lua_pop(L, 1);
     lua_getfield(L, 1, "dir"); l.dir = opt_tbl_v3(L, lua_gettop(L), eng_v3(-0.3f, -1.0f, -0.4f)); lua_pop(L, 1);
     lua_getfield(L, 1, "color"); l.color = opt_tbl_v3(L, lua_gettop(L), eng_v3(2.0f, 1.95f, 1.85f)); lua_pop(L, 1);
     lua_getfield(L, 1, "range"); l.range = lua_isnumber(L, -1) ? (float)lua_tonumber(L, -1) : 25.0f; lua_pop(L, 1);
     lua_getfield(L, 1, "shadow"); l.cast_shadow = lua_isnil(L, -1) ? (l.type == ENG_LIGHT_DIR) : lua_toboolean(L, -1); lua_pop(L, 1);
     l.spot_cos_inner = 0.85f;
+    lua_getfield(L, 1, "cone"); if (lua_isnumber(L, -1)) l.spot_cos_inner = (float)lua_tonumber(L, -1); lua_pop(L, 1);
     rt->persist_lights[rt->persist_light_count++] = l;
     lua_pushinteger(L, (lua_Integer)rt->persist_light_count);
     return 1;
@@ -937,10 +1055,8 @@ static int l_render_set_light(lua_State *L) {
     lua_getfield(L, 2, "dir"); l->dir = opt_tbl_v3(L, lua_gettop(L), l->dir); lua_pop(L, 1);
     lua_getfield(L, 2, "color"); l->color = opt_tbl_v3(L, lua_gettop(L), l->color); lua_pop(L, 1);
     lua_getfield(L, 2, "range"); if (lua_isnumber(L, -1)) l->range = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-    lua_getfield(L, 2, "pocket");
-    if (lua_isstring(L, -1)) l->pocket_id = eng_scene_register_pocket(rt->scene, lua_tostring(L, -1));
-    else if (lua_isnumber(L, -1)) l->pocket_id = (uint16_t)lua_tointeger(L, -1);
-    lua_pop(L, 1);
+    lua_getfield(L, 2, "cone"); if (lua_isnumber(L, -1)) l->spot_cos_inner = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "pocket"); opt_pocket_arg(L, rt, lua_gettop(L), &l->pocket_id); lua_pop(L, 1);
     return 0;
 }
 static int l_render_draw_sprite(lua_State *L) {
@@ -1004,11 +1120,14 @@ static int l_asset_cylinder(lua_State *L) {
     return 1;
 }
 static int l_asset_voxel_ascii(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
     luaL_checktype(L, 1, LUA_TTABLE);
     int sx = (int)luaL_optinteger(L, 2, 8), sy = (int)luaL_optinteger(L, 3, 8), sz = (int)luaL_optinteger(L, 4, 8);
     float vs = opt_f(L, 5, 0.5f);
-    eng_voxel_chunk_t chunk;
-    eng_voxel_chunk_init(&chunk, sx, sy, sz, vs);
+    size_t slot = rt->dungeon_chunk_cursor++ % ENG_MAX_RT_VOXELS;
+    eng_voxel_chunk_t *chunk = &rt->dungeon_chunks[slot];
+    eng_voxel_chunk_init(chunk, sx, sy, sz, vs);
+    rt->dungeon_chunk_valid[slot] = true;
     const char *layers[ENG_VOXEL_MAX_DIM];
     int nl = (int)lua_objlen(L, 1);
     if (nl > ENG_VOXEL_MAX_DIM) nl = ENG_VOXEL_MAX_DIM;
@@ -1017,13 +1136,15 @@ static int l_asset_voxel_ascii(lua_State *L) {
         layers[i] = lua_tostring(L, -1);
         lua_pop(L, 1);
     }
-    eng_voxel_from_ascii(&chunk, layers, nl);
+    eng_voxel_from_ascii(chunk, layers, nl);
     eng_mesh_data_t md;
-    eng_voxel_build_mesh(&chunk, &md);
-    uint32_t id = eng_asset_upload_mesh(get_rt(L)->assets, "lua_vox", &md);
+    eng_voxel_build_mesh(chunk, &md);
+    uint32_t id = eng_asset_upload_mesh(rt->assets, "lua_vox", &md);
     eng_mesh_data_free(&md);
+    rt->voxel_meshes[slot] = id;
     lua_pushinteger(L, id);
-    return 1;
+    lua_pushinteger(L, (lua_Integer)(slot + 1u));
+    return 2;
 }
 static int l_asset_load_mesh(lua_State *L) {
     lua_pushinteger(L, eng_asset_load_mesh(get_rt(L)->assets, luaL_checkstring(L, 1)));
@@ -1160,7 +1281,10 @@ static int l_phys_add_body(lua_State *L) {
     eng_body_desc_t bd = eng_body_default_desc(st, mt);
     bd.entity = e;
     const eng_transform_local_t *tr = eng_scene_get_local(rt->scene, e);
-    if (tr) bd.pos = tr->pos;
+    if (tr) {
+        bd.pos = tr->pos;
+        bd.rot = tr->rot;
+    }
     bd.pocket_id = eng_scene_get_pocket(rt->scene, e);
 
     lua_getfield(L, 2, "pocket"); if (lua_isnumber(L, -1)) bd.pocket_id = (uint16_t)lua_tointeger(L, -1); lua_pop(L, 1);
@@ -1168,13 +1292,19 @@ static int l_phys_add_body(lua_State *L) {
     lua_getfield(L, 2, "half_height"); if (lua_isnumber(L, -1)) bd.half_height = (float)lua_tonumber(L, -1); lua_pop(L, 1);
     lua_getfield(L, 2, "half_extents"); bd.half_extents = opt_tbl_v3(L, lua_gettop(L), bd.half_extents); lua_pop(L, 1);
     lua_getfield(L, 2, "vel"); bd.vel = opt_tbl_v3(L, lua_gettop(L), bd.vel); lua_pop(L, 1);
+    lua_getfield(L, 2, "mass"); if (lua_isnumber(L, -1)) bd.mass = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "density"); if (lua_isnumber(L, -1)) bd.density = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "friction"); if (lua_isnumber(L, -1)) bd.friction = (float)lua_tonumber(L, -1); lua_pop(L, 1);
     lua_getfield(L, 2, "restitution"); if (lua_isnumber(L, -1)) bd.restitution = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "linear_damping"); if (lua_isnumber(L, -1)) bd.linear_damping = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "angular_damping"); if (lua_isnumber(L, -1)) bd.angular_damping = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 2, "freeze_rot"); if (!lua_isnil(L, -1)) bd.freeze_rotation = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
     lua_getfield(L, 2, "trigger"); if (!lua_isnil(L, -1)) bd.is_trigger = lua_toboolean(L, -1); lua_pop(L, 1);
     if (st == ENG_SHAPE_VOXEL_CHUNK) {
         lua_getfield(L, 2, "voxel_id");
         int vid = (int)lua_tointeger(L, -1);
         lua_pop(L, 1);
-        if (vid >= 1 && vid <= 8 && rt->dungeon_chunk_valid[vid - 1]) {
+        if (vid >= 1 && vid <= ENG_MAX_RT_VOXELS && rt->dungeon_chunk_valid[vid - 1]) {
             bd.voxel_chunk = &rt->dungeon_chunks[vid - 1];
         }
     }
@@ -1187,8 +1317,18 @@ static int l_phys_add_body(lua_State *L) {
     return 1;
 }
 static int l_phys_set_vel(lua_State *L) {
-    eng_body_desc_t *bd = eng_physics_get_body(get_rt(L)->physics, (uint32_t)luaL_checkinteger(L, 1));
-    if (bd) bd->vel = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+    eng_physics_t *phys = get_rt(L)->physics;
+    uint32_t bid = (uint32_t)luaL_checkinteger(L, 1);
+    eng_body_desc_t *bd = eng_physics_get_body(phys, bid);
+    if (bd) {
+        eng_vec3_t nv = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+        float old_xz = sqrtf(bd->vel.x * bd->vel.x + bd->vel.z * bd->vel.z);
+        float new_xz = sqrtf(nv.x * nv.x + nv.z * nv.z);
+        if (new_xz < 1e-4f) bd->ang_vel = eng_v3(0.0f, 0.0f, 0.0f);
+        else if (old_xz > 1e-4f && new_xz < old_xz) bd->ang_vel = eng_v3_scale(bd->ang_vel, new_xz / old_xz);
+        bd->vel = nv;
+        eng_physics_wake_body(phys, bid);
+    }
     return 0;
 }
 static int l_phys_get_vel(lua_State *L) {
@@ -1196,6 +1336,147 @@ static int l_phys_get_vel(lua_State *L) {
     eng_vec3_t v = bd ? bd->vel : eng_v3(0, 0, 0);
     lua_pushnumber(L, v.x); lua_pushnumber(L, v.y); lua_pushnumber(L, v.z);
     return 3;
+}
+static int l_phys_set_fluid(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    opt_pocket_arg(L, rt, 1, &pk);
+    float level_y = chk_f(L, 2);
+    float density = opt_f(L, 3, 1000.0f);
+    float drag = opt_f(L, 4, 1.6f);
+    eng_vec2_t flow = {opt_f(L, 5, 0.0f), opt_f(L, 6, 0.0f)};
+    bool enabled = lua_isnoneornil(L, 7) ? true : (lua_toboolean(L, 7) != 0);
+    eng_physics_set_fluid(rt->physics, pk, enabled, level_y, density, drag, flow);
+    return 0;
+}
+static int l_phys_set_wind(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    opt_pocket_arg(L, rt, 1, &pk);
+    eng_physics_set_wind(rt->physics, pk, eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4)));
+    return 0;
+}
+static int l_phys_apply_impulse(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint32_t bid = (uint32_t)luaL_checkinteger(L, 1);
+    eng_vec3_t imp = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+    eng_body_desc_t *bd = eng_physics_get_body(rt->physics, bid);
+    eng_vec3_t wp = bd ? bd->pos : eng_v3(0, 0, 0);
+    if (!lua_isnoneornil(L, 5)) wp = eng_v3(chk_f(L, 5), chk_f(L, 6), chk_f(L, 7));
+    lua_pushboolean(L, eng_physics_apply_impulse_at(rt->physics, bid, imp, wp));
+    return 1;
+}
+static int l_phys_blast(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    opt_pocket_arg(L, rt, 1, &pk);
+    size_t n = eng_physics_radial_blast(rt->physics, pk, eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4)),
+                                        chk_f(L, 5), chk_f(L, 6));
+    lua_pushinteger(L, (lua_Integer)n);
+    return 1;
+}
+static int l_phys_add_joint(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    luaL_checktype(L, 1, LUA_TTABLE);
+    lua_getfield(L, 1, "type");
+    const char *tp = lua_isstring(L, -1) ? lua_tostring(L, -1) : "distance";
+    eng_joint_type_t jt = (strcmp(tp, "ball") == 0) ? ENG_JOINT_BALL :
+                          (strcmp(tp, "hinge") == 0) ? ENG_JOINT_HINGE :
+                          (strcmp(tp, "spring") == 0) ? ENG_JOINT_SPRING : ENG_JOINT_DISTANCE;
+    lua_pop(L, 1);
+    lua_getfield(L, 1, "body_a"); uint32_t ba = (uint32_t)luaL_optinteger(L, -1, 0); lua_pop(L, 1);
+    lua_getfield(L, 1, "body_b"); uint32_t bb = (uint32_t)luaL_checkinteger(L, -1); lua_pop(L, 1);
+    eng_joint_desc_t jd = eng_joint_default_desc(jt, ba, bb);
+    lua_getfield(L, 1, "anchor_a"); jd.anchor_a = opt_tbl_v3(L, lua_gettop(L), jd.anchor_a); lua_pop(L, 1);
+    lua_getfield(L, 1, "anchor_b"); jd.anchor_b = opt_tbl_v3(L, lua_gettop(L), jd.anchor_b); lua_pop(L, 1);
+    lua_getfield(L, 1, "axis"); jd.axis_a = opt_tbl_v3(L, lua_gettop(L), jd.axis_a); lua_pop(L, 1);
+    lua_getfield(L, 1, "rest_length"); if (lua_isnumber(L, -1)) jd.rest_length = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "stiffness"); if (lua_isnumber(L, -1)) jd.stiffness = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "damping"); if (lua_isnumber(L, -1)) jd.damping = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "break_force"); if (lua_isnumber(L, -1)) jd.break_force = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+    lua_pushinteger(L, eng_physics_add_joint(rt->physics, &jd));
+    return 1;
+}
+static int l_phys_remove_joint(lua_State *L) {
+    lua_pushboolean(L, eng_physics_remove_joint(get_rt(L)->physics, (uint32_t)luaL_checkinteger(L, 1)));
+    return 1;
+}
+static int l_phys_joint_active(lua_State *L) {
+    lua_pushboolean(L, eng_physics_joint_is_active(get_rt(L)->physics, (uint32_t)luaL_checkinteger(L, 1)));
+    return 1;
+}
+static int l_phys_fracture_voxel(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_entity_t ent = (eng_entity_t)luaL_checknumber(L, 1);
+    int vid = (int)luaL_checkinteger(L, 2);
+    float cx = chk_f(L, 3), cy = chk_f(L, 4), cz = chk_f(L, 5), rad = chk_f(L, 6);
+    lua_newtable(L);
+    if (vid < 1 || vid > ENG_MAX_RT_VOXELS || !rt->dungeon_chunk_valid[vid - 1]) return 1;
+
+    eng_voxel_chunk_t *src = &rt->dungeon_chunks[vid - 1];
+    if (rad > 0.0f) {
+        eng_voxel_csg_sphere(src, cx, cy, cz, rad, 0, ENG_CSG_SUBTRACT);
+    }
+    eng_voxel_chunk_t islands[4];
+    eng_vec3_t origins[4];
+    size_t n_isl = eng_voxel_extract_floating_islands(src, islands, origins, 4);
+
+    /* Rebuild remaining grounded mesh in-place */
+    ent_visual_t *vis = find_or_alloc_visual(rt, ent);
+    if (vis && vis->mesh_id != 0) {
+        eng_mesh_data_t md;
+        eng_voxel_build_mesh(src, &md);
+        eng_asset_update_mesh(rt->assets, vis->mesh_id, &md);
+        eng_mesh_data_free(&md);
+    }
+
+    const eng_transform_local_t *tr = eng_scene_get_local(rt->scene, ent);
+    eng_vec3_t base_pos = tr ? tr->pos : eng_v3(0, 0, 0);
+    uint16_t pk = eng_scene_get_pocket(rt->scene, ent);
+
+    for (size_t k = 0; k < n_isl; k++) {
+        size_t islot = rt->dungeon_chunk_cursor++ % ENG_MAX_RT_VOXELS;
+        rt->dungeon_chunks[islot] = islands[k];
+        rt->dungeon_chunk_valid[islot] = true;
+
+        eng_mesh_data_t imd;
+        eng_voxel_build_mesh(&rt->dungeon_chunks[islot], &imd);
+        uint32_t imid = eng_asset_upload_mesh(rt->assets, "vox_island", &imd);
+        eng_mesh_data_free(&imd);
+        rt->voxel_meshes[islot] = imid;
+
+        eng_entity_t ient = eng_scene_spawn(rt->scene, "vox_fragment");
+        eng_scene_set_pocket(rt->scene, ient, pk);
+        eng_vec3_t ipos = eng_v3_add(base_pos, origins[k]);
+        eng_scene_set_local_pos(rt->scene, ient, ipos);
+
+        ent_visual_t *iv = find_or_alloc_visual(rt, ient);
+        if (iv) {
+            iv->mesh_id = imid;
+            iv->tex_id = vis ? vis->tex_id : 0;
+            iv->color = vis ? vis->color : (eng_vec4_t){1, 1, 1, 1};
+            iv->roughness = vis ? vis->roughness : 0.75f;
+            iv->cast_shadow = true;
+        }
+
+        eng_body_desc_t ibd = eng_body_default_desc(ENG_SHAPE_VOXEL_CHUNK, ENG_BODY_DYNAMIC);
+        ibd.entity = ient;
+        ibd.pocket_id = pk;
+        ibd.pos = ipos;
+        ibd.density = 900.0f;
+        ibd.voxel_chunk = &rt->dungeon_chunks[islot];
+        uint32_t ibid = eng_physics_add_body(rt->physics, &ibd);
+        if (ibid && rt->body_map_count < ENG_MAX_ENT_VISUALS) {
+            rt->body_map[rt->body_map_count++] = (ent_body_map_t){ient, ibid};
+        }
+
+        lua_newtable(L);
+        lua_pushnumber(L, (lua_Number)ient); lua_setfield(L, -2, "ent");
+        lua_pushinteger(L, ibid); lua_setfield(L, -2, "body_id");
+        lua_pushinteger(L, (lua_Integer)(islot + 1u)); lua_setfield(L, -2, "voxel_id");
+        lua_rawseti(L, -2, (int)(k + 1));
+    }
+    return 1;
 }
 static int l_phys_move_char(lua_State *L) {
     eng_runtime_t *rt = get_rt(L);
@@ -1261,13 +1542,22 @@ static int l_proc_texture(lua_State *L) {
     int sz = (int)luaL_optinteger(L, 3, 64);
     if (sz < 8) sz = 8;
     if (sz > 256) sz = 256;
-    uint8_t *rgba = (uint8_t *)malloc((size_t)(sz * sz * 4));
-    if (!rgba) return 0;
-    eng_procgen_texture(rec, seed, sz, rgba, NULL, NULL);
-    char key[64];
+    size_t npx = (size_t)(sz * sz);
+    uint8_t *rgba = (uint8_t *)malloc(npx * 4u);
+    uint8_t *nrm  = (uint8_t *)malloc(npx * 4u);
+    uint8_t *rgh  = (uint8_t *)malloc(npx);
+    if (!rgba || !nrm || !rgh) { free(rgba); free(nrm); free(rgh); return 0; }
+    eng_procgen_texture(rec, seed, sz, rgba, nrm, rgh);
+    for (size_t i = 0; i < npx; i++) nrm[i * 4u + 3u] = rgh[i];
+    char key[64], nkey[72];
     snprintf(key, sizeof(key), "ptex_%s_%llu_%d", rec, (unsigned long long)seed, sz);
+    snprintf(nkey, sizeof(nkey), "ptex_nr_%s_%llu_%d", rec, (unsigned long long)seed, sz);
     uint32_t tid = eng_asset_create_texture_rgba(rt->assets, key, sz, sz, rgba, true);
+    uint32_t nrid = eng_asset_create_texture_rgba(rt->assets, nkey, sz, sz, nrm, false);
+    if (tid && nrid) eng_asset_set_texture_pbr(rt->assets, tid, nrid);
     free(rgba);
+    free(nrm);
+    free(rgh);
     lua_pushinteger(L, tid);
     return 1;
 }
@@ -1290,7 +1580,7 @@ static int l_proc_dungeon(lua_State *L) {
     eng_mesh_data_free(&md);
 
     /* Build matching static wall voxel collider in runtime ring buffer */
-    size_t slot = rt->dungeon_chunk_cursor++ & 7u;
+    size_t slot = rt->dungeon_chunk_cursor++ % ENG_MAX_RT_VOXELS;
     int sy = (int)ceilf(wh / fmaxf(ts, 0.1f));
     if (sy < 1) sy = 1;
     rt->dungeon_chunk_valid[slot] = (d.width <= ENG_VOXEL_MAX_DIM && d.height <= ENG_VOXEL_MAX_DIM && sy <= ENG_VOXEL_MAX_DIM);
@@ -1673,6 +1963,11 @@ static int l_part_create(lua_State *L) {
         lua_getfield(L, 1, "gravity"); cfg.gravity = opt_tbl_v3(L, lua_gettop(L), cfg.gravity); lua_pop(L, 1);
         lua_getfield(L, 1, "drag"); if (lua_isnumber(L, -1)) cfg.drag = (float)lua_tonumber(L, -1); lua_pop(L, 1);
         lua_getfield(L, 1, "additive"); if (!lua_isnil(L, -1)) cfg.additive = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+        lua_getfield(L, 1, "blackbody"); if (!lua_isnil(L, -1)) cfg.blackbody = lua_toboolean(L, -1) != 0; lua_pop(L, 1);
+        lua_getfield(L, 1, "temp_start"); if (lua_isnumber(L, -1)) cfg.temp_start_k = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "temp_end"); if (lua_isnumber(L, -1)) cfg.temp_end_k = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "turbulence"); if (lua_isnumber(L, -1)) cfg.turbulence = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "wind"); cfg.wind = opt_tbl_v3(L, lua_gettop(L), cfg.wind); lua_pop(L, 1);
         lua_getfield(L, 1, "cap"); if (lua_isnumber(L, -1)) { int c = (int)lua_tointeger(L, -1); cap = (size_t)(c < 1 ? 1 : (c > 256 ? 256 : c)); } lua_pop(L, 1);
     }
     eng_emitter_t *em = eng_emitter_create(cap, seed, &cfg);
@@ -1987,6 +2282,292 @@ static int l_capture_is_replaying(lua_State *L) {
     return 1;
 }
 
+/* --------------------------------------------------------------------------
+ * Systemic Chemistry & Biology Lua Bindings (eng.sim.*)
+ * -------------------------------------------------------------------------- */
+static eng_sim_t *get_pocket_sim(lua_State *L, eng_runtime_t *rt, int pk_arg_idx, uint16_t *out_pk) {
+    uint16_t pk = 0;
+    if (pk_arg_idx > 0) opt_pocket_arg(L, rt, pk_arg_idx, &pk);
+    if (pk >= ENG_MAX_RT_POCKETS) pk = 0;
+    if (out_pk) *out_pk = pk;
+    return rt->sims[pk];
+}
+
+static uint8_t resolve_mat_arg(lua_State *L, const eng_sim_t *sim, int idx) {
+    if (lua_type(L, idx) == LUA_TSTRING) {
+        int id = eng_sim_find_material(sim, lua_tostring(L, idx));
+        return id >= 0 ? (uint8_t)id : ENG_MAT_AIR;
+    }
+    int id = (int)luaL_checkinteger(L, idx);
+    return (id >= 0 && id < ENG_SIM_MAX_MATERIALS) ? (uint8_t)id : ENG_MAT_AIR;
+}
+
+static int l_sim_init(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    int gx = 32, gy = 16, gz = 32;
+    float cs = 0.5f;
+    eng_vec3_t orig = eng_v3(-8.0f, 0.0f, -8.0f);
+    uint64_t seed = 42u;
+    uint16_t pk = 0;
+    if (lua_istable(L, 1)) {
+        lua_getfield(L, 1, "pocket"); opt_pocket_arg(L, rt, lua_gettop(L), &pk); lua_pop(L, 1);
+        lua_getfield(L, 1, "gx"); if (lua_isnumber(L, -1)) gx = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "gy"); if (lua_isnumber(L, -1)) gy = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "gz"); if (lua_isnumber(L, -1)) gz = (int)lua_tointeger(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "cell_size"); if (lua_isnumber(L, -1)) cs = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "origin"); orig = opt_tbl_v3(L, lua_gettop(L), orig); lua_pop(L, 1);
+        lua_getfield(L, 1, "seed"); if (lua_isnumber(L, -1)) seed = (uint64_t)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "ambient_c");
+        float amb = lua_isnumber(L, -1) ? (float)lua_tonumber(L, -1) : 20.0f;
+        lua_pop(L, 1);
+        if (pk >= ENG_MAX_RT_POCKETS) pk = 0;
+        eng_sim_destroy(rt->sims[pk]);
+        rt->sims[pk] = eng_sim_create(gx, gy, gz, cs, orig, seed);
+        if (rt->sims[pk]) eng_sim_set_ambient_temp(rt->sims[pk], amb);
+    } else {
+        gx = (int)luaL_optinteger(L, 1, 32);
+        gy = (int)luaL_optinteger(L, 2, 16);
+        gz = (int)luaL_optinteger(L, 3, 32);
+        cs = opt_f(L, 4, 0.5f);
+        opt_pocket_arg(L, rt, 5, &pk);
+        if (pk >= ENG_MAX_RT_POCKETS) pk = 0;
+        eng_sim_destroy(rt->sims[pk]);
+        rt->sims[pk] = eng_sim_create(gx, gy, gz, cs, orig, seed);
+    }
+    lua_pushboolean(L, rt->sims[pk] != NULL);
+    return 1;
+}
+
+static int l_sim_mat_id(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 2, NULL);
+    if (!sim) { lua_pushinteger(L, -1); return 1; }
+    lua_pushinteger(L, eng_sim_find_material(sim, luaL_checkstring(L, 1)));
+    return 1;
+}
+
+static int l_sim_set_cell(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 5, NULL);
+    if (!sim) { lua_pushboolean(L, 0); return 1; }
+    uint8_t m = resolve_mat_arg(L, sim, 4);
+    lua_pushboolean(L, eng_sim_set_cell(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3), m));
+    return 1;
+}
+
+static int l_sim_fill_box(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 8, NULL);
+    if (!sim) return 0;
+    uint8_t m = resolve_mat_arg(L, sim, 7);
+    eng_sim_fill_box(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3),
+                     (int)luaL_checkinteger(L, 4), (int)luaL_checkinteger(L, 5), (int)luaL_checkinteger(L, 6), m);
+    return 0;
+}
+
+static int l_sim_get_cell(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 4, NULL);
+    const eng_sim_cell_t *c = sim ? eng_sim_get_cell(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)) : NULL;
+    if (!c) { lua_pushnil(L); return 1; }
+    const eng_mat_def_t *md = eng_sim_get_material(sim, c->mat);
+    lua_newtable(L);
+    lua_pushstring(L, md ? md->name : "air"); lua_setfield(L, -2, "mat");
+    lua_pushinteger(L, c->mat); lua_setfield(L, -2, "mat_id");
+    lua_pushboolean(L, c->burning); lua_setfield(L, -2, "burning");
+    lua_pushnumber(L, c->temp_c); lua_setfield(L, -2, "temp_c");
+    lua_pushnumber(L, c->fuel); lua_setfield(L, -2, "fuel");
+    lua_pushnumber(L, c->wetness); lua_setfield(L, -2, "wetness");
+    lua_pushnumber(L, c->voltage); lua_setfield(L, -2, "voltage");
+    lua_pushnumber(L, c->o2); lua_setfield(L, -2, "o2");
+    lua_pushnumber(L, c->moisture); lua_setfield(L, -2, "moisture");
+    lua_pushnumber(L, c->nutrients); lua_setfield(L, -2, "nutrients");
+    lua_pushnumber(L, c->scent); lua_setfield(L, -2, "scent");
+    return 1;
+}
+
+static int l_sim_set_temp(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 5, NULL);
+    lua_pushboolean(L, sim && eng_sim_set_temperature(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3), chk_f(L, 4)));
+    return 1;
+}
+
+static int l_sim_ignite(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 4, NULL);
+    lua_pushboolean(L, sim && eng_sim_ignite(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
+    return 1;
+}
+
+static int l_sim_set_voltage(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 5, NULL);
+    lua_pushboolean(L, sim && eng_sim_set_voltage_source(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3), chk_f(L, 4)));
+    return 1;
+}
+
+static int l_sim_set_wind(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    eng_sim_t *sim = get_pocket_sim(L, rt, 4, &pk);
+    eng_vec3_t w = eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3));
+    if (sim) eng_sim_set_wind(sim, w);
+    eng_physics_set_wind(rt->physics, pk, w);
+    return 0;
+}
+
+static int l_sim_set_sun_dir(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 4, NULL);
+    if (sim) eng_sim_set_sun_dir(sim, eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3)));
+    return 0;
+}
+
+static int l_sim_rain(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 3, NULL);
+    if (sim) eng_sim_apply_rain(sim, chk_f(L, 1), opt_f(L, 2, 1.0f / 60.0f));
+    return 0;
+}
+
+static int l_sim_add_plant(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 5, NULL);
+    if (!sim) { lua_pushinteger(L, 0); return 1; }
+    eng_entity_t ent = (eng_entity_t)luaL_optnumber(L, 4, 0);
+    lua_pushinteger(L, eng_sim_add_plant(sim, (int)luaL_checkinteger(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3), ent));
+    return 1;
+}
+
+static int l_sim_get_plant(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 2, NULL);
+    const eng_plant_t *pl = sim ? eng_sim_get_plant(sim, (uint32_t)luaL_checkinteger(L, 1)) : NULL;
+    if (!pl) { lua_pushnil(L); return 1; }
+    static const char *const k_stages[] = {"seed", "sprout", "mature", "seeding", "dead"};
+    lua_newtable(L);
+    lua_pushstring(L, k_stages[(int)pl->stage <= 4 ? (int)pl->stage : 4]); lua_setfield(L, -2, "stage");
+    lua_pushnumber(L, pl->growth); lua_setfield(L, -2, "growth");
+    lua_pushnumber(L, pl->health); lua_setfield(L, -2, "health");
+    lua_pushnumber(L, pl->sun_exposure); lua_setfield(L, -2, "sun");
+    return 1;
+}
+
+static int l_sim_add_bio(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 7, NULL);
+    if (!sim) { lua_pushinteger(L, 0); return 1; }
+    eng_vec3_t pos = eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3));
+    bool aquatic = lua_toboolean(L, 4) != 0;
+    float scent = opt_f(L, 5, 1.0f);
+    eng_entity_t ent = (eng_entity_t)luaL_optnumber(L, 6, 0);
+    lua_pushinteger(L, eng_sim_add_bio(sim, pos, aquatic, scent, ent));
+    return 1;
+}
+
+static int l_sim_set_bio_pos(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 5, NULL);
+    eng_bio_body_t *b = sim ? eng_sim_get_bio(sim, (uint32_t)luaL_checkinteger(L, 1)) : NULL;
+    if (b) b->pos = eng_v3(chk_f(L, 2), chk_f(L, 3), chk_f(L, 4));
+    return 0;
+}
+
+static int l_sim_get_bio(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 2, NULL);
+    const eng_bio_body_t *b = sim ? eng_sim_get_bio(sim, (uint32_t)luaL_checkinteger(L, 1)) : NULL;
+    if (!b) { lua_pushnil(L); return 1; }
+    lua_newtable(L);
+    lua_pushnumber(L, b->core_temp_c); lua_setfield(L, -2, "core_temp_c");
+    lua_pushnumber(L, b->wetness); lua_setfield(L, -2, "wetness");
+    lua_pushnumber(L, b->o2_level); lua_setfield(L, -2, "o2_level");
+    lua_pushnumber(L, b->hydration); lua_setfield(L, -2, "hydration");
+    lua_pushnumber(L, b->energy); lua_setfield(L, -2, "energy");
+    lua_pushnumber(L, b->health); lua_setfield(L, -2, "health");
+    return 1;
+}
+
+static int l_sim_apply_trauma(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 5, NULL);
+    if (sim) eng_sim_apply_bio_trauma(sim, (uint32_t)luaL_checkinteger(L, 1), opt_f(L, 2, 0.0f), opt_f(L, 3, 0.0f), opt_f(L, 4, 0.0f));
+    return 0;
+}
+
+static int l_sim_sample_scent(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 4, NULL);
+    lua_pushnumber(L, sim ? eng_sim_sample_scent(sim, eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3))) : 0.0f);
+    return 1;
+}
+
+static int l_sim_can_see(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 9, NULL);
+    float amb = opt_f(L, 7, 1.0f);
+    float fog = opt_f(L, 8, eng_renderer_get_retro(rt->renderer).fog_density);
+    float v = sim ? eng_sim_check_visibility(sim, eng_v3(chk_f(L, 1), chk_f(L, 2), chk_f(L, 3)),
+                                             eng_v3(chk_f(L, 4), chk_f(L, 5), chk_f(L, 6)), amb, fog) : 1.0f;
+    lua_pushnumber(L, v);
+    return 1;
+}
+
+static int l_sim_step(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    float dt = chk_f(L, 1);
+    uint16_t pk = 0;
+    eng_sim_t *sim = get_pocket_sim(L, rt, 2, &pk);
+    if (!sim) return 0;
+    /* Sync entity positions into bio agents before stepping */
+    for (uint32_t i = 1; i <= ENG_SIM_MAX_AGENTS; i++) {
+        eng_bio_body_t *b = eng_sim_get_bio(sim, i);
+        if (b && b->entity != ENG_ENTITY_NULL) {
+            const eng_transform_local_t *tr = eng_scene_get_local(rt->scene, b->entity);
+            if (tr) b->pos = tr->pos;
+        }
+    }
+    eng_sim_step(sim, dt);
+    eng_sim_blast_t bl;
+    while (eng_sim_pop_blast(sim, &bl)) {
+        eng_physics_radial_blast(rt->physics, pk, bl.pos, bl.radius, bl.impulse);
+    }
+    return 0;
+}
+
+static int l_sim_build_mesh(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    uint16_t pk = 0;
+    eng_sim_t *sim = get_pocket_sim(L, rt, 2, &pk);
+    if (!sim) { lua_pushinteger(L, 0); return 1; }
+    bool inc_liq = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+    eng_voxel_chunk_t chunk;
+    eng_sim_export_voxels(sim, &chunk, inc_liq);
+    eng_mesh_data_t md;
+    eng_voxel_build_mesh(&chunk, &md);
+    if (rt->sim_meshes[pk] == 0) {
+        rt->sim_meshes[pk] = eng_asset_upload_mesh(rt->assets, "sim_vox_mesh", &md);
+    } else {
+        eng_asset_update_mesh(rt->assets, rt->sim_meshes[pk], &md);
+    }
+    eng_mesh_data_free(&md);
+    lua_pushinteger(L, rt->sim_meshes[pk]);
+    return 1;
+}
+
+static int l_sim_active_fires(lua_State *L) {
+    eng_runtime_t *rt = get_rt(L);
+    eng_sim_t *sim = get_pocket_sim(L, rt, 1, NULL);
+    eng_vec3_t avg = {0, 0, 0};
+    size_t n = sim ? eng_sim_active_fire_count(sim, &avg) : 0;
+    lua_pushinteger(L, (lua_Integer)n);
+    lua_pushnumber(L, avg.x);
+    lua_pushnumber(L, avg.y);
+    lua_pushnumber(L, avg.z);
+    return 4;
+}
+
 /* Master single-source C API registration table (drives BOTH runtime bindings AND lua/eng_api.lua!) */
 static const lua_fn_desc_t k_api_table[] = {
     {"log",       "info",             l_log_info,              "(msg: string)", "Log informational message (deduplicated)"},
@@ -2027,7 +2608,8 @@ static const lua_fn_desc_t k_api_table[] = {
     {"scene",     "register_pocket",  l_scene_reg_pocket,      "(name: string): integer", "Register/lookup isolated pocket space ID"},
     {"scene",     "set_pocket",       l_scene_set_pocket,      "(ent: number, pocket: integer|string)", "Assign entity to pocket space"},
     {"scene",     "get_pocket",       l_scene_get_pocket,      "(ent: number): integer", "Return entity pocket_id"},
-    {"scene",     "set_mesh",         l_scene_set_mesh,        "(ent: number, mesh_id: integer, opts?: table)", "Attach mesh & PBR/retro material to entity"},
+    {"scene",     "set_mesh",         l_scene_set_mesh,        "(ent: number, mesh_id: integer, opts?: table)", "Attach mesh & PBR/normal/wetness material to entity"},
+    {"scene",     "set_wetness",      l_scene_set_wetness,     "(ent: number, wetness: number)", "Set physical porous wetting darkening and gloss (0..1)"},
     {"scene",     "dump_json",        l_scene_dump_json,       "(): string", "Compact JSON entity snapshot for diagnostics"},
     {"camera",    "set",              l_cam_set,               "(x: number, y: number, z: number, pitch?: number, yaw?: number, roll?: number, pocket?: integer)", "Set active camera pose & pocket"},
     {"camera",    "look_at",          l_cam_look_at,           "(ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, pocket?: integer)", "Aim camera at 3D target"},
@@ -2040,7 +2622,9 @@ static const lua_fn_desc_t k_api_table[] = {
     {"camera",    "fps_steer",        l_cam_fps_steer,         "(yaw: number, pitch: number, speed: number, dt: number, sens?: number): number, number, number, number, number, number", "Mouse-locked yaw/pitch look + camera-relative WASD forward/strafe step"},
     {"camera",    "fps_steer_player", l_cam_fps_steer_player,  "(player: integer, yaw: number, pitch: number, speed: number, dt: number, turn_speed?: number): number, number, number, number, number, number", "Per-player (1..4) gamepad/split-keyboard yaw/pitch look + camera-relative move step"},
     {"render",    "set_pipeline",     l_render_pipeline,       "(mode: string)", "Switch forward or deferred pipeline"},
-    {"render",    "set_retro",        l_render_retro,          "(ps1_or_table: boolean|table)", "Configure PS1 vertex snap, Bayer dither, fog, height fog, bloom & CRT"},
+    {"render",    "set_retro",        l_render_retro,          "(preset_or_table: string|boolean|table)", "Configure lowres_realism/ps1 lens, pixel_height, SSAO, volumetric fog, Mie scatter & bloom"},
+    {"render",    "set_water",        l_render_set_water,      "(opts: boolean|table)", "Configure Gerstner wave water, Beer-Lambert absorption, refraction, shore foam & physics buoyancy"},
+    {"render",    "water_height",     l_render_water_height,   "(x: number, z: number, pocket?: string|integer): number, boolean", "Sample live Gerstner water surface height and enabled flag"},
     {"render",    "set_sky",          l_render_sky,            "(zx: number, zy: number, zz: number, hx: number, hy: number, hz: number, gx?: number, gy?: number, gz?: number, pocket?: string|integer)", "Set procedural skybox gradient (global or per-pocket)"},
     {"render",    "set_sky_fx",       l_render_sky_fx,         "(opts: table)", "Configure skybox texture/cubemap, sun/moon, clouds, stars, pixel_snap, parallax layers & per-pocket override"},
     {"render",    "clear_pocket_sky", l_render_clear_pocket_sky, "(pocket: string|integer)", "Remove per-pocket skybox override so pocket falls back to global sky"},
@@ -2052,7 +2636,7 @@ static const lua_fn_desc_t k_api_table[] = {
     {"asset",     "box",              l_asset_box,             "(w?: number, h?: number, d?: number): integer", "Create procedural box GPU mesh"},
     {"asset",     "sphere",           l_asset_sphere,          "(radius?: number, rings?: integer, sectors?: integer): integer", "Create procedural sphere GPU mesh"},
     {"asset",     "cylinder",         l_asset_cylinder,        "(r_bot?: number, r_top?: number, height?: number, slices?: integer): integer", "Create cylinder/cone GPU mesh"},
-    {"asset",     "voxel_ascii",      l_asset_voxel_ascii,     "(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer", "Build greedy-meshed AO voxel chunk from ASCII layers"},
+    {"asset",     "voxel_ascii",      l_asset_voxel_ascii,     "(layers: table, sx?: integer, sy?: integer, sz?: integer, vs?: number): integer, integer", "Build greedy-meshed AO voxel chunk and return mesh_id, voxel_id"},
     {"asset",     "load_mesh",        l_asset_load_mesh,       "(vpath: string): integer", "Load .gltf/.glb/.obj mesh from VFS"},
     {"asset",     "load_texture",     l_asset_load_tex,        "(vpath: string, nearest?: boolean): integer", "Load PNG/JPG texture from VFS"},
     {"asset",     "load_cubemap",     l_asset_load_cubemap,    "(faces: table, nearest?: boolean): integer", "Load 6-face skybox cubemap {px,nx,py,ny,pz,nz} from VFS"},
@@ -2063,9 +2647,17 @@ static const lua_fn_desc_t k_api_table[] = {
     {"portal",    "cut_doorway",      l_portal_cut_doorway,    "(wall_w: number, wall_h: number, thick: number, door_w: number, door_h: number): table", "Split wall collider around doorway"},
     {"physics",   "set_gravity",      l_phys_set_grav,         "(pocket: integer, gx: number, gy: number, gz: number)", "Set linear pocket gravity"},
     {"physics",   "set_planet_gravity", l_phys_planet_grav,    "(pocket: integer, cx: number, cy: number, cz: number, g?: number, seed?: integer, radius?: number)", "Enable radial spherical planet gravity"},
-    {"physics",   "add_body",         l_phys_add_body,         "(ent: number, desc: table): integer", "Attach rigid/static/kinematic collider to entity"},
+    {"physics",   "add_body",         l_phys_add_body,         "(ent: number, desc: table): integer", "Attach 6-DOF rigid/static/kinematic collider to entity"},
     {"physics",   "set_vel",          l_phys_set_vel,          "(body_id: integer, vx: number, vy: number, vz: number)", "Set linear body velocity"},
     {"physics",   "get_vel",          l_phys_get_vel,          "(body_id: integer): number, number, number", "Get linear body velocity"},
+    {"physics",   "set_fluid",        l_phys_set_fluid,        "(pocket: integer|string, level_y: number, density?: number, drag?: number, flow_x?: number, flow_z?: number, enabled?: boolean)", "Configure Archimedes fluid buoyancy & drag"},
+    {"physics",   "set_wind",         l_phys_set_wind,         "(pocket: integer|string, wx: number, wy: number, wz: number)", "Set pocket aerodynamic wind velocity"},
+    {"physics",   "apply_impulse",    l_phys_apply_impulse,    "(body_id: integer, ix: number, iy: number, iz: number, px?: number, py?: number, pz?: number): boolean", "Apply linear + off-center torque impulse"},
+    {"physics",   "blast",            l_phys_blast,            "(pocket: integer|string, cx: number, cy: number, cz: number, radius: number, impulse: number): integer", "Apply radial shockwave blast impulse to dynamic bodies"},
+    {"physics",   "add_joint",        l_phys_add_joint,        "(desc: table): integer", "Create distance, ball, hinge, or spring joint with optional break_force"},
+    {"physics",   "remove_joint",     l_phys_remove_joint,     "(joint_id: integer): boolean", "Remove joint constraint"},
+    {"physics",   "joint_active",     l_phys_joint_active,     "(joint_id: integer): boolean", "True if joint has not been removed or snapped by break_force"},
+    {"physics",   "fracture_voxel",   l_phys_fracture_voxel,   "(ent: number, voxel_id: integer, lx: number, ly: number, lz: number, radius: number): table", "Carve CSG sphere and spawn disconnected floating voxel islands as 6-DOF bodies"},
     {"physics",   "move_character",   l_phys_move_char,        "(body_id: integer, dx: number, dy: number, dz: number, step_h?: number): boolean", "Stair-stepping & portal-aware character move"},
     {"physics",   "slide_move",       l_phys_slide_move,       "(pocket: integer, x: number, y: number, z: number, dx: number, dz: number, radius?: number): number, number", "Slide XZ position against static AABB/voxel walls in pocket"},
     {"physics",   "raycast",          l_phys_raycast,          "(pocket: integer, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max_d?: number): table|nil", "Cross-portal 3D raycast"},
@@ -2075,7 +2667,7 @@ static const lua_fn_desc_t k_api_table[] = {
     {"procgen",   "fbm3d",            l_proc_fbm3d,            "(x: number, y: number, z: number, seed?: integer, octaves?: integer): number", "Seeded 3D fractal Brownian motion"},
     {"procgen",   "ridged3d",         l_proc_ridged3d,         "(x: number, y: number, z: number, seed?: integer, octaves?: integer): number", "Seeded 3D ridged multifractal noise"},
     {"procgen",   "warp3d",           l_proc_warp3d,           "(x: number, y: number, z: number, seed?: integer, warp_amp?: number): number", "Seeded 3D domain-warped noise"},
-    {"procgen",   "texture",          l_proc_texture,          "(recipe: string, seed?: integer, size?: integer): integer", "Synthesize tileable PBR/retro texture"},
+    {"procgen",   "texture",          l_proc_texture,          "(recipe: string, seed?: integer, size?: integer): integer", "Synthesize tileable PBR albedo + normal + roughness texture"},
     {"procgen",   "dungeon",          l_proc_dungeon,          "(w?: integer, h?: integer, seed?: integer, style?: string, tile_sz?: number, wall_h?: number): table", "Generate solvable BSP/cave/WFC dungeon"},
     {"procgen",   "planet",           l_proc_planet,           "(seed?: integer, radius?: number, subdiv?: integer, sea_level?: number): integer", "Generate seamless 3D cube-sphere planet"},
     {"procgen",   "tree",             l_proc_tree,             "(seed?: integer, depth?: integer, height?: number, radius?: number): integer", "Generate 3D L-system tree mesh"},
@@ -2085,7 +2677,7 @@ static const lua_fn_desc_t k_api_table[] = {
     {"procgen",   "person",           l_proc_person,           "(ent: number, seed?: integer): table", "Generate modular rigged humanoid NPC"},
     {"terrain",   "create",           l_terrain_create,        "(grid_w?: integer, grid_d?: integer, cell_size?: number, seed?: integer, max_h?: number, freq?: number): integer, integer", "Generate heightmap terrain and skirted GPU mesh"},
     {"terrain",   "height",           l_terrain_height,        "(terrain_id: integer, world_x: number, world_z: number): number", "Sample bilinear terrain world height"},
-    {"particles", "create",           l_part_create,           "(opts?: table): integer", "Create instanced 3D particle emitter"},
+    {"particles", "create",           l_part_create,           "(opts?: table): integer", "Create instanced 3D particle emitter (supports Planck blackbody & curl turbulence)"},
     {"particles", "burst",            l_part_burst,            "(emitter_id: integer, count?: integer): integer", "Emit instant burst of particles"},
     {"particles", "alive",            l_part_alive,            "(emitter_id: integer): integer", "Return active particle count"},
     {"particles", "set_pos",          l_part_set_pos,          "(emitter_id: integer, x: number, y: number, z: number, pocket?: integer)", "Move particle emitter origin and optional pocket"},
@@ -2125,7 +2717,29 @@ static const lua_fn_desc_t k_api_table[] = {
     {"capture",   "bookmark",         l_capture_bookmark,      "(label?: string): boolean", "Drop a highlight bookmark on the active .engrep recording"},
     {"capture",   "set_clean_feed",   l_capture_set_clean_feed,"(enabled: boolean)", "Hide or show HUD/help overlays during media capture"},
     {"capture",   "is_recording",     l_capture_is_recording,  "(): boolean", "True when video or replay recording is active"},
-    {"capture",   "is_replaying",     l_capture_is_replaying,  "(): boolean", "True when deterministic .engrep playback is active"}
+    {"capture",   "is_replaying",     l_capture_is_replaying,  "(): boolean", "True when deterministic .engrep playback is active"},
+    {"sim",       "init",             l_sim_init,              "(opts_or_gx?: table|integer, gy?: integer, gz?: integer, cell_size?: number, pocket?: string|integer): boolean", "Initialize systemic chemistry & biology cellular grid"},
+    {"sim",       "mat_id",           l_sim_mat_id,            "(name: string, pocket?: string|integer): integer", "Lookup material ID by name"},
+    {"sim",       "set_cell",         l_sim_set_cell,          "(x: integer, y: integer, z: integer, mat: string|integer, pocket?: string|integer): boolean", "Set cellular material at grid coordinate"},
+    {"sim",       "fill_box",         l_sim_fill_box,          "(x0: integer, y0: integer, z0: integer, x1: integer, y1: integer, z1: integer, mat: string|integer, pocket?: string|integer)", "Fill grid box with material"},
+    {"sim",       "get_cell",         l_sim_get_cell,          "(x: integer, y: integer, z: integer, pocket?: string|integer): table|nil", "Inspect cell material, temperature, wetness, voltage, O2, moisture & fertility"},
+    {"sim",       "set_temp",         l_sim_set_temp,          "(x: integer, y: integer, z: integer, temp_c: number, pocket?: string|integer): boolean", "Set cell temperature in Celsius"},
+    {"sim",       "ignite",           l_sim_ignite,            "(x: integer, y: integer, z: integer, pocket?: string|integer): boolean", "Ignite flammable or explosive cell"},
+    {"sim",       "set_voltage",      l_sim_set_voltage,       "(x: integer, y: integer, z: integer, volts: number, pocket?: string|integer): boolean", "Set persistent electrical voltage terminal"},
+    {"sim",       "set_wind",         l_sim_set_wind,          "(wx: number, wy: number, wz: number, pocket?: string|integer)", "Set wind vector for scent plumes and physics"},
+    {"sim",       "set_sun_dir",      l_sim_set_sun_dir,       "(dx: number, dy: number, dz: number, pocket?: string|integer)", "Set sun direction vector for photosynthetic shadow raymarching"},
+    {"sim",       "rain",             l_sim_rain,              "(intensity: number, dt?: number, pocket?: string|integer)", "Apply rainfall wetting surfaces, quenching fires & moistening soil"},
+    {"sim",       "add_plant",        l_sim_add_plant,         "(x: integer, y: integer, z: integer, ent?: number, pocket?: string|integer): integer", "Register flora instance on soil cell"},
+    {"sim",       "get_plant",        l_sim_get_plant,         "(plant_id: integer, pocket?: string|integer): table|nil", "Inspect flora growth stage, health & sun exposure"},
+    {"sim",       "add_bio",          l_sim_add_bio,           "(x: number, y: number, z: number, aquatic?: boolean, scent?: number, ent?: number, pocket?: string|integer): integer", "Register organism homeostasis body"},
+    {"sim",       "set_bio_pos",      l_sim_set_bio_pos,       "(bio_id: integer, x: number, y: number, z: number, pocket?: string|integer)", "Update organism world position"},
+    {"sim",       "get_bio",          l_sim_get_bio,           "(bio_id: integer, pocket?: string|integer): table|nil", "Inspect organism core_temp_c, wetness, o2_level, hydration, energy & health"},
+    {"sim",       "apply_trauma",     l_sim_apply_trauma,      "(bio_id: integer, kinetic?: number, thermal?: number, chemical?: number, pocket?: string|integer)", "Apply physical, thermal, or chemical damage to organism"},
+    {"sim",       "sample_scent",     l_sim_sample_scent,      "(x: number, y: number, z: number, pocket?: string|integer): number", "Sample wind-advected olfactory scent concentration at world pos"},
+    {"sim",       "can_see",          l_sim_can_see,           "(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, light?: number, fog?: number, pocket?: string|integer): number", "Check physical visibility occluded by solids, smoke, darkness & fog"},
+    {"sim",       "step",             l_sim_step,              "(dt: number, pocket?: string|integer)", "Advance chemistry, thermodynamics, electricity, flora & homeostasis"},
+    {"sim",       "build_mesh",       l_sim_build_mesh,        "(include_liquids?: boolean, pocket?: string|integer): integer", "Export cellular simulation grid to greedy-meshed voxel GPU mesh"},
+    {"sim",       "active_fires",     l_sim_active_fires,      "(pocket?: string|integer): integer, number, number, number", "Return burning cell count and average world flame position"}
 };
 
 /* Strict __index metatable suggesting closest valid function via Levenshtein distance! */
@@ -2161,8 +2775,8 @@ static int strict_root_index(lua_State *L) {
     static const char *const mods[] = {
         "log", "math", "input", "xr", "scene", "camera", "render", "asset",
         "portal", "physics", "procgen", "terrain", "particles", "anim",
-        "audio", "ai", "net", "save", "i18n", "mod",
-        "async", "bt", "space", "procgen_ext", "ui", "fx", "fun", "mp", "test"
+        "audio", "ai", "net", "save", "i18n", "mod", "capture", "sim",
+        "async", "bt", "space", "procgen_ext", "ui", "fx", "fun", "mp", "sim_ext", "test"
     };
     const char *sug = eng_str_suggest(key, mods, sizeof(mods) / sizeof(mods[0]), 4);
     luaL_where(L, 1);
@@ -2357,6 +2971,7 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     rt->scene = eng_scene_create(2048);
     rt->portals = eng_portal_sys_create();
     rt->physics = eng_physics_create();
+    eng_physics_set_fluid_sampler(rt->physics, rt_sample_water_fluid_cb, rt);
     rt->audio = eng_audio_create(pcfg.headless);
     rt->nav = eng_nav_create();
     rt->i18n = eng_i18n_create(rt->vfs, "en");
@@ -2446,6 +3061,7 @@ eng_runtime_t *eng_runtime_create(const eng_runtime_cfg_t *cfg) {
     load_eng_lua_module(rt, "lua/eng/fx.lua", "fx");
     load_eng_lua_module(rt, "lua/eng/fun.lua", "fun");
     load_eng_lua_module(rt, "lua/eng/mp.lua", "mp");
+    load_eng_lua_module(rt, "lua/eng/sim.lua", "sim_ext");
     load_eng_lua_module(rt, "lua/eng/test.lua", "test");
 
     /* Lock root `eng` table with strict Levenshtein __index metatable */
@@ -2469,6 +3085,7 @@ void eng_runtime_destroy(eng_runtime_t *rt) {
     }
     flush_lua_cov(rt);
     if (rt->L) lua_close(rt->L);
+    for (size_t i = 0; i < ENG_MAX_RT_POCKETS; i++) eng_sim_destroy(rt->sims[i]);
     for (size_t i = 0; i < rt->terrain_count; i++) eng_terrain_free(&rt->terrains[i]);
     for (size_t i = 0; i < rt->emitter_count; i++) eng_emitter_destroy(rt->emitters[i]);
     eng_net_destroy(rt->net_srv);
@@ -2694,16 +3311,27 @@ bool eng_runtime_boot_game(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
                 eng_renderer_set_pipeline(rt->renderer, strcmp(pipe, "deferred") == 0 ? ENG_PIPELINE_DEFERRED : ENG_PIPELINE_FORWARD);
                 const eng_json_val_t *retro_obj = eng_json_get(root, "retro");
                 if (retro_obj && retro_obj->type == ENG_JSON_OBJ) {
-                    eng_retro_cfg_t rc = eng_retro_ps1_preset();
+                    const char *preset = eng_json_get_str(retro_obj, "preset", "ps1");
+                    eng_retro_cfg_t rc = (strcmp(preset, "lowres_realism") == 0 || strcmp(preset, "realism") == 0)
+                                             ? eng_retro_lowres_realism_preset()
+                                             : (strcmp(preset, "off") == 0 ? eng_retro_default() : eng_retro_ps1_preset());
                     rc.vertex_snap_res = eng_json_get_num(retro_obj, "vertex_snap", rc.vertex_snap_res);
                     rc.nearest_textures = eng_json_get_bool(retro_obj, "nearest_textures", rc.nearest_textures);
                     rc.dither_bayer = eng_json_get_bool(retro_obj, "dither_bayer", rc.dither_bayer);
                     rc.color_bits = (int)eng_json_get_num(retro_obj, "color_bits", (double)rc.color_bits);
-                    rc.crt_scanlines = eng_json_get_bool(retro_obj, "crt_scanlines", false) ? 0.18f : 0.0f;
+                    if (eng_json_get(retro_obj, "crt_scanlines")) {
+                        rc.crt_scanlines = eng_json_get_bool(retro_obj, "crt_scanlines", false) ? 0.18f : 0.0f;
+                    }
                     rc.fog_density = eng_json_get_num(retro_obj, "fog_density", rc.fog_density);
                     rc.fog_color = eng_json_get_v3(retro_obj, "fog_color", rc.fog_color);
                     rc.fog_height = eng_json_get_num(retro_obj, "fog_height", rc.fog_height);
                     rc.bloom_intensity = eng_json_get_num(retro_obj, "bloom", rc.bloom_intensity);
+                    rc.render_scale = eng_json_get_num(retro_obj, "render_scale", rc.render_scale);
+                    rc.pixel_height = (int)eng_json_get_num(retro_obj, "pixel_height", (double)rc.pixel_height);
+                    rc.sharp_upscale = (int)eng_json_get_num(retro_obj, "sharp_upscale", (double)rc.sharp_upscale);
+                    rc.ssao_intensity = eng_json_get_num(retro_obj, "ssao", rc.ssao_intensity);
+                    rc.volumetric_fog = eng_json_get_num(retro_obj, "volumetric_fog", rc.volumetric_fog);
+                    rc.fog_sun_scatter = eng_json_get_num(retro_obj, "fog_sun_scatter", rc.fog_sun_scatter);
                     eng_renderer_set_retro(rt->renderer, &rc);
                 } else if (eng_json_get_bool(root, "retro_ps1", false)) {
                     eng_retro_cfg_t ps1 = eng_retro_ps1_preset();
@@ -2773,11 +3401,14 @@ bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap
     }
     eng_physics_step(rt->physics, rt->scene, rt->portals, dt);
 
-    /* Sync physics poses back to scene entities */
+    /* Sync physics poses (including 6-DOF rotations) back to scene entities */
     for (size_t i = 0; i < rt->body_map_count; i++) {
         eng_body_desc_t *bd = eng_physics_get_body(rt->physics, rt->body_map[i].body_id);
         if (bd && bd->motion != ENG_BODY_STATIC) {
             eng_scene_set_local_pos(rt->scene, rt->body_map[i].ent, bd->pos);
+            if (!bd->freeze_rotation) {
+                eng_scene_set_local_rot(rt->scene, rt->body_map[i].ent, bd->rot);
+            }
             eng_scene_set_pocket(rt->scene, rt->body_map[i].ent, bd->pocket_id);
         }
     }
@@ -2806,6 +3437,9 @@ bool eng_runtime_step(eng_runtime_t *rt, float dt, char *err_buf, size_t err_cap
         listeners[i].vel = eng_v3(0, 0, 0);
         listeners[i].rot = rt->views[i].cam.rot;
     }
+    bool water_en = false;
+    float wy = eng_renderer_sample_water_height(rt->renderer, rt->cam.pocket_id, rt->cam.pos.x, rt->cam.pos.z, &water_en);
+    eng_audio_set_underwater(rt->audio, water_en ? eng_clampf((wy - rt->cam.pos.y) / 0.5f, 0.0f, 1.0f) : 0.0f);
     eng_audio_set_listeners(rt->audio, listeners, nl);
     eng_audio_update(rt->audio, rt->scene, rt->portals, dt);
     return true;
@@ -2828,11 +3462,13 @@ bool eng_runtime_render(eng_runtime_t *rt, char *err_buf, size_t err_cap) {
         eng_draw_item_t di = {
             .mesh_id = v->mesh_id,
             .albedo_tex = v->tex_id,
+            .normal_tex = v->normal_tex,
             .world = *wm,
             .tint = v->color,
             .emissive = v->emissive,
             .metallic = v->metallic,
             .roughness = v->roughness,
+            .wetness = v->wetness,
             .pocket_id = eng_scene_get_pocket(rt->scene, v->ent),
             .cast_shadow = v->cast_shadow,
             .occluder = v->occluder,

@@ -345,3 +345,111 @@ eng_voxel_hit_t eng_voxel_raycast(const eng_voxel_chunk_t *chunk, eng_vec3_t ori
     }
     return res;
 }
+
+size_t eng_voxel_extract_floating_islands(eng_voxel_chunk_t *src,
+                                          eng_voxel_chunk_t *out_islands,
+                                          eng_vec3_t *out_local_origins,
+                                          size_t max_islands) {
+    if (!src || !out_islands || !out_local_origins || max_islands == 0) return 0;
+    const int sx = src->sx, sy = src->sy, sz = src->sz;
+    const int total = sx * sy * sz;
+    if (total <= 0) return 0;
+
+    uint8_t *vis = (uint8_t *)calloc((size_t)total, sizeof(uint8_t));
+    uint16_t *queue = (uint16_t *)malloc((size_t)total * sizeof(uint16_t));
+    if (!vis || !queue) {
+        free(vis);
+        free(queue);
+        return 0;
+    }
+
+    static const int dirs[6][3] = {{1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1}};
+
+    /* 1. Flood-fill all voxels grounded to y == 0 */
+    int qh = 0, qt = 0;
+    for (int z = 0; z < sz; z++) {
+        for (int x = 0; x < sx; x++) {
+            int idx = vox_idx(src, x, 0, z);
+            if (src->blocks[idx] != 0 && !vis[idx]) {
+                vis[idx] = 1;
+                queue[qt++] = (uint16_t)idx;
+            }
+        }
+    }
+    while (qh < qt) {
+        int cur = queue[qh++];
+        int cx = cur % sx;
+        int cz = (cur / sx) % sz;
+        int cy = cur / (sx * sz);
+        for (int d = 0; d < 6; d++) {
+            int nx = cx + dirs[d][0], ny = cy + dirs[d][1], nz = cz + dirs[d][2];
+            if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) continue;
+            int nidx = vox_idx(src, nx, ny, nz);
+            if (src->blocks[nidx] != 0 && !vis[nidx]) {
+                vis[nidx] = 1;
+                queue[qt++] = (uint16_t)nidx;
+            }
+        }
+    }
+
+    /* 2. Extract each ungrounded 6-connected component into its own compact chunk */
+    size_t count = 0;
+    for (int y = 0; y < sy && count < max_islands; y++) {
+        for (int z = 0; z < sz && count < max_islands; z++) {
+            for (int x = 0; x < sx && count < max_islands; x++) {
+                int start = vox_idx(src, x, y, z);
+                if (src->blocks[start] == 0 || vis[start]) continue;
+
+                qh = 0; qt = 0;
+                vis[start] = 2;
+                queue[qt++] = (uint16_t)start;
+                int min_x = x, max_x = x, min_y = y, max_y = y, min_z = z, max_z = z;
+
+                while (qh < qt) {
+                    int cur = queue[qh++];
+                    int cx = cur % sx;
+                    int cz = (cur / sx) % sz;
+                    int cy = cur / (sx * sz);
+                    if (cx < min_x) min_x = cx;
+                    if (cx > max_x) max_x = cx;
+                    if (cy < min_y) min_y = cy;
+                    if (cy > max_y) max_y = cy;
+                    if (cz < min_z) min_z = cz;
+                    if (cz > max_z) max_z = cz;
+
+                    for (int d = 0; d < 6; d++) {
+                        int nx = cx + dirs[d][0], ny = cy + dirs[d][1], nz = cz + dirs[d][2];
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) continue;
+                        int nidx = vox_idx(src, nx, ny, nz);
+                        if (src->blocks[nidx] != 0 && !vis[nidx]) {
+                            vis[nidx] = 2;
+                            queue[qt++] = (uint16_t)nidx;
+                        }
+                    }
+                }
+
+                eng_voxel_chunk_t *dst = &out_islands[count];
+                eng_voxel_chunk_init(dst, max_x - min_x + 1, max_y - min_y + 1, max_z - min_z + 1, src->voxel_size);
+                memcpy(dst->palette, src->palette, sizeof(src->palette));
+                for (int i = 0; i < qt; i++) {
+                    int vidx = queue[i];
+                    int cx = vidx % sx;
+                    int cz = (vidx / sx) % sz;
+                    int cy = vidx / (sx * sz);
+                    eng_voxel_set(dst, cx - min_x, cy - min_y, cz - min_z, src->blocks[vidx]);
+                    src->blocks[vidx] = 0;
+                }
+                dst->dirty = true;
+                src->dirty = true;
+                out_local_origins[count] = eng_v3((float)min_x * src->voxel_size,
+                                                  (float)min_y * src->voxel_size,
+                                                  (float)min_z * src->voxel_size);
+                count++;
+            }
+        }
+    }
+
+    free(vis);
+    free(queue);
+    return count;
+}
